@@ -1,0 +1,16 @@
+{
+  "name": "st-lsp",
+  "private": true,
+  "version": "0.0.1",
+  "description": "IEC 61131-3 Structured Text Language Server Protocol implementation",
+  "workspaces": [
+    "server",
+    "client"
+  ],
+  "scripts": {
+    "compile": "npm run compile --workspaces",
+    "watch": "npm run watch --workspaces --if-present",
+    "lint": "eslint . --ext ts",
+    "typecheck": "tsc --noEmit -p server/tsconfig.json && tsc --noEmit -p client/tsconfig.json"
+  }
+}

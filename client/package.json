@@ -1,0 +1,45 @@
+{
+  "name": "st-lsp-client",
+  "private": true,
+  "version": "0.0.1",
+  "description": "VS Code extension for IEC 61131-3 Structured Text",
+  "publisher": "st-lsp",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "activationEvents": [
+    "onLanguage:iec-st"
+  ],
+  "main": "out/extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "iec-st",
+        "aliases": [
+          "Structured Text",
+          "iec-st"
+        ],
+        "extensions": [
+          ".st",
+          ".ST"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ]
+  },
+  "scripts": {
+    "compile": "tsc -p tsconfig.json",
+    "watch": "tsc -p tsconfig.json --watch"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.3.0"
+  }
+}
