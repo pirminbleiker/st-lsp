@@ -15,6 +15,7 @@ import {
 
 import { TextDocument } from 'vscode-languageserver-textdocument';
 import { handleHover } from './handlers/hover';
+import { validateDocument } from './handlers/diagnostics';
 
 const connection = createConnection(ProposedFeatures.all);
 const documents = new TextDocuments(TextDocument);
@@ -90,6 +91,9 @@ connection.onDefinition(
 		return null;
 	}
 );
+
+documents.onDidChangeContent(change => validateDocument(connection, change.document));
+documents.onDidOpen(event => validateDocument(connection, event.document));
 
 documents.listen(connection);
 connection.listen();
