@@ -16,12 +16,15 @@ import {
 import { TextDocument } from 'vscode-languageserver-textdocument';
 import { handleHover } from './handlers/hover';
 import { validateDocument } from './handlers/diagnostics';
+import { handleDefinition } from './handlers/definition';
+import { createWorkspaceIndex, WorkspaceIndex } from './twincat/workspaceIndex';
 
 const connection = createConnection(ProposedFeatures.all);
 const documents = new TextDocuments(TextDocument);
 
 let hasConfigurationCapability = false;
 let hasWorkspaceFolderCapability = false;
+let workspaceIndex: WorkspaceIndex | undefined;
 
 connection.onInitialize((params: InitializeParams): InitializeResult => {
 	const capabilities = params.capabilities;
@@ -32,6 +35,12 @@ connection.onInitialize((params: InitializeParams): InitializeResult => {
 	hasWorkspaceFolderCapability = !!(
 		capabilities.workspace && !!capabilities.workspace.workspaceFolders
 	);
+
+	const workspaceRoot =
+		params.workspaceFolders?.[0]?.uri ?? params.rootUri ?? undefined;
+	if (workspaceRoot) {
+		workspaceIndex = createWorkspaceIndex(workspaceRoot);
+	}
 
 	const result: InitializeResult = {
 		capabilities: {
@@ -61,7 +70,7 @@ connection.onInitialized(() => {
 		connection.client.register(DidChangeConfigurationNotification.type, undefined);
 	}
 	if (hasWorkspaceFolderCapability) {
-		connection.workspace.onDidChangeWorkspaceFolders(() => {
+		connection.workspace.onDidChangeWorkspaceFolders((_event) => {
 			connection.console.log('Workspace folder change event received.');
 		});
 	}
@@ -86,9 +95,9 @@ connection.onHover(
 );
 
 connection.onDefinition(
-	(_params: DefinitionParams): Location | null => {
-		// Placeholder: real ST go-to-definition comes in follow-up PRs
-		return null;
+	(params: DefinitionParams): Location | null => {
+		const document = documents.get(params.textDocument.uri);
+		return handleDefinition(params, document, workspaceIndex);
 	}
 );
 
