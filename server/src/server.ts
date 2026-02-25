@@ -11,10 +11,10 @@ import {
 	Hover,
 	DefinitionParams,
 	Location,
-	MarkupKind,
 } from 'vscode-languageserver/node';
 
 import { TextDocument } from 'vscode-languageserver-textdocument';
+import { handleHover } from './handlers/hover';
 
 const connection = createConnection(ProposedFeatures.all);
 const documents = new TextDocuments(TextDocument);
@@ -78,14 +78,9 @@ connection.onCompletionResolve((item: CompletionItem): CompletionItem => {
 });
 
 connection.onHover(
-	(_params: TextDocumentPositionParams): Hover | null => {
-		// Placeholder: real ST hover info comes in follow-up PRs
-		return {
-			contents: {
-				kind: MarkupKind.Markdown,
-				value: '',
-			},
-		};
+	(params: TextDocumentPositionParams): Hover | null => {
+		const document = documents.get(params.textDocument.uri);
+		return handleHover(params, document);
 	}
 );
 
