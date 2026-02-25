@@ -17,6 +17,7 @@ import { TextDocument } from 'vscode-languageserver-textdocument';
 import { handleHover } from './handlers/hover';
 import { validateDocument } from './handlers/diagnostics';
 import { handleDefinition } from './handlers/definition';
+import { handleCompletion } from './handlers/completion';
 import { createWorkspaceIndex, WorkspaceIndex } from './twincat/workspaceIndex';
 
 const connection = createConnection(ProposedFeatures.all);
@@ -77,9 +78,9 @@ connection.onInitialized(() => {
 });
 
 connection.onCompletion(
-	(_textDocumentPosition: TextDocumentPositionParams): CompletionItem[] => {
-		// Placeholder: real ST completions come in follow-up PRs
-		return [];
+	(params: TextDocumentPositionParams): CompletionItem[] => {
+		const document = documents.get(params.textDocument.uri);
+		return handleCompletion(params, document);
 	}
 );
 
