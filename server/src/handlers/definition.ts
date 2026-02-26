@@ -24,6 +24,7 @@ import {
 import { parse } from '../parser/parser';
 import { WorkspaceIndex } from '../twincat/workspaceIndex';
 import { findNodeAtPosition } from './hover';
+import { extractStFromTwinCAT } from '../twincat/tcExtractor';
 
 // ---------------------------------------------------------------------------
 // Scope helpers
@@ -97,7 +98,8 @@ export function handleDefinition(
   if (!document) return null;
 
   const text = document.getText();
-  const { ast } = parse(text);
+  const extraction = extractStFromTwinCAT(document.uri, text);
+  const { ast } = parse(extraction.stCode);
 
   const { line, character } = params.position;
   const node = findNodeAtPosition(ast, line, character);
@@ -132,7 +134,8 @@ export function handleDefinition(
         const filePath = fileUri.startsWith('file://')
           ? decodeURIComponent(fileUri.replace(/^file:\/\//, ''))
           : fileUri;
-        fileText = fs.readFileSync(filePath, 'utf8');
+        const rawText = fs.readFileSync(filePath, 'utf8');
+        fileText = extractStFromTwinCAT(filePath, rawText).stCode;
       } catch {
         continue;
       }

@@ -21,6 +21,7 @@ import {
 import { BUILTIN_TYPES } from '../twincat/types';
 import { STANDARD_FBS } from '../twincat/stdlib';
 import { WorkspaceIndex } from '../twincat/workspaceIndex';
+import { extractStFromTwinCAT } from '../twincat/tcExtractor';
 
 const KEYWORDS = [
   'IF', 'THEN', 'ELSE', 'ELSIF', 'END_IF',
@@ -94,7 +95,8 @@ export function handleCompletion(
   if (!document) return [];
 
   const text = document.getText();
-  const { ast } = parse(text);
+  const extraction = extractStFromTwinCAT(document.uri, text);
+  const { ast } = parse(extraction.stCode);
   const pos = params.position;
 
   const items: CompletionItem[] = [];
@@ -209,7 +211,8 @@ export function handleCompletion(
         const filePath = fileUri.startsWith('file://')
           ? decodeURIComponent(fileUri.replace(/^file:\/\//, ''))
           : fileUri;
-        fileText = fs.readFileSync(filePath, 'utf8');
+        const rawText = fs.readFileSync(filePath, 'utf8');
+        fileText = extractStFromTwinCAT(filePath, rawText).stCode;
       } catch {
         continue;
       }

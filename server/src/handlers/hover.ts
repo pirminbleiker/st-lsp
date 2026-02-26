@@ -28,6 +28,7 @@ import {
 import { parse } from '../parser/parser';
 import { builtinTypeHover, findBuiltinType } from '../twincat/types';
 import { findStandardFB, standardFBHover } from '../twincat/stdlib';
+import { extractStFromTwinCAT } from '../twincat/tcExtractor';
 
 // ---------------------------------------------------------------------------
 // Position helpers
@@ -297,7 +298,8 @@ export function handleHover(
   if (!document) return null;
 
   const text = document.getText();
-  const { ast } = parse(text);
+  const extraction = extractStFromTwinCAT(document.uri, text);
+  const { ast } = parse(extraction.stCode);
 
   const { line, character } = params.position;
   const node = findNodeAtPosition(ast, line, character);

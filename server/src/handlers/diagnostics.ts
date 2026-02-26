@@ -31,6 +31,7 @@ import {
 } from '../parser/ast';
 import { BUILTIN_TYPES } from '../twincat/types';
 import { STANDARD_FBS } from '../twincat/stdlib';
+import { extractStFromTwinCAT, OffsetMap } from '../twincat/tcExtractor';
 
 // ---------------------------------------------------------------------------
 // Known-always-allowed identifier names (case-insensitive)
@@ -441,10 +442,30 @@ function runSemanticAnalysis(ast: SourceFile): Diagnostic[] {
 // Public API
 // ---------------------------------------------------------------------------
 
-export function validateDocument(connection: Connection, document: TextDocument): void {
-	const { ast, errors } = parse(document.getText());
+function applyOffsets(diagnostics: Diagnostic[], offsets: OffsetMap): Diagnostic[] {
+	return diagnostics.map(d => ({
+		...d,
+		range: {
+			start: {
+				line: offsets[d.range.start.line] ?? d.range.start.line,
+				character: d.range.start.character,
+			},
+			end: {
+				line: offsets[d.range.end.line] ?? d.range.end.line,
+				character: d.range.end.character,
+			},
+		},
+	}));
+}
 
-	const diagnostics: Diagnostic[] = errors.map(err => ({
+export function validateDocument(connection: Connection, document: TextDocument): void {
+	let text = document.getText();
+	const extraction = extractStFromTwinCAT(document.uri, text);
+	text = extraction.stCode;
+
+	const { ast, errors } = parse(text);
+
+	const parseDiags: Diagnostic[] = errors.map(err => ({
 		severity: DiagnosticSeverity.Error,
 		range: {
 			start: { line: err.range.start.line, character: err.range.start.character },
@@ -456,10 +477,8 @@ export function validateDocument(connection: Connection, document: TextDocument)
 
 	// Only run semantic analysis when there are no parse errors, to avoid
 	// cascading false positives from partially parsed ASTs.
-	if (errors.length === 0) {
-		const semanticDiags = runSemanticAnalysis(ast);
-		diagnostics.push(...semanticDiags);
-	}
+	const semanticDiags = errors.length === 0 ? runSemanticAnalysis(ast) : [];
 
+	const diagnostics = applyOffsets([...parseDiags, ...semanticDiags], extraction.offsets);
 	connection.sendDiagnostics({ uri: document.uri, diagnostics });
 }
