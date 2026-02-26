@@ -26,6 +26,7 @@ import {
 	SubscriptExpression,
 	TypeDeclarationBlock,
 	UnaryExpression,
+	VarBlock,
 	VarDeclaration,
 	WhileStatement,
 } from '../parser/ast';
@@ -282,6 +283,113 @@ function collectForLoopVars(stmts: Statement[]): Set<string> {
 }
 
 // ---------------------------------------------------------------------------
+// Type-category helpers for type-mismatch check (Part B)
+// ---------------------------------------------------------------------------
+
+type ExprCategory = 'bool' | 'numeric' | 'string' | 'unknown';
+
+const NUMERIC_TYPES = new Set([
+	'SINT', 'INT', 'DINT', 'LINT',
+	'USINT', 'UINT', 'UDINT', 'ULINT',
+	'BYTE', 'WORD', 'DWORD', 'LWORD',
+	'REAL', 'LREAL',
+	'TIME', 'LTIME', 'TIME_OF_DAY', 'TOD', 'DATE', 'DATE_AND_TIME', 'DT',
+]);
+
+function varTypeCategory(typeName: string): ExprCategory {
+	const upper = typeName.toUpperCase();
+	if (upper === 'BOOL') return 'bool';
+	if (upper === 'STRING' || upper === 'WSTRING') return 'string';
+	if (NUMERIC_TYPES.has(upper)) return 'numeric';
+	return 'unknown';
+}
+
+function inferExprCategory(expr: Expression, varTypes: Map<string, ExprCategory>): ExprCategory {
+	switch (expr.kind) {
+		case 'BoolLiteral': return 'bool';
+		case 'IntegerLiteral': return 'numeric';
+		case 'RealLiteral': return 'numeric';
+		case 'StringLiteral': return 'string';
+		case 'NameExpression': {
+			const cat = varTypes.get((expr as NameExpression).name.toUpperCase());
+			return cat ?? 'unknown';
+		}
+		case 'UnaryExpression': {
+			const e = expr as UnaryExpression;
+			if (e.op.toUpperCase() === 'NOT') return 'bool';
+			const inner = inferExprCategory(e.operand, varTypes);
+			return inner === 'numeric' ? 'numeric' : 'unknown';
+		}
+		case 'BinaryExpression': {
+			const e = expr as BinaryExpression;
+			const compOps = new Set(['=', '<>', '<', '<=', '>', '>=']);
+			const boolOps = new Set(['AND', 'OR', 'XOR']);
+			if (compOps.has(e.op)) return 'bool';
+			if (boolOps.has(e.op)) return 'bool';
+			const l = inferExprCategory(e.left, varTypes);
+			const r = inferExprCategory(e.right, varTypes);
+			if (l === 'numeric' && r === 'numeric') return 'numeric';
+			return 'unknown';
+		}
+		default: return 'unknown';
+	}
+}
+
+function buildVarCategoryMap(
+	pou: ProgramDeclaration | FunctionBlockDeclaration | FunctionDeclaration,
+	extraBlocks?: VarBlock[],
+): Map<string, ExprCategory> {
+	const map = new Map<string, ExprCategory>();
+	for (const vb of [...pou.varBlocks, ...(extraBlocks ?? [])]) {
+		for (const vd of vb.declarations) {
+			map.set(vd.name.toUpperCase(), varTypeCategory(vd.type.name));
+		}
+	}
+	return map;
+}
+
+// ---------------------------------------------------------------------------
+// Assignment walker (for type-mismatch checking)
+// ---------------------------------------------------------------------------
+
+function walkAssignments(stmts: Statement[], onAssign: (s: AssignmentStatement) => void): void {
+	for (const stmt of stmts) {
+		walkAssignmentInStatement(stmt, onAssign);
+	}
+}
+
+function walkAssignmentInStatement(stmt: Statement, onAssign: (s: AssignmentStatement) => void): void {
+	switch (stmt.kind) {
+		case 'AssignmentStatement':
+			onAssign(stmt as AssignmentStatement);
+			break;
+		case 'IfStatement': {
+			const s = stmt as IfStatement;
+			walkAssignments(s.then, onAssign);
+			for (const elsif of s.elsifs) walkAssignments(elsif.body, onAssign);
+			if (s.else) walkAssignments(s.else, onAssign);
+			break;
+		}
+		case 'ForStatement':
+			walkAssignments((stmt as ForStatement).body, onAssign);
+			break;
+		case 'WhileStatement':
+			walkAssignments((stmt as WhileStatement).body, onAssign);
+			break;
+		case 'RepeatStatement':
+			walkAssignments((stmt as RepeatStatement).body, onAssign);
+			break;
+		case 'CaseStatement': {
+			const s = stmt as CaseStatement;
+			for (const clause of s.cases) walkAssignments(clause.body, onAssign);
+			if (s.else) walkAssignments(s.else, onAssign);
+			break;
+		}
+		default: break;
+	}
+}
+
+// ---------------------------------------------------------------------------
 // Semantic analysis
 // ---------------------------------------------------------------------------
 
@@ -305,6 +413,41 @@ function runSemanticAnalysis(ast: SourceFile): Diagnostic[] {
 			}
 		}
 	}
+
+	// --- Part C: Duplicate POU names ---
+	const pouNameGroups = new Map<string, Array<{ name: string; range: typeof ast.range }>>();
+	for (const decl of ast.declarations) {
+		if (
+			decl.kind === 'ProgramDeclaration' ||
+			decl.kind === 'FunctionBlockDeclaration' ||
+			decl.kind === 'FunctionDeclaration'
+		) {
+			const pou = decl as ProgramDeclaration | FunctionBlockDeclaration | FunctionDeclaration;
+			const key = pou.name.toUpperCase();
+			let arr = pouNameGroups.get(key);
+			if (!arr) { arr = []; pouNameGroups.set(key, arr); }
+			arr.push({ name: pou.name, range: decl.range });
+		}
+	}
+	for (const [, pouDecls] of pouNameGroups) {
+		if (pouDecls.length > 1) {
+			for (let i = 1; i < pouDecls.length; i++) {
+				const d = pouDecls[i];
+				diagnostics.push({
+					severity: DiagnosticSeverity.Warning,
+					range: {
+						start: { line: d.range.start.line, character: d.range.start.character },
+						end:   { line: d.range.end.line,   character: d.range.end.character },
+					},
+					message: `Duplicate POU name '${d.name}'`,
+					source: 'st-lsp',
+				});
+			}
+		}
+	}
+
+	// Set of all known types for Part A checks
+	const knownTypes = new Set<string>([...BUILTIN_TYPE_NAMES, ...STANDARD_FB_NAMES, ...globalNames]);
 
 	for (const decl of ast.declarations) {
 		if (
@@ -332,6 +475,24 @@ function runSemanticAnalysis(ast: SourceFile): Diagnostic[] {
 					message: `Duplicate variable declaration '${vd.name}'`,
 					source: 'st-lsp',
 				});
+			}
+		}
+
+		// --- Part A: Unknown types in VarDeclarations ---
+		for (const vb of pou.varBlocks) {
+			for (const vd of vb.declarations) {
+				const typeName = vd.type.name.toUpperCase();
+				if (!knownTypes.has(typeName)) {
+					diagnostics.push({
+						severity: DiagnosticSeverity.Warning,
+						range: {
+							start: { line: vd.type.range.start.line, character: vd.type.range.start.character },
+							end:   { line: vd.type.range.end.line,   character: vd.type.range.end.character },
+						},
+						message: `Unknown type: "${vd.type.name}"`,
+						source: 'st-lsp',
+					});
+				}
 			}
 		}
 
@@ -370,6 +531,37 @@ function runSemanticAnalysis(ast: SourceFile): Diagnostic[] {
 				message: `Undefined identifier '${nameExpr.name}'`,
 				source: 'st-lsp',
 			});
+		});
+
+		// --- Part B: Type mismatch on assignments ---
+		const varCats = buildVarCategoryMap(pou);
+		walkAssignments(pou.body, (assign: AssignmentStatement) => {
+			if (assign.left.kind !== 'NameExpression') return;
+			const lhsCat = varCats.get((assign.left as NameExpression).name.toUpperCase());
+			if (!lhsCat || lhsCat === 'unknown') return;
+			const rhsCat = inferExprCategory(assign.right, varCats);
+			if (rhsCat === 'unknown') return;
+			if (lhsCat === 'bool' && rhsCat === 'numeric') {
+				diagnostics.push({
+					severity: DiagnosticSeverity.Warning,
+					range: {
+						start: { line: assign.range.start.line, character: assign.range.start.character },
+						end:   { line: assign.range.end.line,   character: assign.range.end.character },
+					},
+					message: 'Type mismatch: cannot assign numeric expression to BOOL variable',
+					source: 'st-lsp',
+				});
+			} else if (lhsCat === 'numeric' && rhsCat === 'string') {
+				diagnostics.push({
+					severity: DiagnosticSeverity.Warning,
+					range: {
+						start: { line: assign.range.start.line, character: assign.range.start.character },
+						end:   { line: assign.range.end.line,   character: assign.range.end.character },
+					},
+					message: 'Type mismatch: cannot assign STRING expression to numeric variable',
+					source: 'st-lsp',
+				});
+			}
 		});
 
 		// Also check method bodies for FunctionBlockDeclarations
@@ -430,6 +622,55 @@ function runSemanticAnalysis(ast: SourceFile): Diagnostic[] {
 						message: `Undefined identifier '${nameExpr.name}'`,
 						source: 'st-lsp',
 					});
+				});
+
+				// --- Part A: Unknown types in method VarDeclarations ---
+				for (const vb of method.varBlocks) {
+					for (const vd of vb.declarations) {
+						const typeName = vd.type.name.toUpperCase();
+						if (!knownTypes.has(typeName)) {
+							diagnostics.push({
+								severity: DiagnosticSeverity.Warning,
+								range: {
+									start: { line: vd.type.range.start.line, character: vd.type.range.start.character },
+									end:   { line: vd.type.range.end.line,   character: vd.type.range.end.character },
+								},
+								message: `Unknown type: "${vd.type.name}"`,
+								source: 'st-lsp',
+							});
+						}
+					}
+				}
+
+				// --- Part B: Type mismatch on assignments in method ---
+				const methodVarCats = buildVarCategoryMap(pou, method.varBlocks);
+				walkAssignments(method.body, (assign: AssignmentStatement) => {
+					if (assign.left.kind !== 'NameExpression') return;
+					const lhsCat = methodVarCats.get((assign.left as NameExpression).name.toUpperCase());
+					if (!lhsCat || lhsCat === 'unknown') return;
+					const rhsCat = inferExprCategory(assign.right, methodVarCats);
+					if (rhsCat === 'unknown') return;
+					if (lhsCat === 'bool' && rhsCat === 'numeric') {
+						diagnostics.push({
+							severity: DiagnosticSeverity.Warning,
+							range: {
+								start: { line: assign.range.start.line, character: assign.range.start.character },
+								end:   { line: assign.range.end.line,   character: assign.range.end.character },
+							},
+							message: 'Type mismatch: cannot assign numeric expression to BOOL variable',
+							source: 'st-lsp',
+						});
+					} else if (lhsCat === 'numeric' && rhsCat === 'string') {
+						diagnostics.push({
+							severity: DiagnosticSeverity.Warning,
+							range: {
+								start: { line: assign.range.start.line, character: assign.range.start.character },
+								end:   { line: assign.range.end.line,   character: assign.range.end.character },
+							},
+							message: 'Type mismatch: cannot assign STRING expression to numeric variable',
+							source: 'st-lsp',
+						});
+					}
 				});
 			}
 		}

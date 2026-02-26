@@ -371,4 +371,202 @@ END_PROGRAM`;
       expect(diags).toHaveLength(0);
     });
   });
+
+  // -------------------------------------------------------------------------
+  // Semantic diagnostics: unknown types (Part A)
+  // -------------------------------------------------------------------------
+
+  describe('semantic: unknown types in VarDeclarations', () => {
+    it('warns for an unknown type used in a VarDeclaration', () => {
+      const src = `PROGRAM P
+VAR
+  x : UnknownType;
+END_VAR
+END_PROGRAM`;
+      const diags = getDiagnostics(src);
+      const warnings = diags.filter(d => d.severity === 2);
+      // Parser normalises type names to uppercase; message uses the normalised form
+      expect(warnings.some(d => d.message.includes('Unknown type:'))).toBe(true);
+    });
+
+    it('does not warn for builtin types (INT, BOOL, REAL, etc.)', () => {
+      const src = `PROGRAM P
+VAR
+  a : INT;
+  b : BOOL;
+  c : REAL;
+  d : STRING;
+  e : DINT;
+END_VAR
+END_PROGRAM`;
+      const diags = getDiagnostics(src);
+      const warnings = diags.filter(d => d.severity === 2);
+      expect(warnings).toHaveLength(0);
+    });
+
+    it('does not warn for stdlib FB types (TON, CTU, etc.)', () => {
+      const src = `PROGRAM P
+VAR
+  t : TON;
+END_VAR
+END_PROGRAM`;
+      const diags = getDiagnostics(src);
+      const warnings = diags.filter(d => d.severity === 2);
+      expect(warnings).toHaveLength(0);
+    });
+
+    it('does not warn when type is a POU defined in the same file', () => {
+      const src = `FUNCTION_BLOCK MyFB
+END_FUNCTION_BLOCK
+
+PROGRAM P
+VAR
+  fb : MyFB;
+END_VAR
+END_PROGRAM`;
+      const diags = getDiagnostics(src);
+      const warnings = diags.filter(d => d.severity === 2);
+      expect(warnings).toHaveLength(0);
+    });
+
+    it('does not warn when type is a TYPE declaration in the same file', () => {
+      const src = `TYPE
+  MyStruct : STRUCT
+    x : INT;
+  END_STRUCT;
+END_TYPE
+
+PROGRAM P
+VAR
+  s : MyStruct;
+END_VAR
+END_PROGRAM`;
+      const diags = getDiagnostics(src);
+      const warnings = diags.filter(d => d.severity === 2);
+      expect(warnings).toHaveLength(0);
+    });
+
+    it('does not warn for ARRAY types (element type is valid)', () => {
+      const src = `PROGRAM P
+VAR
+  arr : ARRAY[1..10] OF INT;
+END_VAR
+END_PROGRAM`;
+      const diags = getDiagnostics(src);
+      const warnings = diags.filter(d => d.severity === 2);
+      expect(warnings).toHaveLength(0);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Semantic diagnostics: type mismatch on assignment (Part B)
+  // -------------------------------------------------------------------------
+
+  describe('semantic: type mismatch on assignment', () => {
+    it('warns when BOOL variable is assigned an integer literal', () => {
+      const src = `PROGRAM P
+VAR
+  b : BOOL;
+END_VAR
+b := 5;
+END_PROGRAM`;
+      const diags = getDiagnostics(src);
+      const warnings = diags.filter(d => d.severity === 2);
+      expect(warnings.some(d => d.message.toLowerCase().includes('type mismatch'))).toBe(true);
+    });
+
+    it('warns when numeric variable is assigned a STRING literal', () => {
+      const src = `PROGRAM P
+VAR
+  n : INT;
+END_VAR
+n := 'hello';
+END_PROGRAM`;
+      const diags = getDiagnostics(src);
+      const warnings = diags.filter(d => d.severity === 2);
+      expect(warnings.some(d => d.message.toLowerCase().includes('type mismatch'))).toBe(true);
+    });
+
+    it('does not warn when BOOL is assigned a boolean literal (TRUE/FALSE)', () => {
+      const src = `PROGRAM P
+VAR
+  b : BOOL;
+END_VAR
+b := TRUE;
+b := FALSE;
+END_PROGRAM`;
+      const diags = getDiagnostics(src);
+      const warnings = diags.filter(d => d.severity === 2);
+      expect(warnings).toHaveLength(0);
+    });
+
+    it('does not warn when INT is assigned another INT variable', () => {
+      const src = `PROGRAM P
+VAR
+  a : INT;
+  b : INT;
+END_VAR
+a := b;
+END_PROGRAM`;
+      const diags = getDiagnostics(src);
+      const warnings = diags.filter(d => d.severity === 2);
+      expect(warnings).toHaveLength(0);
+    });
+
+    it('does not warn when assignment types are unknown (conservative)', () => {
+      const src = `PROGRAM P
+VAR
+  b : BOOL;
+  myFb : TON;
+END_VAR
+b := myFb.Q;
+END_PROGRAM`;
+      const diags = getDiagnostics(src);
+      const typeMismatchWarnings = diags.filter(
+        d => d.severity === 2 && d.message.toLowerCase().includes('type mismatch')
+      );
+      expect(typeMismatchWarnings).toHaveLength(0);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Semantic diagnostics: duplicate POU names (Part C)
+  // -------------------------------------------------------------------------
+
+  describe('semantic: duplicate POU names', () => {
+    it('warns when two POUs have the same name', () => {
+      const src = `PROGRAM Main
+END_PROGRAM
+
+PROGRAM Main
+END_PROGRAM`;
+      const diags = getDiagnostics(src);
+      const warnings = diags.filter(d => d.severity === 2);
+      expect(warnings.some(d => d.message.includes("Duplicate POU name 'Main'"))).toBe(true);
+    });
+
+    it('duplicate POU check is case-insensitive', () => {
+      const src = `FUNCTION_BLOCK MyFB
+END_FUNCTION_BLOCK
+
+FUNCTION_BLOCK MYFB
+END_FUNCTION_BLOCK`;
+      const diags = getDiagnostics(src);
+      const warnings = diags.filter(d => d.severity === 2);
+      expect(warnings.some(d => d.message.includes('Duplicate POU name'))).toBe(true);
+    });
+
+    it('does not warn when POUs have different names', () => {
+      const src = `PROGRAM A
+END_PROGRAM
+
+FUNCTION_BLOCK B
+END_FUNCTION_BLOCK`;
+      const diags = getDiagnostics(src);
+      const warnings = diags.filter(
+        d => d.severity === 2 && d.message.includes('Duplicate POU name')
+      );
+      expect(warnings).toHaveLength(0);
+    });
+  });
 });
