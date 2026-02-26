@@ -1,3 +1,4 @@
+import * as fs from 'fs';
 import {
   CompletionItem,
   CompletionItemKind,
@@ -18,6 +19,7 @@ import {
 } from '../parser/ast';
 import { BUILTIN_TYPES } from '../twincat/types';
 import { STANDARD_FBS } from '../twincat/stdlib';
+import { WorkspaceIndex } from '../twincat/workspaceIndex';
 
 const KEYWORDS = [
   'IF', 'THEN', 'ELSE', 'ELSIF', 'END_IF',
@@ -86,6 +88,7 @@ function collectVarDeclarations(
 export function handleCompletion(
   params: TextDocumentPositionParams,
   document: TextDocument | undefined,
+  workspaceIndex?: WorkspaceIndex,
 ): CompletionItem[] {
   if (!document) return [];
 
@@ -176,6 +179,97 @@ export function handleCompletion(
             kind: CompletionItemKind.TypeParameter,
             detail: `Alias for ${typeDecl.type.name}`,
           });
+        }
+      }
+    }
+  }
+
+  // 7. POUs and types from workspace index (other files)
+  if (workspaceIndex) {
+    // Build a set of labels already added from the current file to avoid duplicates
+    const existingLabels = new Set(items.map(i => i.label));
+
+    const currentUri = params.textDocument.uri;
+    const projectFiles = workspaceIndex.getProjectFiles();
+
+    for (const fileUri of projectFiles) {
+      // Skip the current document (already covered by sections 4–6 above)
+      if (fileUri === currentUri) continue;
+
+      let fileText: string;
+      try {
+        const filePath = fileUri.startsWith('file://')
+          ? decodeURIComponent(fileUri.replace(/^file:\/\//, ''))
+          : fileUri;
+        fileText = fs.readFileSync(filePath, 'utf8');
+      } catch {
+        continue;
+      }
+
+      const { ast: otherAst } = parse(fileText);
+
+      for (const decl of otherAst.declarations) {
+        if (
+          decl.kind === 'ProgramDeclaration' ||
+          decl.kind === 'FunctionBlockDeclaration' ||
+          decl.kind === 'FunctionDeclaration'
+        ) {
+          const pou = decl as ProgramDeclaration | FunctionBlockDeclaration | FunctionDeclaration;
+          if (!existingLabels.has(pou.name)) {
+            existingLabels.add(pou.name);
+            items.push({
+              label: pou.name,
+              kind: decl.kind === 'FunctionDeclaration'
+                ? CompletionItemKind.Function
+                : CompletionItemKind.Class,
+              detail: `(from ${fileUri})`,
+            });
+          }
+        } else if (decl.kind === 'TypeDeclarationBlock') {
+          const typeBlock = decl as TypeDeclarationBlock;
+          for (const typeDecl of typeBlock.declarations) {
+            if (typeDecl.kind === 'StructDeclaration') {
+              const structDecl = typeDecl as StructDeclaration;
+              if (!existingLabels.has(structDecl.name)) {
+                existingLabels.add(structDecl.name);
+                items.push({
+                  label: structDecl.name,
+                  kind: CompletionItemKind.Struct,
+                  detail: 'STRUCT',
+                });
+              }
+            } else if (typeDecl.kind === 'EnumDeclaration') {
+              const enumDecl = typeDecl as EnumDeclaration;
+              if (!existingLabels.has(enumDecl.name)) {
+                existingLabels.add(enumDecl.name);
+                items.push({
+                  label: enumDecl.name,
+                  kind: CompletionItemKind.Enum,
+                  detail: 'ENUM',
+                });
+                for (const enumVal of enumDecl.values) {
+                  const memberLabel = `${enumDecl.name}.${enumVal.name}`;
+                  if (!existingLabels.has(memberLabel)) {
+                    existingLabels.add(memberLabel);
+                    items.push({
+                      label: memberLabel,
+                      kind: CompletionItemKind.EnumMember,
+                      detail: `${enumDecl.name} enum member`,
+                    });
+                  }
+                }
+              }
+            } else if (typeDecl.kind === 'AliasDeclaration') {
+              if (!existingLabels.has(typeDecl.name)) {
+                existingLabels.add(typeDecl.name);
+                items.push({
+                  label: typeDecl.name,
+                  kind: CompletionItemKind.TypeParameter,
+                  detail: `Alias for ${typeDecl.type.name}`,
+                });
+              }
+            }
+          }
         }
       }
     }

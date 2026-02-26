@@ -90,7 +90,7 @@ connection.onInitialized(() => {
 connection.onCompletion(
 	(params: TextDocumentPositionParams): CompletionItem[] => {
 		const document = documents.get(params.textDocument.uri);
-		return handleCompletion(params, document);
+		return handleCompletion(params, document, workspaceIndex);
 	}
 );
 
