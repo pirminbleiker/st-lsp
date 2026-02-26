@@ -11,6 +11,10 @@ import {
 	Hover,
 	DefinitionParams,
 	Location,
+	DocumentSymbolParams,
+	DocumentSymbol,
+	SignatureHelp,
+	SignatureHelpParams,
 } from 'vscode-languageserver/node';
 
 import { TextDocument } from 'vscode-languageserver-textdocument';
@@ -18,6 +22,8 @@ import { handleHover } from './handlers/hover';
 import { validateDocument } from './handlers/diagnostics';
 import { handleDefinition } from './handlers/definition';
 import { handleCompletion } from './handlers/completion';
+import { handleDocumentSymbols } from './handlers/documentSymbols';
+import { handleSignatureHelp } from './handlers/signatureHelp';
 import { createWorkspaceIndex, WorkspaceIndex } from './twincat/workspaceIndex';
 
 const connection = createConnection(ProposedFeatures.all);
@@ -52,6 +58,10 @@ connection.onInitialize((params: InitializeParams): InitializeResult => {
 			},
 			hoverProvider: true,
 			definitionProvider: true,
+			documentSymbolProvider: true,
+			signatureHelpProvider: {
+				triggerCharacters: ['(', ','],
+			},
 		},
 	};
 
@@ -99,6 +109,20 @@ connection.onDefinition(
 	(params: DefinitionParams): Location | null => {
 		const document = documents.get(params.textDocument.uri);
 		return handleDefinition(params, document, workspaceIndex);
+	}
+);
+
+connection.onDocumentSymbol(
+	(params: DocumentSymbolParams): DocumentSymbol[] => {
+		const document = documents.get(params.textDocument.uri);
+		return handleDocumentSymbols(params, document);
+	}
+);
+
+connection.onSignatureHelp(
+	(params: SignatureHelpParams): SignatureHelp | null => {
+		const document = documents.get(params.textDocument.uri);
+		return handleSignatureHelp(params, document);
 	}
 );
 
