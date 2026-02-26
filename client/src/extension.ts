@@ -29,7 +29,13 @@ export function activate(context: ExtensionContext): void {
 	};
 
 	const clientOptions: LanguageClientOptions = {
-		documentSelector: [{ scheme: 'file', language: 'iec-st' }],
+		documentSelector: [
+			{ scheme: 'file', language: 'iec-st' },
+			{ scheme: 'file', pattern: '**/*.TcPOU' },
+			{ scheme: 'file', pattern: '**/*.TcGVL' },
+			{ scheme: 'file', pattern: '**/*.TcDUT' },
+			{ scheme: 'file', pattern: '**/*.TcIO' },
+		],
 		synchronize: {
 			fileEvents: undefined,
 		},

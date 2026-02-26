@@ -20,6 +20,8 @@ import {
   PROJECT_FILE_EXTENSIONS,
   readProjectFile,
 } from './projectReader';
+import { parse } from '../parser/parser';
+import { SourceFile, ParseError } from '../parser/ast';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -115,6 +117,9 @@ export class WorkspaceIndex extends EventEmitter {
   /** Merged flat set of all source file URIs across all projects. */
   private allSourceUris = new Set<string>();
 
+  /** Cached parse results keyed by source file URI. */
+  private readonly astCache = new Map<string, { ast: SourceFile; errors: ParseError[] }>();
+
   /** FSWatcher instances keyed by watched path. */
   private readonly watchers = new Map<string, fs.FSWatcher>();
 
@@ -167,6 +172,26 @@ export class WorkspaceIndex extends EventEmitter {
   }
 
   /**
+   * Return the cached parse result for a source file URI, or undefined if not
+   * yet cached.  The cache is populated on file discovery and invalidated on
+   * file change.
+   */
+  getAst(uri: string): { ast: SourceFile; errors: ParseError[] } | undefined {
+    if (!this.initialised) this.initialize();
+    const normalised = uri.startsWith('file://') ? uri : pathToUri(uri);
+    return this.astCache.get(normalised);
+  }
+
+  /**
+   * Invalidate the cached AST for a URI.  Call this when a document's content
+   * changes (e.g. from `documents.onDidChangeContent`).
+   */
+  invalidateAst(uri: string): void {
+    const normalised = uri.startsWith('file://') ? uri : pathToUri(uri);
+    this.astCache.delete(normalised);
+  }
+
+  /**
    * Stop all watchers and release resources.
    */
   dispose(): void {
@@ -176,6 +201,7 @@ export class WorkspaceIndex extends EventEmitter {
       try { watcher.close(); } catch { /* ignore */ }
     }
     this.watchers.clear();
+    this.astCache.clear();
     this.removeAllListeners();
   }
 
@@ -218,14 +244,40 @@ export class WorkspaceIndex extends EventEmitter {
 
   /**
    * Rebuild the flat allSourceUris set from projectSources.
+   * Pre-parses newly discovered files and evicts stale cache entries.
    */
   private rebuildAllSources(): void {
     const next = new Set<string>();
     for (const uris of this.projectSources.values()) {
       for (const uri of uris) next.add(uri);
     }
+    // Evict stale cache entries for files no longer in the index.
+    for (const uri of this.astCache.keys()) {
+      if (!next.has(uri)) this.astCache.delete(uri);
+    }
+    // Pre-parse newly discovered files.
+    for (const uri of next) {
+      if (!this.astCache.has(uri)) {
+        this.parseAndCache(uri);
+      }
+    }
     this.allSourceUris = next;
     this.emit('change');
+  }
+
+  /**
+   * Read and parse a source file, storing the result in the AST cache.
+   * Silently no-ops if the file cannot be read.
+   */
+  private parseAndCache(uri: string): void {
+    try {
+      const filePath = uriToPath(uri);
+      const text = fs.readFileSync(filePath, 'utf-8');
+      const result = parse(text);
+      this.astCache.set(uri, { ast: result.ast, errors: result.errors });
+    } catch {
+      // File may not exist or may not be readable yet — skip silently.
+    }
   }
 
   /**

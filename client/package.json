@@ -24,7 +24,11 @@
         ],
         "extensions": [
           ".st",
-          ".ST"
+          ".ST",
+          ".TcPOU",
+          ".TcGVL",
+          ".TcDUT",
+          ".TcIO"
         ],
         "configuration": "./language-configuration.json"
       }

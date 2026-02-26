@@ -157,7 +157,10 @@ connection.onSignatureHelp(
 	}
 );
 
-documents.onDidChangeContent(change => validateDocument(connection, change.document));
+documents.onDidChangeContent(change => {
+	workspaceIndex?.invalidateAst(change.document.uri);
+	validateDocument(connection, change.document);
+});
 documents.onDidOpen(event => validateDocument(connection, event.document));
 
 documents.listen(connection);
