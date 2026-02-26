@@ -116,4 +116,196 @@ END_PROGRAM`;
       expect(result).toEqual([]);
     });
   });
+
+  describe('dot-accessor completion', () => {
+    describe('standard FB outputs (TON)', () => {
+      const fbSrc = `PROGRAM Main
+VAR
+  myTimer : TON;
+END_VAR
+myTimer.`;
+      // cursor is at end of line 4: character 8 (after the '.')
+
+      it('returns Q output for TON instance', () => {
+        const doc = makeDoc(fbSrc);
+        const items = handleCompletion(makeParams(doc.uri, 4, 8), doc);
+        const labels = items.map(i => i.label);
+        expect(labels).toContain('Q');
+      });
+
+      it('returns ET output for TON instance', () => {
+        const doc = makeDoc(fbSrc);
+        const items = handleCompletion(makeParams(doc.uri, 4, 8), doc);
+        const labels = items.map(i => i.label);
+        expect(labels).toContain('ET');
+      });
+
+      it('does not return VAR_INPUT IN for TON instance', () => {
+        const doc = makeDoc(fbSrc);
+        const items = handleCompletion(makeParams(doc.uri, 4, 8), doc);
+        const labels = items.map(i => i.label);
+        expect(labels).not.toContain('IN');
+      });
+
+      it('does not return flat keywords in dot-access context', () => {
+        const doc = makeDoc(fbSrc);
+        const items = handleCompletion(makeParams(doc.uri, 4, 8), doc);
+        const labels = items.map(i => i.label);
+        expect(labels).not.toContain('IF');
+        expect(labels).not.toContain('WHILE');
+      });
+
+      it('output items have Field kind', () => {
+        const doc = makeDoc(fbSrc);
+        const items = handleCompletion(makeParams(doc.uri, 4, 8), doc);
+        const qItem = items.find(i => i.label === 'Q');
+        expect(qItem).toBeDefined();
+        expect(qItem?.kind).toBe(CompletionItemKind.Field);
+      });
+    });
+
+    describe('user-defined FUNCTION_BLOCK members', () => {
+      const fbSrc = `FUNCTION_BLOCK MyFB
+VAR_INPUT
+  Enable : BOOL;
+END_VAR
+VAR_OUTPUT
+  Done : BOOL;
+  Error : BOOL;
+END_VAR
+END_FUNCTION_BLOCK
+
+PROGRAM Main
+VAR
+  myInst : MyFB;
+END_VAR
+myInst.`;
+      // line 14, character 7
+
+      it('returns VAR_OUTPUT Done', () => {
+        const doc = makeDoc(fbSrc);
+        const items = handleCompletion(makeParams(doc.uri, 14, 7), doc);
+        const labels = items.map(i => i.label);
+        expect(labels).toContain('Done');
+      });
+
+      it('returns VAR_OUTPUT Error', () => {
+        const doc = makeDoc(fbSrc);
+        const items = handleCompletion(makeParams(doc.uri, 14, 7), doc);
+        const labels = items.map(i => i.label);
+        expect(labels).toContain('Error');
+      });
+
+      it('does not return VAR_INPUT Enable on instance access', () => {
+        const doc = makeDoc(fbSrc);
+        const items = handleCompletion(makeParams(doc.uri, 14, 7), doc);
+        const labels = items.map(i => i.label);
+        expect(labels).not.toContain('Enable');
+      });
+    });
+
+    describe('FUNCTION_BLOCK with methods', () => {
+      const fbSrc = `FUNCTION_BLOCK MyFB
+VAR_OUTPUT
+  Status : INT;
+END_VAR
+METHOD Start : BOOL
+END_METHOD
+END_FUNCTION_BLOCK
+
+PROGRAM Main
+VAR
+  myInst : MyFB;
+END_VAR
+myInst.`;
+      // line 12, character 7
+
+      it('returns method Start', () => {
+        const doc = makeDoc(fbSrc);
+        const items = handleCompletion(makeParams(doc.uri, 12, 7), doc);
+        const labels = items.map(i => i.label);
+        expect(labels).toContain('Start');
+      });
+
+      it('method item has Method kind', () => {
+        const doc = makeDoc(fbSrc);
+        const items = handleCompletion(makeParams(doc.uri, 12, 7), doc);
+        const startItem = items.find(i => i.label === 'Start');
+        expect(startItem).toBeDefined();
+        expect(startItem?.kind).toBe(CompletionItemKind.Method);
+      });
+    });
+
+    describe('STRUCT field access', () => {
+      const structSrc = `TYPE
+  ST_Motor : STRUCT
+    bRunning : BOOL;
+    rSpeed : REAL;
+  END_STRUCT;
+END_TYPE
+
+PROGRAM Main
+VAR
+  myMotor : ST_Motor;
+END_VAR
+myMotor.`;
+      // line 11, character 8
+
+      it('returns field bRunning', () => {
+        const doc = makeDoc(structSrc);
+        const items = handleCompletion(makeParams(doc.uri, 11, 8), doc);
+        const labels = items.map(i => i.label);
+        expect(labels).toContain('bRunning');
+      });
+
+      it('returns field rSpeed', () => {
+        const doc = makeDoc(structSrc);
+        const items = handleCompletion(makeParams(doc.uri, 11, 8), doc);
+        const labels = items.map(i => i.label);
+        expect(labels).toContain('rSpeed');
+      });
+
+      it('field items have Field kind', () => {
+        const doc = makeDoc(structSrc);
+        const items = handleCompletion(makeParams(doc.uri, 11, 8), doc);
+        const fieldItem = items.find(i => i.label === 'bRunning');
+        expect(fieldItem).toBeDefined();
+        expect(fieldItem?.kind).toBe(CompletionItemKind.Field);
+      });
+    });
+
+    describe('unresolvable dot access', () => {
+      it('returns empty list when variable type cannot be resolved', () => {
+        const src = `PROGRAM Main
+VAR
+END_VAR
+unknownVar.`;
+        const doc = makeDoc(src);
+        const items = handleCompletion(makeParams(doc.uri, 3, 11), doc);
+        expect(items).toEqual([]);
+      });
+
+      it('returns empty list when variable is not in scope', () => {
+        const src = `PROGRAM Main
+VAR
+  x : BOOL;
+END_VAR
+notDeclared.`;
+        const doc = makeDoc(src);
+        const items = handleCompletion(makeParams(doc.uri, 4, 12), doc);
+        expect(items).toEqual([]);
+      });
+    });
+
+    describe('flat completion not affected outside dot context', () => {
+      it('still returns keywords when cursor is not after a dot', () => {
+        const src = `PROGRAM Main\nVAR\n  myTimer : TON;\nEND_VAR\nIF `;
+        const doc = makeDoc(src);
+        const items = handleCompletion(makeParams(doc.uri, 4, 3), doc);
+        const labels = items.map(i => i.label);
+        expect(labels).toContain('IF');
+        expect(labels).toContain('WHILE');
+      });
+    });
+  });
 });

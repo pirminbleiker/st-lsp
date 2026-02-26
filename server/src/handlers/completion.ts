@@ -20,7 +20,7 @@ import {
   UnionDeclaration,
 } from '../parser/ast';
 import { BUILTIN_TYPES } from '../twincat/types';
-import { STANDARD_FBS } from '../twincat/stdlib';
+import { STANDARD_FBS, findStandardFB } from '../twincat/stdlib';
 import { WorkspaceIndex } from '../twincat/workspaceIndex';
 import { extractStFromTwinCAT } from '../twincat/tcExtractor';
 
@@ -88,6 +88,146 @@ function collectVarDeclarations(
   return [];
 }
 
+/**
+ * If the character immediately before the cursor is '.', return the identifier
+ * that precedes it; otherwise return null.
+ */
+function getIdentifierBeforeDot(text: string, line: number, character: number): string | null {
+  const lines = text.split('\n');
+  if (line >= lines.length) return null;
+  const lineText = lines[line];
+  if (character === 0 || lineText[character - 1] !== '.') return null;
+
+  let i = character - 2;
+  while (i >= 0 && /[a-zA-Z0-9_]/.test(lineText[i])) i--;
+  const ident = lineText.slice(i + 1, character - 1);
+  return ident.length > 0 ? ident : null;
+}
+
+/**
+ * Return completion items for the members exposed by `typeName`.
+ * Searches `declarations` for a matching FUNCTION_BLOCK or STRUCT.
+ *
+ * For FBs:     VAR_OUTPUT, VAR_IN_OUT, methods, and properties (not VAR_INPUT).
+ * For STRUCTs: all fields.
+ *
+ * Returns null if the type is not found in `declarations`.
+ */
+function getMembersFromDeclarations(
+  typeName: string,
+  declarations: TopLevelDeclaration[],
+): CompletionItem[] | null {
+  const upperName = typeName.toUpperCase();
+
+  for (const decl of declarations) {
+    if (decl.kind === 'FunctionBlockDeclaration') {
+      const fb = decl as FunctionBlockDeclaration;
+      if (fb.name.toUpperCase() !== upperName) continue;
+
+      const items: CompletionItem[] = [];
+      for (const vb of fb.varBlocks) {
+        if (vb.varKind === 'VAR_OUTPUT' || vb.varKind === 'VAR_IN_OUT') {
+          for (const vd of vb.declarations) {
+            items.push({ label: vd.name, kind: CompletionItemKind.Field, detail: vd.type.name });
+          }
+        }
+      }
+      for (const method of fb.methods) {
+        items.push({
+          label: method.name,
+          kind: CompletionItemKind.Method,
+          detail: method.returnType?.name ?? 'void',
+        });
+      }
+      for (const prop of fb.properties) {
+        items.push({ label: prop.name, kind: CompletionItemKind.Property, detail: prop.type.name });
+      }
+      return items;
+    }
+
+    if (decl.kind === 'TypeDeclarationBlock') {
+      const typeBlock = decl as TypeDeclarationBlock;
+      for (const typeDecl of typeBlock.declarations) {
+        if (typeDecl.kind === 'StructDeclaration' && typeDecl.name.toUpperCase() === upperName) {
+          const struct = typeDecl as StructDeclaration;
+          return struct.fields.map(f => ({
+            label: f.name,
+            kind: CompletionItemKind.Field,
+            detail: f.type.name,
+          }));
+        }
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Resolve dot-access members for the variable `varName`:
+ *   1. Look up the variable's declared type in `vars`.
+ *   2. Check standard FBs (e.g. TON → Q, ET).
+ *   3. Search the current file's AST declarations.
+ *   4. Search workspace index (other files).
+ *
+ * Returns a completion list, or null if the variable is not found.
+ */
+function getDotAccessMembers(
+  varName: string,
+  vars: VarDeclaration[],
+  declarations: TopLevelDeclaration[],
+  currentUri: string,
+  workspaceIndex?: WorkspaceIndex,
+): CompletionItem[] | null {
+  const vd = vars.find(v => v.name.toUpperCase() === varName.toUpperCase());
+  if (!vd) return null;
+
+  const typeName = vd.type.name;
+
+  // 1. Standard FBs
+  const stdFb = findStandardFB(typeName);
+  if (stdFb) {
+    return stdFb.outputs.map(o => ({
+      label: o.name,
+      kind: CompletionItemKind.Field,
+      detail: o.type,
+      documentation: o.description,
+    }));
+  }
+
+  // 2. Current file
+  const localMembers = getMembersFromDeclarations(typeName, declarations);
+  if (localMembers) return localMembers;
+
+  // 3. Workspace index
+  if (workspaceIndex) {
+    for (const fileUri of workspaceIndex.getProjectFiles()) {
+      if (fileUri === currentUri) continue;
+
+      let fileDeclarations: TopLevelDeclaration[] | undefined;
+      const cached = workspaceIndex.getAst(fileUri);
+      if (cached) {
+        fileDeclarations = cached.ast.declarations;
+      } else {
+        try {
+          const filePath = fileUri.startsWith('file://')
+            ? decodeURIComponent(fileUri.replace(/^file:\/\//, ''))
+            : fileUri;
+          const rawText = fs.readFileSync(filePath, 'utf8');
+          const fileText = extractStFromTwinCAT(filePath, rawText).stCode;
+          fileDeclarations = parse(fileText).ast.declarations;
+        } catch {
+          continue;
+        }
+      }
+
+      const members = getMembersFromDeclarations(typeName, fileDeclarations);
+      if (members) return members;
+    }
+  }
+
+  return null;
+}
+
 export function handleCompletion(
   params: TextDocumentPositionParams,
   document: TextDocument | undefined,
@@ -99,6 +239,17 @@ export function handleCompletion(
   const extraction = extractStFromTwinCAT(document.uri, text);
   const { ast } = parse(extraction.stCode);
   const pos = params.position;
+
+  // Dot-access member completion: when the user types '<ident>.', return only
+  // the members of the resolved type rather than the flat keyword/type list.
+  const identBeforeDot = getIdentifierBeforeDot(text, pos.line, pos.character);
+  if (identBeforeDot !== null) {
+    const vars = collectVarDeclarations(ast.declarations, pos);
+    const members = getDotAccessMembers(
+      identBeforeDot, vars, ast.declarations, params.textDocument.uri, workspaceIndex,
+    );
+    return members ?? [];
+  }
 
   const items: CompletionItem[] = [];
 
