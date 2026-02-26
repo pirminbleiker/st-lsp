@@ -28,6 +28,8 @@ import {
 	WorkspaceSymbol,
 	CodeAction,
 	CodeActionParams,
+	InlayHint,
+	InlayHintParams,
 } from 'vscode-languageserver/node';
 
 import { TextDocument } from 'vscode-languageserver-textdocument';
@@ -43,6 +45,7 @@ import { handleCodeLens } from './handlers/codeLens';
 import { handleFormatting, handleRangeFormatting } from './handlers/formatting';
 import { handleWorkspaceSymbol } from './handlers/workspaceSymbol';
 import { handleCodeActions } from './handlers/codeActions';
+import { handleInlayHints } from './handlers/inlayHints';
 import { createWorkspaceIndex, WorkspaceIndex } from './twincat/workspaceIndex';
 
 const connection = createConnection(ProposedFeatures.all);
@@ -94,6 +97,7 @@ connection.onInitialize((params: InitializeParams): InitializeResult => {
 			codeActionProvider: {
 				resolveProvider: false,
 			},
+			inlayHintProvider: true,
 		},
 	};
 
@@ -210,6 +214,13 @@ connection.onCodeAction(
 	(params: CodeActionParams): CodeAction[] => {
 		const document = documents.get(params.textDocument.uri);
 		return handleCodeActions(params, document);
+	}
+);
+
+connection.onInlayHint(
+	(params: InlayHintParams): InlayHint[] => {
+		const document = documents.get(params.textDocument.uri);
+		return handleInlayHints(document, params.range, workspaceIndex);
 	}
 );
 
