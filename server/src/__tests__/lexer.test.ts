@@ -161,4 +161,31 @@ describe('Lexer', () => {
       expect(tokens[1].range.start.character).toBe(3);
     });
   });
+
+  describe('new keywords (Phase 2)', () => {
+    it('tokenizes VAR_CONFIG as VAR_CONFIG', () => {
+      const tokens = tokenize('VAR_CONFIG');
+      expect(tokens[0].kind).toBe(TokenKind.VAR_CONFIG);
+    });
+
+    it('tokenizes NAMESPACE as NAMESPACE', () => {
+      const tokens = tokenize('NAMESPACE');
+      expect(tokens[0].kind).toBe(TokenKind.NAMESPACE);
+    });
+
+    it('tokenizes END_NAMESPACE as END_NAMESPACE', () => {
+      const tokens = tokenize('END_NAMESPACE');
+      expect(tokens[0].kind).toBe(TokenKind.END_NAMESPACE);
+    });
+
+    it('tokenizes UNION as UNION', () => {
+      const tokens = tokenize('UNION');
+      expect(tokens[0].kind).toBe(TokenKind.UNION);
+    });
+
+    it('tokenizes END_UNION as END_UNION', () => {
+      const tokens = tokenize('END_UNION');
+      expect(tokens[0].kind).toBe(TokenKind.END_UNION);
+    });
+  });
 });

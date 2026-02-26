@@ -6,6 +6,11 @@ import {
   AssignmentStatement,
   IfStatement,
   ForStatement,
+  TypeDeclarationBlock,
+  StructDeclaration,
+  EnumDeclaration,
+  AliasDeclaration,
+  UnionDeclaration,
 } from '../parser/ast';
 
 describe('parse()', () => {
@@ -185,6 +190,102 @@ END_FUNCTION`;
       const { ast } = parse('PROGRAM P');
       expect(ast).toBeDefined();
       expect(ast.kind).toBe('SourceFile');
+    });
+  });
+
+  describe('TYPE declarations (Phase 2)', () => {
+    it('parses STRUCT declaration', () => {
+      const src = `TYPE ST_Motor :
+STRUCT
+  Speed : REAL;
+  Running : BOOL;
+END_STRUCT
+END_TYPE`;
+      const { ast, errors } = parse(src);
+      expect(errors).toHaveLength(0);
+      expect(ast.declarations).toHaveLength(1);
+      const block = ast.declarations[0] as TypeDeclarationBlock;
+      expect(block.kind).toBe('TypeDeclarationBlock');
+      const struct = block.declarations[0] as StructDeclaration;
+      expect(struct.kind).toBe('StructDeclaration');
+      expect(struct.name).toBe('ST_Motor');
+      expect(struct.fields).toHaveLength(2);
+      expect(struct.fields[0].name).toBe('Speed');
+      expect(struct.fields[1].name).toBe('Running');
+    });
+
+    it('parses UNION declaration', () => {
+      const src = `TYPE MyUnion :
+UNION
+  AsInt : INT;
+  AsWord : WORD;
+END_UNION
+END_TYPE`;
+      const { ast, errors } = parse(src);
+      expect(errors).toHaveLength(0);
+      const block = ast.declarations[0] as TypeDeclarationBlock;
+      const union = block.declarations[0] as UnionDeclaration;
+      expect(union.kind).toBe('UnionDeclaration');
+      expect(union.name).toBe('MyUnion');
+      expect(union.fields).toHaveLength(2);
+      expect(union.fields[0].name).toBe('AsInt');
+      expect(union.fields[1].name).toBe('AsWord');
+    });
+
+    it('parses enum declaration (parenthesis style)', () => {
+      const src = `TYPE E_Mode :
+(Off, On, Auto)
+END_TYPE`;
+      const { ast, errors } = parse(src);
+      expect(errors).toHaveLength(0);
+      const block = ast.declarations[0] as TypeDeclarationBlock;
+      const enumDecl = block.declarations[0] as EnumDeclaration;
+      expect(enumDecl.kind).toBe('EnumDeclaration');
+      expect(enumDecl.name).toBe('E_Mode');
+      expect(enumDecl.values).toHaveLength(3);
+    });
+
+    it('parses alias declaration', () => {
+      const src = `TYPE MyInt : INT;
+END_TYPE`;
+      const { ast, errors } = parse(src);
+      expect(errors).toHaveLength(0);
+      const block = ast.declarations[0] as TypeDeclarationBlock;
+      const alias = block.declarations[0] as AliasDeclaration;
+      expect(alias.kind).toBe('AliasDeclaration');
+      expect(alias.name).toBe('MyInt');
+      expect(alias.type.name).toBe('INT');
+    });
+  });
+
+  describe('VAR_CONFIG block (Phase 2)', () => {
+    it('parses VAR_CONFIG block without errors', () => {
+      const src = `PROGRAM Main
+VAR_CONFIG
+  Speed : REAL;
+END_VAR
+END_PROGRAM`;
+      const { ast, errors } = parse(src);
+      expect(errors).toHaveLength(0);
+      const prog = ast.declarations[0] as ProgramDeclaration;
+      expect(prog.varBlocks[0].varKind).toBe('VAR_CONFIG');
+    });
+  });
+
+  describe('NAMESPACE block (Phase 2)', () => {
+    it('skips NAMESPACE...END_NAMESPACE without errors', () => {
+      const src = `NAMESPACE MyNS
+PROGRAM Inner
+END_PROGRAM
+END_NAMESPACE
+PROGRAM Outer
+END_PROGRAM`;
+      const { ast, errors } = parse(src);
+      expect(errors).toHaveLength(0);
+      // Only the outer PROGRAM is in the AST (NAMESPACE is skipped)
+      expect(ast.declarations).toHaveLength(1);
+      const prog = ast.declarations[0] as ProgramDeclaration;
+      expect(prog.name).toBe('Outer');
     });
   });
 });
