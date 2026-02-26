@@ -14,6 +14,8 @@ import { TextDocument } from 'vscode-languageserver-textdocument';
 import { CompletionItemKind } from 'vscode-languageserver/node';
 import { handleCompletion } from '../handlers/completion';
 import { WorkspaceIndex } from '../twincat/workspaceIndex';
+import { parse } from '../parser/parser';
+import { SourceFile, ParseError } from '../parser/ast';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -37,6 +39,19 @@ function makeParams(uri: string, line: number, character: number) {
 function makeMockIndex(fileUris: string[]): WorkspaceIndex {
   return {
     getProjectFiles: () => fileUris,
+  } as unknown as WorkspaceIndex;
+}
+
+/**
+ * Create a mock WorkspaceIndex that returns pre-parsed ASTs from getAst().
+ * This lets us verify that handleCompletion uses the cache without hitting disk.
+ */
+function makeCachingMockIndex(
+  cachedAsts: Map<string, { ast: SourceFile; errors: ParseError[] }>,
+): WorkspaceIndex {
+  return {
+    getProjectFiles: () => Array.from(cachedAsts.keys()),
+    getAst: (uri: string) => cachedAsts.get(uri),
   } as unknown as WorkspaceIndex;
 }
 
@@ -325,6 +340,117 @@ describe('handleCompletion — cross-file via WorkspaceIndex', () => {
       // Keywords and local POUs should still be present
       expect(labels).toContain('IF');
       expect(labels).toContain('Main');
+    });
+  });
+
+  describe('AST cache (getAst)', () => {
+    it('returns symbols from cached AST without needing files on disk', () => {
+      // Build a cached AST in memory — no file is written to disk
+      const otherSrc = `PROGRAM CachedProg\nVAR\n  x : INT;\nEND_VAR\nEND_PROGRAM`;
+      const { ast, errors } = parse(otherSrc);
+      const otherUri = 'file:///non_existent_cached.st';
+
+      const cachedAsts = new Map([[ otherUri, { ast, errors } ]]);
+      const index = makeCachingMockIndex(cachedAsts);
+
+      const currentUri = writeTmpFile('cache_current.st', CURRENT_FILE_SRC);
+      const doc = makeDoc(CURRENT_FILE_SRC, currentUri);
+
+      const items = handleCompletion(makeParams(doc.uri, 4, 0), doc, index);
+      const labels = items.map(i => i.label);
+
+      expect(labels).toContain('CachedProg');
+    });
+
+    it('falls back to disk when getAst returns undefined', () => {
+      const otherSrc = `PROGRAM DiskProg\nVAR\n  x : INT;\nEND_VAR\nEND_PROGRAM`;
+      const otherUri = writeTmpFile('disk_fallback.st', otherSrc);
+
+      // Index reports the file but getAst always returns undefined
+      const index = {
+        getProjectFiles: () => [otherUri],
+        getAst: (_uri: string) => undefined,
+      } as unknown as WorkspaceIndex;
+
+      const currentUri = writeTmpFile('disk_fallback_current.st', CURRENT_FILE_SRC);
+      const doc = makeDoc(CURRENT_FILE_SRC, currentUri);
+
+      const items = handleCompletion(makeParams(doc.uri, 4, 0), doc, index);
+      const labels = items.map(i => i.label);
+
+      expect(labels).toContain('DiskProg');
+    });
+
+    it('returns struct types from cached AST', () => {
+      const otherSrc = `TYPE\n  CachedStruct : STRUCT\n    f : INT;\n  END_STRUCT;\nEND_TYPE`;
+      const { ast, errors } = parse(otherSrc);
+      const otherUri = 'file:///non_existent_struct.st';
+
+      const cachedAsts = new Map([[ otherUri, { ast, errors } ]]);
+      const index = makeCachingMockIndex(cachedAsts);
+
+      const currentUri = writeTmpFile('cache_struct_current.st', CURRENT_FILE_SRC);
+      const doc = makeDoc(CURRENT_FILE_SRC, currentUri);
+
+      const items = handleCompletion(makeParams(doc.uri, 4, 0), doc, index);
+      const labels = items.map(i => i.label);
+
+      expect(labels).toContain('CachedStruct');
+    });
+  });
+
+  describe('prefix filtering', () => {
+    it('returns only symbols matching the typed prefix', () => {
+      const otherSrc = `PROGRAM AlphaBlock\nEND_PROGRAM\nPROGRAM BetaBlock\nEND_PROGRAM`;
+      const { ast, errors } = parse(otherSrc);
+      const otherUri = 'file:///prefix_filter.st';
+
+      const cachedAsts = new Map([[ otherUri, { ast, errors } ]]);
+      const index = makeCachingMockIndex(cachedAsts);
+
+      // Source with cursor after typing "Alp" on a new line
+      const src = `PROGRAM Main\nVAR\nEND_VAR\nAlp`;
+      const doc = makeDoc(src, 'file:///prefix_current.st');
+      // Position: line 3, character 3 (after "Alp")
+      const items = handleCompletion(makeParams(doc.uri, 3, 3), doc, index);
+      const labels = items.map(i => i.label);
+
+      expect(labels).toContain('AlphaBlock');
+      expect(labels).not.toContain('BetaBlock');
+    });
+
+    it('returns all symbols when no prefix is typed (empty line)', () => {
+      const otherSrc = `PROGRAM AlphaBlock\nEND_PROGRAM\nPROGRAM BetaBlock\nEND_PROGRAM`;
+      const { ast, errors } = parse(otherSrc);
+      const otherUri = 'file:///no_prefix_filter.st';
+
+      const cachedAsts = new Map([[ otherUri, { ast, errors } ]]);
+      const index = makeCachingMockIndex(cachedAsts);
+
+      const doc = makeDoc(CURRENT_FILE_SRC, 'file:///no_prefix_current.st');
+      // Position at start of line — no prefix
+      const items = handleCompletion(makeParams(doc.uri, 4, 0), doc, index);
+      const labels = items.map(i => i.label);
+
+      expect(labels).toContain('AlphaBlock');
+      expect(labels).toContain('BetaBlock');
+    });
+
+    it('prefix matching is case-insensitive', () => {
+      const otherSrc = `PROGRAM MyController\nEND_PROGRAM`;
+      const { ast, errors } = parse(otherSrc);
+      const otherUri = 'file:///case_filter.st';
+
+      const cachedAsts = new Map([[ otherUri, { ast, errors } ]]);
+      const index = makeCachingMockIndex(cachedAsts);
+
+      // Cursor after "myc" (lowercase)
+      const src = `PROGRAM Main\nVAR\nEND_VAR\nmyc`;
+      const doc = makeDoc(src, 'file:///case_prefix_current.st');
+      const items = handleCompletion(makeParams(doc.uri, 3, 3), doc, index);
+      const labels = items.map(i => i.label);
+
+      expect(labels).toContain('MyController');
     });
   });
 });
