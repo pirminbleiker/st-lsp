@@ -337,4 +337,27 @@ END_PROGRAM`;
       expect(symbols[0].children![0].detail).toBe('POINTER TO INT');
     });
   });
+
+  describe('FUNCTION_BLOCK with ACTION blocks', () => {
+    it('shows actions as Method symbols under the FB', () => {
+      const src = `FUNCTION_BLOCK MyFB
+VAR x : INT; END_VAR
+END_FUNCTION_BLOCK
+ACTION Run:
+x := x + 1;
+END_ACTION
+ACTION Reset:
+x := 0;
+END_ACTION`;
+      const doc = makeDoc(src);
+      const symbols = handleDocumentSymbols(makeParams(doc.uri), doc);
+
+      expect(symbols).toHaveLength(1);
+      expect(symbols[0].name).toBe('MyFB');
+      const methodChildren = symbols[0].children!.filter(c => c.kind === SymbolKind.Method);
+      expect(methodChildren).toHaveLength(2);
+      expect(methodChildren[0].name).toBe('Run');
+      expect(methodChildren[1].name).toBe('Reset');
+    });
+  });
 });

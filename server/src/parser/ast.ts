@@ -71,6 +71,7 @@ export interface FunctionBlockDeclaration extends AstNode {
   body: Statement[];
   methods: MethodDeclaration[];
   properties: PropertyDeclaration[];
+  actions: ActionDeclaration[];
 }
 
 export interface FunctionDeclaration extends AstNode {
@@ -340,6 +341,12 @@ export interface MethodDeclaration extends AstNode {
   returnType?: TypeRef;
   modifiers: string[];
   varBlocks: VarBlock[];
+  body: Statement[];
+}
+
+export interface ActionDeclaration extends AstNode {
+  kind: 'ActionDeclaration';
+  name: string;
   body: Statement[];
 }
 

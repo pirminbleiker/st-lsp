@@ -377,6 +377,23 @@ export function handleHover(
     };
   }
 
+  // 4a. Action declaration inside a FUNCTION_BLOCK?
+  const nameUpper = name.toUpperCase();
+  for (const decl of ast.declarations) {
+    if (decl.kind !== 'FunctionBlockDeclaration') continue;
+    const fb = decl as import('../parser/ast').FunctionBlockDeclaration;
+    const action = fb.actions.find(a => a.name.toUpperCase() === nameUpper);
+    if (action) {
+      return {
+        contents: {
+          kind: MarkupKind.Markdown,
+          value: `**ACTION** \`${action.name}\` *(in ${fb.name})*`,
+        },
+        range: { start: node.range.start, end: node.range.end },
+      };
+    }
+  }
+
   // 5. Struct or enum declaration inside TYPE...END_TYPE blocks?
   for (const decl of ast.declarations) {
     if (decl.kind !== 'TypeDeclarationBlock') continue;

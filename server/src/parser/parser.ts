@@ -1,6 +1,7 @@
 /** IEC 61131-3 Structured Text recursive-descent parser */
 
 import {
+  ActionDeclaration,
   AliasDeclaration,
   ArrayDim,
   AssignmentStatement,
@@ -253,6 +254,11 @@ class Parser {
         methods.push(this.parseMethodDeclaration());
       } else if (this.check(TokenKind.PROPERTY)) {
         properties.push(this.parsePropertyDeclaration());
+      } else if (this.check(TokenKind.ACTION)) {
+        // ACTION blocks may follow the FB body in TwinCAT XML extracted source
+        // (when there is no explicit END_FUNCTION_BLOCK in the extracted text).
+        // Stop body parsing here; they are collected in the loop below.
+        break;
       } else {
         try {
           const stmt = this.parseStatement();
@@ -265,6 +271,12 @@ class Parser {
 
     this.expect(TokenKind.END_FUNCTION_BLOCK, "Expected 'END_FUNCTION_BLOCK'");
 
+    // Parse any trailing ACTION...END_ACTION blocks belonging to this FB.
+    const actions: ActionDeclaration[] = [];
+    while (this.check(TokenKind.ACTION)) {
+      actions.push(this.parseActionDeclaration());
+    }
+
     return {
       kind: 'FunctionBlockDeclaration',
       name,
@@ -275,6 +287,7 @@ class Parser {
       body,
       methods,
       properties,
+      actions,
       range: this.endRange(start),
     };
   }
@@ -542,6 +555,7 @@ class Parser {
       TokenKind.END_PROGRAM, TokenKind.END_FUNCTION, TokenKind.END_FUNCTION_BLOCK,
       TokenKind.END_TYPE, TokenKind.END_STRUCT, TokenKind.END_ENUM,
       TokenKind.END_METHOD, TokenKind.END_PROPERTY, TokenKind.END_INTERFACE,
+      TokenKind.ACTION, TokenKind.END_ACTION,
       TokenKind.EOF,
     ]);
     while (!this.check(TokenKind.SEMICOLON) && !endKeywords.has(this.peek().kind)) {
@@ -1346,6 +1360,29 @@ class Parser {
       name,
       type,
       modifiers,
+      range: this.endRange(start),
+    };
+  }
+
+  // ---- ACTION -----------------------------------------------------------
+
+  private parseActionDeclaration(): ActionDeclaration {
+    const start = this.startRange();
+    this.advance(); // ACTION
+
+    const nameTok = this.expect(TokenKind.IDENTIFIER, 'Expected action name');
+    const name = nameTok.text;
+
+    // Optional colon after name (TwinCAT inline ST uses 'ACTION Name:')
+    this.match(TokenKind.COLON);
+
+    const body = this.parseStatementList(TokenKind.END_ACTION);
+    this.expect(TokenKind.END_ACTION, "Expected 'END_ACTION'");
+
+    return {
+      kind: 'ActionDeclaration',
+      name,
+      body,
       range: this.endRange(start),
     };
   }

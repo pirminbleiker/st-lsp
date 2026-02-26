@@ -91,6 +91,16 @@ function buildSymbols(ast: SourceFile): DocumentSymbol[] {
         });
       }
 
+      // Actions
+      for (const action of fb.actions) {
+        children.push({
+          name: action.name,
+          kind: SymbolKind.Method,
+          range: astRangeToLsp(action.range),
+          selectionRange: astRangeToLsp(action.range),
+        });
+      }
+
       // Properties
       for (const prop of fb.properties) {
         children.push({

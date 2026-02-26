@@ -61,6 +61,7 @@ function collectLocalVars(ast: SourceFile, pos: Position): VarDeclaration[] {
 
 /**
  * Find the first POU declaration whose name matches (case-insensitive).
+ * Also searches FB actions by name.
  */
 function findPouDeclaration(
   ast: SourceFile,
@@ -70,6 +71,23 @@ function findPouDeclaration(
   return ast.declarations.find(
     d => 'name' in d && (d as { name: string }).name.toUpperCase() === upper,
   );
+}
+
+/**
+ * Find an action declaration by name within any FB in the file.
+ */
+function findActionDeclaration(
+  ast: SourceFile,
+  name: string,
+): { location: { range: { start: Position; end: Position } } } | undefined {
+  const upper = name.toUpperCase();
+  for (const decl of ast.declarations) {
+    if (decl.kind !== 'FunctionBlockDeclaration') continue;
+    const fb = decl as import('../parser/ast').FunctionBlockDeclaration;
+    const action = fb.actions.find(a => a.name.toUpperCase() === upper);
+    if (action) return { location: action };
+  }
+  return undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -117,7 +135,11 @@ export function handleDefinition(
   const localMatch = localVars.find(v => v.name.toUpperCase() === nameUpper);
   if (localMatch) return toLocation(uri, localMatch);
 
-  // 2. POU declarations in the current file
+  // 2. Action declarations in any FB in the current file
+  const actionMatch = findActionDeclaration(ast, name);
+  if (actionMatch) return toLocation(uri, actionMatch.location);
+
+  // 3. POU declarations in the current file
   const pouMatch = findPouDeclaration(ast, name);
   if (pouMatch) return toLocation(uri, pouMatch);
 
