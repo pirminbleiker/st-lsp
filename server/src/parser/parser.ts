@@ -46,6 +46,7 @@ import {
   TypeDeclarationBlock,
   TypeRef,
   UnaryExpression,
+  UnionDeclaration,
   VarBlock,
   VarDeclaration,
   VarKind,
@@ -150,6 +151,9 @@ class Parser {
         return this.parseTypeDeclarationBlock();
       case TokenKind.INTERFACE:
         return this.parseInterfaceDeclaration();
+      case TokenKind.NAMESPACE:
+        this.skipNamespaceBlock();
+        return null;
       default:
         this.addError(`Unexpected token '${tok.text}' at top level`, tok.range);
         this.advance();
@@ -267,6 +271,7 @@ class Parser {
     TokenKind.VAR_EXTERNAL,
     TokenKind.VAR_TEMP,
     TokenKind.VAR_STAT,
+    TokenKind.VAR_CONFIG,
   ]);
 
   private parseVarBlocks(): VarBlock[] {
@@ -993,6 +998,9 @@ class Parser {
         if (this.check(TokenKind.STRUCT)) {
           decl = this.parseStructBody(name, start);
           this.match(TokenKind.SEMICOLON);
+        } else if (this.check(TokenKind.UNION)) {
+          decl = this.parseUnionBody(name, start);
+          this.match(TokenKind.SEMICOLON);
         } else if (this.check(TokenKind.ENUM)) {
           this.advance(); // ENUM
           decl = this.parseEnumBlock(name, start);
@@ -1050,6 +1058,51 @@ class Parser {
       fields,
       range: this.endRange(start),
     };
+  }
+
+  private parseUnionBody(name: string, blockStart: Position): UnionDeclaration {
+    const start = blockStart;
+    this.advance(); // UNION
+
+    const fields: VarDeclaration[] = [];
+    while (!this.check(TokenKind.END_UNION) && !this.check(TokenKind.EOF)) {
+      try {
+        fields.push(this.parseVarDeclaration());
+      } catch {
+        this.skipToSemicolon();
+      }
+    }
+
+    this.expect(TokenKind.END_UNION, "Expected 'END_UNION'");
+
+    return {
+      kind: 'UnionDeclaration',
+      name,
+      fields,
+      range: this.endRange(start),
+    };
+  }
+
+  private skipNamespaceBlock(): void {
+    this.advance(); // NAMESPACE
+    // Skip name identifier if present
+    if (this.check(TokenKind.IDENTIFIER)) {
+      this.advance();
+    }
+    // Skip all content until END_NAMESPACE
+    let depth = 1;
+    while (!this.check(TokenKind.EOF)) {
+      if (this.check(TokenKind.NAMESPACE)) {
+        depth++;
+      } else if (this.check(TokenKind.END_NAMESPACE)) {
+        depth--;
+        if (depth === 0) {
+          this.advance(); // consume END_NAMESPACE
+          return;
+        }
+      }
+      this.advance();
+    }
   }
 
   /** Parse ( Val1, Val2 := 5 ) old-style enum syntax */

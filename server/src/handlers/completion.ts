@@ -16,6 +16,7 @@ import {
   TypeDeclarationBlock,
   StructDeclaration,
   EnumDeclaration,
+  UnionDeclaration,
 } from '../parser/ast';
 import { BUILTIN_TYPES } from '../twincat/types';
 import { STANDARD_FBS } from '../twincat/stdlib';
@@ -179,6 +180,13 @@ export function handleCompletion(
             kind: CompletionItemKind.TypeParameter,
             detail: `Alias for ${typeDecl.type.name}`,
           });
+        } else if (typeDecl.kind === 'UnionDeclaration') {
+          const unionDecl = typeDecl as UnionDeclaration;
+          items.push({
+            label: unionDecl.name,
+            kind: CompletionItemKind.Struct,
+            detail: 'UNION',
+          });
         }
       }
     }
@@ -266,6 +274,16 @@ export function handleCompletion(
                   label: typeDecl.name,
                   kind: CompletionItemKind.TypeParameter,
                   detail: `Alias for ${typeDecl.type.name}`,
+                });
+              }
+            } else if (typeDecl.kind === 'UnionDeclaration') {
+              const unionDecl = typeDecl as UnionDeclaration;
+              if (!existingLabels.has(unionDecl.name)) {
+                existingLabels.add(unionDecl.name);
+                items.push({
+                  label: unionDecl.name,
+                  kind: CompletionItemKind.Struct,
+                  detail: 'UNION',
                 });
               }
             }

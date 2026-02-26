@@ -91,7 +91,8 @@ export type VarKind =
   | 'VAR_GLOBAL'
   | 'VAR_EXTERNAL'
   | 'VAR_TEMP'
-  | 'VAR_STAT';
+  | 'VAR_STAT'
+  | 'VAR_CONFIG';
 
 export interface VarBlock extends AstNode {
   kind: 'VarBlock';
@@ -312,7 +313,13 @@ export interface AliasDeclaration extends AstNode {
   type: TypeRef;
 }
 
-export type TypeDeclaration = StructDeclaration | EnumDeclaration | AliasDeclaration;
+export interface UnionDeclaration extends AstNode {
+  kind: 'UnionDeclaration';
+  name: string;
+  fields: VarDeclaration[];
+}
+
+export type TypeDeclaration = StructDeclaration | EnumDeclaration | AliasDeclaration | UnionDeclaration;
 
 export interface TypeDeclarationBlock extends AstNode {
   kind: 'TypeDeclarationBlock';

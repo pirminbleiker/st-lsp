@@ -15,6 +15,7 @@ import {
   StructDeclaration,
   EnumDeclaration,
   AliasDeclaration,
+  UnionDeclaration,
   VarBlock,
 } from '../parser/ast';
 import { parse } from '../parser/parser';
@@ -204,6 +205,22 @@ function buildSymbols(ast: SourceFile): DocumentSymbol[] {
             range: astRangeToLsp(alias.range),
             selectionRange: astRangeToLsp(alias.range),
             detail: `= ${alias.type.name}`,
+          });
+        } else if (typeDecl.kind === 'UnionDeclaration') {
+          const union = typeDecl as UnionDeclaration;
+          const fieldSymbols: DocumentSymbol[] = union.fields.map(field => ({
+            name: field.name,
+            kind: SymbolKind.Field,
+            range: astRangeToLsp(field.range),
+            selectionRange: astRangeToLsp(field.range),
+            detail: field.type.name,
+          }));
+          result.push({
+            name: union.name,
+            kind: SymbolKind.Struct,
+            range: astRangeToLsp(union.range),
+            selectionRange: astRangeToLsp(union.range),
+            children: fieldSymbols.length > 0 ? fieldSymbols : undefined,
           });
         }
       }
