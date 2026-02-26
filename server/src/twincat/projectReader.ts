@@ -1,16 +1,29 @@
 /**
  * TwinCAT 3 project file reader.
  *
- * Parses .tsproj (TwinCAT Solution project) and .plcproj (PLC project) XML
- * files to discover which source files (.st / .TcPOU / .TcGVL / .TcDUT /
- * .TcIO) belong to the project.
+ * Parses .tsproj / .tspproj (TwinCAT Solution projects) and .plcproj (PLC
+ * project) XML files to discover which source files (.st / .TcPOU / .TcGVL /
+ * .TcDUT / .TcIO) belong to the project.
  *
- * Both formats use MSBuild-style XML.  The relevant nodes are:
+ * Two XML formats are handled:
+ *
+ * 1. MSBuild-style (.plcproj, and older .tsproj):
  *
  *   <ItemGroup>
  *     <Compile Include="Path\To\File.TcPOU" />
  *     …
  *   </ItemGroup>
+ *
+ * 2. TcSmProject-style (.tsproj / .tspproj from TwinCAT XAE):
+ *
+ *   <TcSmProject …>
+ *     <Project …>
+ *       <Plc><Project File="mobject-core.xti"/></Plc>
+ *     </Project>
+ *   </TcSmProject>
+ *
+ *   In this case the .xti references are TwinCAT fragments; the actual
+ *   Compile items live in the sibling .plcproj file(s) in the same directory.
  *
  * The returned file URIs are absolute `file://` URIs.
  */
@@ -27,6 +40,28 @@ export interface ProjectReadResult {
   fileUris: string[];
   /** Any non-fatal warnings encountered during parsing. */
   warnings: string[];
+  /** Project metadata extracted from PropertyGroup elements. */
+  metadata?: ProjectMetadata;
+  /**
+   * Virtual folder paths declared in the project (backslash-separated in the
+   * XML; normalised to forward slashes in this result).
+   */
+  folders: string[];
+  /**
+   * Warning IDs that the project has explicitly disabled via
+   * DisabledWarningIds in the XmlArchive blob.
+   */
+  disabledWarnings: number[];
+}
+
+/**
+ * Project metadata extracted from MSBuild PropertyGroup elements.
+ */
+export interface ProjectMetadata {
+  name?: string;
+  namespace?: string;
+  company?: string;
+  version?: string;
 }
 
 /**
@@ -85,6 +120,62 @@ function extractCompileIncludes(xml: string): string[] {
 }
 
 /**
+ * Extract `<Folder Include="…" />` items from MSBuild XML text.
+ * Returns paths with backslashes normalised to forward slashes.
+ */
+function extractFolderIncludes(xml: string): string[] {
+  const results: string[] = [];
+  const tagRe = /<Folder\s([^>]*?)(?:\/>|>)/gi;
+  let m: RegExpExecArray | null;
+  while ((m = tagRe.exec(xml)) !== null) {
+    const include = extractAttribute(m[1], 'Include');
+    if (include) results.push(include.replace(/\\/g, '/'));
+  }
+  return results;
+}
+
+/**
+ * Return true if the XML document uses the TcSmProject root element (the
+ * TwinCAT XAE solution/project format) rather than plain MSBuild XML.
+ */
+function isTcSmProjectFormat(xml: string): boolean {
+  return /<TcSmProject[\s>]/i.test(xml);
+}
+
+/**
+ * Extract project metadata from MSBuild PropertyGroup elements.
+ */
+function extractMetadata(xml: string): ProjectMetadata | undefined {
+  function tag(name: string): string | undefined {
+    const re = new RegExp(`<${name}\\s*>([^<]*)</${name}>`, 'i');
+    const m = re.exec(xml);
+    return m ? m[1].trim() : undefined;
+  }
+  const name = tag('Name');
+  const namespace = tag('DefaultNamespace');
+  const company = tag('Company');
+  const version = tag('ProjectVersion');
+  if (!name && !namespace && !company && !version) return undefined;
+  return { name, namespace, company, version };
+}
+
+/**
+ * Extract warning IDs from the DisabledWarningIds entry in an XmlArchive blob.
+ *
+ * The blob stores key-value pairs as adjacent <v> elements:
+ *   <v>DisabledWarningIds</v><v>355,394</v>
+ */
+function extractDisabledWarnings(xml: string): number[] {
+  const re = /<v>\s*DisabledWarningIds\s*<\/v>\s*<v>([^<]*)<\/v>/i;
+  const m = re.exec(xml);
+  if (!m) return [];
+  return m[1]
+    .split(',')
+    .map((s) => parseInt(s.trim(), 10))
+    .filter((n) => !isNaN(n));
+}
+
+/**
  * Source file extensions that are considered TwinCAT source files.
  */
 const SOURCE_EXTENSIONS = new Set([
@@ -101,9 +192,10 @@ function isSourceFile(filePath: string): boolean {
 }
 
 /**
- * Read a .tsproj or .plcproj file and return the list of source file URIs.
+ * Read a .tsproj, .tspproj, or .plcproj file and return the list of source
+ * file URIs together with metadata, folder declarations, and disabled warnings.
  *
- * @param projectFilePath Absolute path to the .tsproj or .plcproj file.
+ * @param projectFilePath Absolute path to the project file.
  */
 export function readProjectFile(projectFilePath: string): ProjectReadResult {
   const warnings: string[] = [];
@@ -118,15 +210,69 @@ export function readProjectFile(projectFilePath: string): ProjectReadResult {
   }
 
   const projectDir = path.dirname(projectFilePath);
-  const includes = extractCompileIncludes(xml);
 
+  // TcSmProject (.tsproj / .tspproj) — the Compile items live in the sibling
+  // .plcproj file(s) in the same directory; read those instead.
+  if (isTcSmProjectFormat(xml)) {
+    let plcprojFiles: string[];
+    try {
+      plcprojFiles = fs
+        .readdirSync(projectDir)
+        .filter((f) => path.extname(f).toLowerCase() === '.plcproj')
+        .map((f) => path.join(projectDir, f));
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      throw new Error(
+        `Failed to scan directory for .plcproj files next to "${projectFilePath}": ${msg}`,
+      );
+    }
+
+    const allFolders: string[] = [];
+    let combinedMetadata: ProjectMetadata | undefined;
+
+    for (const plcproj of plcprojFiles) {
+      let plcXml: string;
+      try {
+        plcXml = fs.readFileSync(plcproj, 'utf-8');
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        warnings.push(`Could not read sibling .plcproj "${plcproj}": ${msg}`);
+        continue;
+      }
+      const plcDir = path.dirname(plcproj);
+      for (const include of extractCompileIncludes(plcXml)) {
+        if (!isSourceFile(include)) continue;
+        fileUris.push(toFileUri(plcDir, include));
+      }
+      allFolders.push(...extractFolderIncludes(plcXml));
+      if (!combinedMetadata) combinedMetadata = extractMetadata(plcXml);
+    }
+
+    if (fileUris.length === 0 && plcprojFiles.length === 0) {
+      warnings.push(
+        `TcSmProject file "${projectFilePath}" has no sibling .plcproj files. ` +
+          'No source files discovered.',
+      );
+    }
+
+    const disabledWarnings = extractDisabledWarnings(xml);
+    return {
+      fileUris,
+      warnings,
+      metadata: combinedMetadata,
+      folders: allFolders,
+      disabledWarnings,
+    };
+  }
+
+  // Standard MSBuild format (.plcproj or older .tsproj)
+  const includes = extractCompileIncludes(xml);
   for (const include of includes) {
     if (!isSourceFile(include)) {
       // Skip non-source items (e.g. .tcxae, resources) silently
       continue;
     }
-    const uri = toFileUri(projectDir, include);
-    fileUris.push(uri);
+    fileUris.push(toFileUri(projectDir, include));
   }
 
   if (fileUris.length === 0 && includes.length === 0) {
@@ -136,13 +282,19 @@ export function readProjectFile(projectFilePath: string): ProjectReadResult {
     );
   }
 
-  return { fileUris, warnings };
+  return {
+    fileUris,
+    warnings,
+    metadata: extractMetadata(xml),
+    folders: extractFolderIncludes(xml),
+    disabledWarnings: extractDisabledWarnings(xml),
+  };
 }
 
 /**
  * Supported project file extensions.
  */
-export const PROJECT_FILE_EXTENSIONS = ['.tsproj', '.plcproj'] as const;
+export const PROJECT_FILE_EXTENSIONS = ['.tsproj', '.tspproj', '.plcproj'] as const;
 
 export type ProjectFileExtension = (typeof PROJECT_FILE_EXTENSIONS)[number];
 
