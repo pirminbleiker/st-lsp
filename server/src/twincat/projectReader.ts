@@ -33,6 +33,18 @@ import * as path from 'path';
 import { extractStFromTwinCAT, OffsetMap } from './tcExtractor';
 
 /**
+ * A library referenced by a TwinCAT PLC project.
+ */
+export interface LibraryRef {
+  /** Library name, e.g. 'Tc2_Standard'. Also used as namespace. */
+  name: string;
+  /** Version string, e.g. '3.4.3.0' or '*'. */
+  version?: string;
+  /** Vendor string, e.g. 'Beckhoff Automation GmbH'. */
+  vendor?: string;
+}
+
+/**
  * Result of reading a single project file.
  */
 export interface ProjectReadResult {
@@ -52,6 +64,8 @@ export interface ProjectReadResult {
    * DisabledWarningIds in the XmlArchive blob.
    */
   disabledWarnings: number[];
+  /** Libraries referenced by this project. */
+  libraryRefs: LibraryRef[];
 }
 
 /**
@@ -160,6 +174,68 @@ function extractMetadata(xml: string): ProjectMetadata | undefined {
 }
 
 /**
+ * Parse a library reference string of the form:
+ *   'Tc2_Standard, 3.4.3.0 (Beckhoff Automation GmbH)'
+ * or simply 'Tc2_Standard'.
+ */
+function parseLibraryRefString(s: string): LibraryRef | null {
+  const trimmed = s.trim();
+  if (!trimmed) return null;
+  const commaIdx = trimmed.indexOf(',');
+  if (commaIdx < 0) {
+    return { name: trimmed };
+  }
+  const name = trimmed.slice(0, commaIdx).trim();
+  if (!name) return null;
+  const rest = trimmed.slice(commaIdx + 1).trim();
+  const parenStart = rest.indexOf('(');
+  const parenEnd = rest.lastIndexOf(')');
+  const version = (parenStart > 0 ? rest.slice(0, parenStart).trim() : rest) || undefined;
+  const vendor =
+    parenStart >= 0 && parenEnd > parenStart
+      ? rest.slice(parenStart + 1, parenEnd).trim() || undefined
+      : undefined;
+  return { name, version, vendor };
+}
+
+/**
+ * Extract library references from MSBuild-style <PlcLibraryReference Include="…" /> elements
+ * and from XmlArchive <v>…</v> encoded library lists.
+ */
+function extractLibraryRefs(xml: string): LibraryRef[] {
+  const refs: LibraryRef[] = [];
+  const seen = new Set<string>();
+
+  // MSBuild: <PlcLibraryReference Include="Tc2_Standard, 3.4.3.0 (Beckhoff Automation GmbH)" />
+  const tagRe = /<PlcLibraryReference\s([^>]*?)(?:\/>|>)/gi;
+  let m: RegExpExecArray | null;
+  while ((m = tagRe.exec(xml)) !== null) {
+    const include = extractAttribute(m[1], 'Include');
+    if (include) {
+      const ref = parseLibraryRefString(include);
+      if (ref && !seen.has(ref.name)) {
+        seen.add(ref.name);
+        refs.push(ref);
+      }
+    }
+  }
+
+  // XmlArchive v-tag: <v>Tc2_Standard, 3.4.3.0 (Beckhoff Automation GmbH)</v>
+  // These appear as individual <v> values that look like library ref strings
+  // (contain a comma and a version-like pattern).
+  const vTagRe = /<v>([A-Za-z_][A-Za-z0-9_]*,[^<]+)<\/v>/g;
+  while ((m = vTagRe.exec(xml)) !== null) {
+    const ref = parseLibraryRefString(m[1]);
+    if (ref && !seen.has(ref.name)) {
+      seen.add(ref.name);
+      refs.push(ref);
+    }
+  }
+
+  return refs;
+}
+
+/**
  * Extract warning IDs from the DisabledWarningIds entry in an XmlArchive blob.
  *
  * The blob stores key-value pairs as adjacent <v> elements:
@@ -229,6 +305,8 @@ export function readProjectFile(projectFilePath: string): ProjectReadResult {
 
     const allFolders: string[] = [];
     let combinedMetadata: ProjectMetadata | undefined;
+    const allLibraryRefs: LibraryRef[] = [];
+    const seenLibraryNames = new Set<string>();
 
     for (const plcproj of plcprojFiles) {
       let plcXml: string;
@@ -246,6 +324,12 @@ export function readProjectFile(projectFilePath: string): ProjectReadResult {
       }
       allFolders.push(...extractFolderIncludes(plcXml));
       if (!combinedMetadata) combinedMetadata = extractMetadata(plcXml);
+      for (const ref of extractLibraryRefs(plcXml)) {
+        if (!seenLibraryNames.has(ref.name)) {
+          seenLibraryNames.add(ref.name);
+          allLibraryRefs.push(ref);
+        }
+      }
     }
 
     if (fileUris.length === 0 && plcprojFiles.length === 0) {
@@ -262,6 +346,7 @@ export function readProjectFile(projectFilePath: string): ProjectReadResult {
       metadata: combinedMetadata,
       folders: allFolders,
       disabledWarnings,
+      libraryRefs: allLibraryRefs,
     };
   }
 
@@ -288,6 +373,7 @@ export function readProjectFile(projectFilePath: string): ProjectReadResult {
     metadata: extractMetadata(xml),
     folders: extractFolderIncludes(xml),
     disabledWarnings: extractDisabledWarnings(xml),
+    libraryRefs: extractLibraryRefs(xml),
   };
 }
 

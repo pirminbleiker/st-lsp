@@ -315,7 +315,7 @@ describe('Completion Handler: mobject-core POUs', () => {
     });
 
     it('completion does not crash with mobject-core workspace', () => {
-      const mockIndex = { getProjectFiles: () => extractedUris } as unknown as WorkspaceIndex;
+      const mockIndex = { getProjectFiles: () => extractedUris, getLibraryRefs: () => [] } as unknown as WorkspaceIndex;
       const src = 'PROGRAM TestProg\nVAR\n  x : INT;\nEND_VAR\nEND_PROGRAM';
       const doc = TextDocument.create('file:///test.st', 'st', 1, src);
       expect(() =>
@@ -324,7 +324,7 @@ describe('Completion Handler: mobject-core POUs', () => {
     });
 
     it('completion with workspace includes Disposable FB name from fixture', () => {
-      const mockIndex = { getProjectFiles: () => extractedUris } as unknown as WorkspaceIndex;
+      const mockIndex = { getProjectFiles: () => extractedUris, getLibraryRefs: () => [] } as unknown as WorkspaceIndex;
       const src = 'PROGRAM TestProg\nVAR\n  x : INT;\nEND_VAR\nEND_PROGRAM';
       const doc = TextDocument.create('file:///test.st', 'st', 1, src);
       const items = handleCompletion(
@@ -337,7 +337,7 @@ describe('Completion Handler: mobject-core POUs', () => {
     });
 
     it('completion with workspace includes LinkedList FB name from fixture', () => {
-      const mockIndex = { getProjectFiles: () => extractedUris } as unknown as WorkspaceIndex;
+      const mockIndex = { getProjectFiles: () => extractedUris, getLibraryRefs: () => [] } as unknown as WorkspaceIndex;
       const src = 'PROGRAM TestProg\nVAR\n  x : INT;\nEND_VAR\nEND_PROGRAM';
       const doc = TextDocument.create('file:///test.st', 'st', 1, src);
       const items = handleCompletion(
@@ -500,7 +500,7 @@ describe('Definition Handler: mobject-core POUs', () => {
     });
 
     it('handleDefinition does not crash with mobject-core workspace', () => {
-      const mockIndex = { getProjectFiles: () => extractedUris } as unknown as WorkspaceIndex;
+      const mockIndex = { getProjectFiles: () => extractedUris, getLibraryRefs: () => [] } as unknown as WorkspaceIndex;
       // LinkedList extracted source — 'Disposable' appears in "EXTENDS Disposable"
       const { doc, result } = makeExtractedDoc('LinkedList.TcPOU', '.TcPOU');
       const pos = findPos(result.source, 'EXTENDS Disposable');
@@ -510,7 +510,7 @@ describe('Definition Handler: mobject-core POUs', () => {
     });
 
     it('go-to-definition for Disposable in LinkedList finds the declaration', () => {
-      const mockIndex = { getProjectFiles: () => extractedUris } as unknown as WorkspaceIndex;
+      const mockIndex = { getProjectFiles: () => extractedUris, getLibraryRefs: () => [] } as unknown as WorkspaceIndex;
       // LinkedList extracted source — 'Disposable' in "EXTENDS Disposable"
       const { doc, result } = makeExtractedDoc('LinkedList.TcPOU', '.TcPOU');
       const pos = findPos(result.source, 'EXTENDS Disposable');

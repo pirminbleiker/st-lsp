@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { TextDocument } from 'vscode-languageserver-textdocument';
 import { handleHover } from '../handlers/hover';
+import { WorkspaceIndex } from '../twincat/workspaceIndex';
+import type { LibraryRef } from '../twincat/projectReader';
 
 function makeDoc(content: string): TextDocument {
   return TextDocument.create('file:///test.st', 'st', 1, content);
@@ -208,5 +210,71 @@ describe('handleHover', () => {
         expect(contents.value).toContain('MyFB');
       }
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Library provenance in hover
+// ---------------------------------------------------------------------------
+
+function makeMockIndexWithLibs(libraryRefs: LibraryRef[]): WorkspaceIndex {
+  return {
+    getProjectFiles: () => [],
+    getLibraryRefs: () => libraryRefs,
+  } as unknown as WorkspaceIndex;
+}
+
+describe('Hover library provenance', () => {
+  // TON is in Tc2_Standard; use it as a call expression so it's a NameExpression
+  const src = [
+    'PROGRAM Main',
+    'VAR t : BOOL; END_VAR',
+    '  TON();',
+    'END_PROGRAM',
+  ].join('\n');
+
+  it('shows library namespace in hover text for stdlib FB', () => {
+    const doc = makeDoc(src);
+    // Line 2: "  TON();" — "TON" starts at char 2
+    const result = handleHover(makeParams(doc.uri, 2, 2), doc);
+    expect(result).not.toBeNull();
+    if (result) {
+      const contents = result.contents as { kind: string; value: string };
+      expect(contents.value).toContain('Tc2_Standard');
+      expect(contents.value).toContain('TON');
+    }
+  });
+
+  it('shows warning when stdlib FB library is not in project references', () => {
+    const mockIndex = makeMockIndexWithLibs([{ name: 'Tc2_MC2' }]); // Tc2_Standard not referenced
+    const doc = makeDoc(src);
+    const result = handleHover(makeParams(doc.uri, 2, 2), doc, mockIndex);
+    expect(result).not.toBeNull();
+    if (result) {
+      const contents = result.contents as { kind: string; value: string };
+      expect(contents.value).toContain('not referenced');
+    }
+  });
+
+  it('does NOT show warning when library is correctly referenced', () => {
+    const mockIndex = makeMockIndexWithLibs([{ name: 'Tc2_Standard' }]);
+    const doc = makeDoc(src);
+    const result = handleHover(makeParams(doc.uri, 2, 2), doc, mockIndex);
+    expect(result).not.toBeNull();
+    if (result) {
+      const contents = result.contents as { kind: string; value: string };
+      expect(contents.value).not.toContain('not referenced');
+    }
+  });
+
+  it('does NOT show warning when no library refs (standalone file)', () => {
+    const mockIndex = makeMockIndexWithLibs([]);
+    const doc = makeDoc(src);
+    const result = handleHover(makeParams(doc.uri, 2, 2), doc, mockIndex);
+    expect(result).not.toBeNull();
+    if (result) {
+      const contents = result.contents as { kind: string; value: string };
+      expect(contents.value).not.toContain('not referenced');
+    }
   });
 });

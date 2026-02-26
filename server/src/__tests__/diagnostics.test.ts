@@ -1,6 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
 import { TextDocument } from 'vscode-languageserver-textdocument';
 import { validateDocument } from '../handlers/diagnostics';
+import { WorkspaceIndex } from '../twincat/workspaceIndex';
+import type { LibraryRef } from '../twincat/projectReader';
 
 function makeDoc(content: string): TextDocument {
   return TextDocument.create('file:///test.st', 'st', 1, content);
@@ -568,5 +570,85 @@ END_FUNCTION_BLOCK`;
       );
       expect(warnings).toHaveLength(0);
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Missing library reference diagnostics
+// ---------------------------------------------------------------------------
+
+function makeMockIndexWithLibs(libraryRefs: LibraryRef[]): WorkspaceIndex {
+  return {
+    getProjectFiles: () => [],
+    getLibraryRefs: () => libraryRefs,
+  } as unknown as WorkspaceIndex;
+}
+
+function getDiagnosticsWithIndex(content: string, workspaceIndex: WorkspaceIndex) {
+  const { connection, sentParams } = makeMockConnection();
+  const doc = makeDoc(content);
+  validateDocument(
+    connection as unknown as import('vscode-languageserver/node').Connection,
+    doc,
+    workspaceIndex,
+  );
+  return sentParams[0]?.diagnostics as DiagnosticLike[] ?? [];
+}
+
+describe('Missing library reference diagnostics', () => {
+  it('warns when FB type requires a library not in project references', () => {
+    const src = `PROGRAM Main
+VAR
+  myTimer : TON;
+END_VAR
+END_PROGRAM`;
+    // TON is in Tc2_Standard; only Tc2_MC2 is referenced
+    const mockIndex = makeMockIndexWithLibs([{ name: 'Tc2_MC2' }]);
+    const diags = getDiagnosticsWithIndex(src, mockIndex);
+    const warnings = diags.filter(d => d.severity === 2);
+    expect(warnings.some(d => d.message.includes('Tc2_Standard'))).toBe(true);
+    expect(warnings.some(d => d.message.includes('TON'))).toBe(true);
+  });
+
+  it('does NOT warn when FB type library is correctly referenced', () => {
+    const src = `PROGRAM Main
+VAR
+  myTimer : TON;
+END_VAR
+END_PROGRAM`;
+    const mockIndex = makeMockIndexWithLibs([{ name: 'Tc2_Standard' }]);
+    const diags = getDiagnosticsWithIndex(src, mockIndex);
+    const libWarnings = diags.filter(
+      d => d.severity === 2 && d.message.includes('requires library'),
+    );
+    expect(libWarnings).toHaveLength(0);
+  });
+
+  it('does NOT warn for standalone files (no library refs in project)', () => {
+    const src = `PROGRAM Main
+VAR
+  myTimer : TON;
+END_VAR
+END_PROGRAM`;
+    // Empty library refs = standalone file, fall back behaviour: no warning
+    const mockIndex = makeMockIndexWithLibs([]);
+    const diags = getDiagnosticsWithIndex(src, mockIndex);
+    const libWarnings = diags.filter(
+      d => d.severity === 2 && d.message.includes('requires library'),
+    );
+    expect(libWarnings).toHaveLength(0);
+  });
+
+  it('does NOT produce missing-library warnings when no workspaceIndex', () => {
+    const src = `PROGRAM Main
+VAR
+  myTimer : TON;
+END_VAR
+END_PROGRAM`;
+    const diags = getDiagnostics(src);
+    const libWarnings = diags.filter(
+      d => d.severity === 2 && d.message.includes('requires library'),
+    );
+    expect(libWarnings).toHaveLength(0);
   });
 });

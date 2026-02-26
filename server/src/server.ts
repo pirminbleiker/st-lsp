@@ -137,7 +137,7 @@ connection.onCompletionResolve((item: CompletionItem): CompletionItem => {
 connection.onHover(
 	(params: TextDocumentPositionParams): Hover | null => {
 		const document = documents.get(params.textDocument.uri);
-		return handleHover(params, document);
+		return handleHover(params, document, workspaceIndex);
 	}
 );
 
@@ -226,9 +226,9 @@ connection.onInlayHint(
 
 documents.onDidChangeContent(change => {
 	workspaceIndex?.invalidateAst(change.document.uri);
-	validateDocument(connection, change.document);
+	validateDocument(connection, change.document, workspaceIndex);
 });
-documents.onDidOpen(event => validateDocument(connection, event.document));
+documents.onDidOpen(event => validateDocument(connection, event.document, workspaceIndex));
 
 documents.listen(connection);
 connection.listen();

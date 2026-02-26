@@ -19,6 +19,7 @@ import {
   isProjectFile,
   PROJECT_FILE_EXTENSIONS,
   readProjectFile,
+  LibraryRef,
 } from './projectReader';
 import { parse } from '../parser/parser';
 import { SourceFile, ParseError } from '../parser/ast';
@@ -114,6 +115,12 @@ export class WorkspaceIndex extends EventEmitter {
   /** Map from project file path → set of source file URIs it provides. */
   private readonly projectSources = new Map<string, Set<string>>();
 
+  /** Map from project file path → library refs declared in that project. */
+  private readonly projectLibraryRefs = new Map<string, LibraryRef[]>();
+
+  /** Map from source file URI → the project file path that owns it. */
+  private readonly fileToProject = new Map<string, string>();
+
   /** Merged flat set of all source file URIs across all projects. */
   private allSourceUris = new Set<string>();
 
@@ -183,6 +190,19 @@ export class WorkspaceIndex extends EventEmitter {
   }
 
   /**
+   * Return the library references declared in the project that owns the given
+   * source file URI.  Returns an empty array if the file is not part of any
+   * indexed project or the project declares no library references.
+   */
+  getLibraryRefs(fileUri: string): LibraryRef[] {
+    if (!this.initialised) this.initialize();
+    const normalised = fileUri.startsWith('file://') ? fileUri : pathToUri(fileUri);
+    const projectPath = this.fileToProject.get(normalised);
+    if (!projectPath) return [];
+    return this.projectLibraryRefs.get(projectPath) ?? [];
+  }
+
+  /**
    * Invalidate the cached AST for a URI.  Call this when a document's content
    * changes (e.g. from `documents.onDidChangeContent`).
    */
@@ -224,12 +244,14 @@ export class WorkspaceIndex extends EventEmitter {
     try {
       const result = readProjectFile(projectFilePath);
       this.projectSources.set(projectFilePath, new Set(result.fileUris));
+      this.projectLibraryRefs.set(projectFilePath, result.libraryRefs);
       for (const w of result.warnings) {
         this.emit('error', new Error(w));
       }
     } catch (err) {
       this.emit('error', err instanceof Error ? err : new Error(String(err)));
       this.projectSources.delete(projectFilePath);
+      this.projectLibraryRefs.delete(projectFilePath);
     }
     this.rebuildAllSources();
   }
@@ -239,6 +261,7 @@ export class WorkspaceIndex extends EventEmitter {
    */
   private removeProjectFile(projectFilePath: string): void {
     this.projectSources.delete(projectFilePath);
+    this.projectLibraryRefs.delete(projectFilePath);
     this.rebuildAllSources();
   }
 
@@ -248,8 +271,17 @@ export class WorkspaceIndex extends EventEmitter {
    */
   private rebuildAllSources(): void {
     const next = new Set<string>();
-    for (const uris of this.projectSources.values()) {
-      for (const uri of uris) next.add(uri);
+    const nextFileToProject = new Map<string, string>();
+    for (const [projectPath, uris] of this.projectSources.entries()) {
+      for (const uri of uris) {
+        next.add(uri);
+        nextFileToProject.set(uri, projectPath);
+      }
+    }
+    // Rebuild fileToProject
+    this.fileToProject.clear();
+    for (const [uri, proj] of nextFileToProject) {
+      this.fileToProject.set(uri, proj);
     }
     // Evict stale cache entries for files no longer in the index.
     for (const uri of this.astCache.keys()) {

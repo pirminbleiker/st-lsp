@@ -21,6 +21,7 @@ import {
 } from '../parser/ast';
 import { BUILTIN_TYPES } from '../twincat/types';
 import { STANDARD_FBS, findStandardFB } from '../twincat/stdlib';
+import { getLibraryFBs } from '../twincat/libraryRegistry';
 import { WorkspaceIndex } from '../twincat/workspaceIndex';
 import { extractStFromTwinCAT } from '../twincat/tcExtractor';
 
@@ -401,12 +402,18 @@ export function handleCompletion(
     });
   }
 
-  // 3. Standard FBs
-  for (const fb of STANDARD_FBS) {
+  // 3. Standard FBs — filtered to libraries referenced by the document's project.
+  //    If no project is found (standalone file), fall back to all stdlib symbols.
+  const libRefs = workspaceIndex?.getLibraryRefs(params.textDocument.uri) ?? [];
+  const fbsToOffer =
+    libRefs.length > 0
+      ? libRefs.flatMap((ref) => getLibraryFBs(ref.name))
+      : STANDARD_FBS;
+  for (const fb of fbsToOffer) {
     items.push({
       label: fb.name,
       kind: CompletionItemKind.Class,
-      detail: fb.description,
+      detail: fb.namespace ? `(${fb.namespace}) ${fb.description}` : fb.description,
     });
   }
 

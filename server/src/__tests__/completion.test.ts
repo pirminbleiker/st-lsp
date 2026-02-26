@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { TextDocument } from 'vscode-languageserver-textdocument';
 import { handleCompletion } from '../handlers/completion';
 import { CompletionItemKind } from 'vscode-languageserver/node';
+import { WorkspaceIndex } from '../twincat/workspaceIndex';
+import type { LibraryRef } from '../twincat/projectReader';
 
 function makeDoc(content: string): TextDocument {
   return TextDocument.create('file:///test.st', 'st', 1, content);
@@ -434,5 +436,69 @@ END_VAR
       const labels = items.map(i => i.label);
       expect(labels).toContain('GrandMethod');
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Library-aware FB completion
+// ---------------------------------------------------------------------------
+
+function makeMockIndexWithLibs(libraryRefs: LibraryRef[]): WorkspaceIndex {
+  return {
+    getProjectFiles: () => [],
+    getLibraryRefs: () => libraryRefs,
+  } as unknown as WorkspaceIndex;
+}
+
+describe('Library-aware FB completion', () => {
+  const src = `PROGRAM Main\nVAR\nEND_VAR\nEND_PROGRAM`;
+
+  it('includes Tc2_Standard FBs when Tc2_Standard is referenced', () => {
+    const mockIndex = makeMockIndexWithLibs([{ name: 'Tc2_Standard' }]);
+    const doc = makeDoc(src);
+    const items = handleCompletion(makeParams(doc.uri, 3, 0), doc, mockIndex);
+    const labels = items.map(i => i.label);
+    expect(labels).toContain('TON');
+    expect(labels).toContain('TOF');
+  });
+
+  it('includes Tc2_MC2 FBs when Tc2_MC2 is referenced', () => {
+    const mockIndex = makeMockIndexWithLibs([{ name: 'Tc2_MC2' }]);
+    const doc = makeDoc(src);
+    const items = handleCompletion(makeParams(doc.uri, 3, 0), doc, mockIndex);
+    const labels = items.map(i => i.label);
+    expect(labels).toContain('MC_Power');
+  });
+
+  it('does NOT include Tc2_MC2 FBs when only Tc2_Standard is referenced', () => {
+    const mockIndex = makeMockIndexWithLibs([{ name: 'Tc2_Standard' }]);
+    const doc = makeDoc(src);
+    const items = handleCompletion(makeParams(doc.uri, 3, 0), doc, mockIndex);
+    const labels = items.map(i => i.label);
+    expect(labels).not.toContain('MC_Power');
+  });
+
+  it('falls back to all stdlib when no library refs (standalone file)', () => {
+    const mockIndex = makeMockIndexWithLibs([]);
+    const doc = makeDoc(src);
+    const items = handleCompletion(makeParams(doc.uri, 3, 0), doc, mockIndex);
+    const labels = items.map(i => i.label);
+    // All Tc2_Standard FBs should be present
+    expect(labels).toContain('TON');
+  });
+
+  it('falls back to all stdlib when no workspaceIndex', () => {
+    const doc = makeDoc(src);
+    const items = handleCompletion(makeParams(doc.uri, 3, 0), doc);
+    const labels = items.map(i => i.label);
+    expect(labels).toContain('TON');
+  });
+
+  it('FB detail includes namespace when library is referenced', () => {
+    const mockIndex = makeMockIndexWithLibs([{ name: 'Tc2_Standard' }]);
+    const doc = makeDoc(src);
+    const items = handleCompletion(makeParams(doc.uri, 3, 0), doc, mockIndex);
+    const tonItem = items.find(i => i.label === 'TON');
+    expect(tonItem?.detail).toContain('Tc2_Standard');
   });
 });

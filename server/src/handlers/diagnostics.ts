@@ -32,7 +32,10 @@ import {
 } from '../parser/ast';
 import { BUILTIN_TYPES } from '../twincat/types';
 import { STANDARD_FBS } from '../twincat/stdlib';
+import { getLibraryFBs } from '../twincat/libraryRegistry';
 import { extractStFromTwinCAT, OffsetMap } from '../twincat/tcExtractor';
+import { WorkspaceIndex } from '../twincat/workspaceIndex';
+import type { LibraryRef } from '../twincat/projectReader';
 
 // ---------------------------------------------------------------------------
 // Known-always-allowed identifier names (case-insensitive)
@@ -393,7 +396,7 @@ function walkAssignmentInStatement(stmt: Statement, onAssign: (s: AssignmentStat
 // Semantic analysis
 // ---------------------------------------------------------------------------
 
-function runSemanticAnalysis(ast: SourceFile): Diagnostic[] {
+function runSemanticAnalysis(ast: SourceFile, libraryRefs?: LibraryRef[]): Diagnostic[] {
 	const diagnostics: Diagnostic[] = [];
 
 	// Collect all POU names and type names from the SourceFile (for cross-references)
@@ -449,6 +452,21 @@ function runSemanticAnalysis(ast: SourceFile): Diagnostic[] {
 	// Set of all known types for Part A checks
 	const knownTypes = new Set<string>([...BUILTIN_TYPE_NAMES, ...STANDARD_FB_NAMES, ...globalNames]);
 
+	// Build map from uppercase FB name → library name for missing-library diagnostics.
+	// Only populated when libraryRefs are available (file belongs to a project).
+	const libFbToLib = new Map<string, string>();
+	const referencedLibNames = new Set<string>();
+	if (libraryRefs && libraryRefs.length > 0) {
+		for (const ref of libraryRefs) {
+			referencedLibNames.add(ref.name.toUpperCase());
+		}
+		for (const fb of getLibraryFBs()) {
+			if (fb.namespace) {
+				libFbToLib.set(fb.name.toUpperCase(), fb.namespace);
+			}
+		}
+	}
+
 	for (const decl of ast.declarations) {
 		if (
 			decl.kind !== 'ProgramDeclaration' &&
@@ -492,6 +510,20 @@ function runSemanticAnalysis(ast: SourceFile): Diagnostic[] {
 						message: `Unknown type: "${vd.type.name}"`,
 						source: 'st-lsp',
 					});
+				} else if (libFbToLib.size > 0) {
+					// Check if this type belongs to a library that is not referenced
+					const libName = libFbToLib.get(typeName);
+					if (libName && !referencedLibNames.has(libName.toUpperCase())) {
+						diagnostics.push({
+							severity: DiagnosticSeverity.Warning,
+							range: {
+								start: { line: vd.type.range.start.line, character: vd.type.range.start.character },
+								end:   { line: vd.type.range.end.line,   character: vd.type.range.end.character },
+							},
+							message: `"${vd.type.name}" requires library reference to "${libName}"`,
+							source: 'st-lsp',
+						});
+					}
 				}
 			}
 		}
@@ -699,7 +731,7 @@ function applyOffsets(diagnostics: Diagnostic[], offsets: OffsetMap): Diagnostic
 	}));
 }
 
-export function validateDocument(connection: Connection, document: TextDocument): void {
+export function validateDocument(connection: Connection, document: TextDocument, workspaceIndex?: WorkspaceIndex): void {
 	let text = document.getText();
 	const extraction = extractStFromTwinCAT(document.uri, text);
 	text = extraction.stCode;
@@ -718,7 +750,8 @@ export function validateDocument(connection: Connection, document: TextDocument)
 
 	// Only run semantic analysis when there are no parse errors, to avoid
 	// cascading false positives from partially parsed ASTs.
-	const semanticDiags = errors.length === 0 ? runSemanticAnalysis(ast) : [];
+	const libraryRefs = workspaceIndex?.getLibraryRefs(document.uri);
+	const semanticDiags = errors.length === 0 ? runSemanticAnalysis(ast, libraryRefs) : [];
 
 	const diagnostics = applyOffsets([...parseDiags, ...semanticDiags], extraction.offsets);
 	connection.sendDiagnostics({ uri: document.uri, diagnostics });

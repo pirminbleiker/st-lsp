@@ -32,6 +32,7 @@ import { builtinTypeHover, findBuiltinType } from '../twincat/types';
 import { findStandardFB, standardFBHover } from '../twincat/stdlib';
 import { extractStFromTwinCAT } from '../twincat/tcExtractor';
 import { findPragmaDoc, pragmaHover } from '../twincat/pragmas';
+import { WorkspaceIndex } from '../twincat/workspaceIndex';
 
 // ---------------------------------------------------------------------------
 // Position helpers
@@ -311,6 +312,7 @@ function enumHover(decl: EnumDeclaration): string {
 export function handleHover(
   params: TextDocumentPositionParams,
   document: TextDocument | undefined,
+  workspaceIndex?: WorkspaceIndex,
 ): Hover | null {
   if (!document) return null;
 
@@ -350,8 +352,25 @@ export function handleHover(
   // 2. Standard function block?
   const stdFB = findStandardFB(name);
   if (stdFB) {
+    let hoverText = standardFBHover(stdFB);
+    // Prepend library namespace to the title line
+    if (stdFB.namespace) {
+      hoverText = `*(${stdFB.namespace})*\n\n` + hoverText;
+    }
+    // Warn if the library is not referenced by the document's project
+    if (workspaceIndex) {
+      const libRefs = workspaceIndex.getLibraryRefs(params.textDocument.uri);
+      if (libRefs.length > 0 && stdFB.namespace) {
+        const referenced = libRefs.some(
+          (r) => r.name.toUpperCase() === stdFB.namespace.toUpperCase(),
+        );
+        if (!referenced) {
+          hoverText += `\n\n> ⚠️ Library \`${stdFB.namespace}\` is not referenced in this project.`;
+        }
+      }
+    }
     return {
-      contents: { kind: MarkupKind.Markdown, value: standardFBHover(stdFB) },
+      contents: { kind: MarkupKind.Markdown, value: hoverText },
       range: { start: node.range.start, end: node.range.end },
     };
   }

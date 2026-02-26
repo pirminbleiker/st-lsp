@@ -240,3 +240,69 @@ describe('DisabledWarningIds extraction', () => {
     expect(result.disabledWarnings).toEqual([]);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Library references extraction
+// ---------------------------------------------------------------------------
+
+describe('Library references extraction', () => {
+  it('parses PlcLibraryReference Include attributes', () => {
+    const xml = `<Project><ItemGroup>
+      <Compile Include="A.TcPOU" />
+      <PlcLibraryReference Include="Tc2_Standard, 3.4.3.0 (Beckhoff Automation GmbH)" />
+      <PlcLibraryReference Include="Tc2_MC2, 3.4.22.0 (Beckhoff Automation GmbH)" />
+    </ItemGroup></Project>`;
+    write('lib.plcproj', xml);
+    const result = readProjectFile(path.join(tmpDir, 'lib.plcproj'));
+    expect(result.libraryRefs).toHaveLength(2);
+    expect(result.libraryRefs[0].name).toBe('Tc2_Standard');
+    expect(result.libraryRefs[0].version).toBe('3.4.3.0');
+    expect(result.libraryRefs[0].vendor).toBe('Beckhoff Automation GmbH');
+    expect(result.libraryRefs[1].name).toBe('Tc2_MC2');
+  });
+
+  it('parses library name without version/vendor', () => {
+    const xml = `<Project><ItemGroup>
+      <Compile Include="A.TcPOU" />
+      <PlcLibraryReference Include="Tc2_Standard" />
+    </ItemGroup></Project>`;
+    write('minimal.plcproj', xml);
+    const result = readProjectFile(path.join(tmpDir, 'minimal.plcproj'));
+    expect(result.libraryRefs).toHaveLength(1);
+    expect(result.libraryRefs[0].name).toBe('Tc2_Standard');
+    expect(result.libraryRefs[0].version).toBeUndefined();
+  });
+
+  it('returns empty array when no PlcLibraryReference elements present', () => {
+    const xml = `<Project><ItemGroup><Compile Include="A.TcPOU" /></ItemGroup></Project>`;
+    write('nolibs.plcproj', xml);
+    const result = readProjectFile(path.join(tmpDir, 'nolibs.plcproj'));
+    expect(result.libraryRefs).toEqual([]);
+  });
+
+  it('parses XmlArchive v-tag library references', () => {
+    const xml = `<Project><ItemGroup>
+      <Compile Include="A.TcPOU" />
+      <PlcProjectOptions>
+        <XmlArchive><Data>
+          <v>Tc2_Utilities, 3.4.10.0 (Beckhoff Automation GmbH)</v>
+        </Data></XmlArchive>
+      </PlcProjectOptions>
+    </ItemGroup></Project>`;
+    write('vtag.plcproj', xml);
+    const result = readProjectFile(path.join(tmpDir, 'vtag.plcproj'));
+    expect(result.libraryRefs.some((r) => r.name === 'Tc2_Utilities')).toBe(true);
+  });
+
+  it('deduplicates library refs with the same name', () => {
+    const xml = `<Project><ItemGroup>
+      <Compile Include="A.TcPOU" />
+      <PlcLibraryReference Include="Tc2_Standard, 3.4.3.0 (Beckhoff Automation GmbH)" />
+      <PlcLibraryReference Include="Tc2_Standard, 3.4.3.0 (Beckhoff Automation GmbH)" />
+    </ItemGroup></Project>`;
+    write('dupes.plcproj', xml);
+    const result = readProjectFile(path.join(tmpDir, 'dupes.plcproj'));
+    const stdRefs = result.libraryRefs.filter((r) => r.name === 'Tc2_Standard');
+    expect(stdRefs).toHaveLength(1);
+  });
+});
