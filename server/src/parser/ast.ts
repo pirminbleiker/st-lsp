@@ -56,6 +56,7 @@ export type TopLevelDeclaration =
 export interface ProgramDeclaration extends AstNode {
   kind: 'ProgramDeclaration';
   name: string;
+  pragmas: Pragma[];
   varBlocks: VarBlock[];
   body: Statement[];
 }
@@ -63,6 +64,7 @@ export interface ProgramDeclaration extends AstNode {
 export interface FunctionBlockDeclaration extends AstNode {
   kind: 'FunctionBlockDeclaration';
   name: string;
+  pragmas: Pragma[];
   extends?: string;
   implements: string[];
   varBlocks: VarBlock[];
@@ -74,6 +76,7 @@ export interface FunctionBlockDeclaration extends AstNode {
 export interface FunctionDeclaration extends AstNode {
   kind: 'FunctionDeclaration';
   name: string;
+  pragmas: Pragma[];
   returnType: TypeRef | null;
   varBlocks: VarBlock[];
   body: Statement[];
@@ -103,6 +106,7 @@ export interface VarBlock extends AstNode {
 export interface VarDeclaration extends AstNode {
   kind: 'VarDeclaration';
   name: string;
+  pragmas: Pragma[];
   type: TypeRef;
   initialValue?: Expression;
 }
@@ -352,6 +356,21 @@ export interface InterfaceDeclaration extends AstNode {
   extends: string[];
   methods: MethodDeclaration[];
   properties: PropertyDeclaration[];
+}
+
+// ---------------------------------------------------------------------------
+// Pragma attributes
+// ---------------------------------------------------------------------------
+
+/** A TwinCAT {attribute '...'} pragma attached to a declaration. */
+export interface Pragma extends AstNode {
+  kind: 'Pragma';
+  /** Attribute name, e.g. 'hide', 'monitoring', 'obsolete'. */
+  name: string;
+  /** Optional value after ':=', e.g. 'call' in {attribute 'monitoring' := 'call'}. */
+  value?: string;
+  /** The raw pragma text including braces. */
+  raw: string;
 }
 
 // ---------------------------------------------------------------------------

@@ -7,6 +7,7 @@
  *   - Standard function blocks (TON, CTU, R_TRIG, …)
  *   - Variable declarations visible in scope
  *   - POU (PROGRAM / FUNCTION_BLOCK / FUNCTION) declarations
+ *   - TwinCAT pragma attributes ({attribute '...'})
  */
 
 import { Hover, MarkupKind, TextDocumentPositionParams } from 'vscode-languageserver/node';
@@ -18,6 +19,7 @@ import {
   FunctionDeclaration,
   NameExpression,
   Position,
+  Pragma,
   ProgramDeclaration,
   SourceFile,
   StructDeclaration,
@@ -29,6 +31,7 @@ import { parse } from '../parser/parser';
 import { builtinTypeHover, findBuiltinType } from '../twincat/types';
 import { findStandardFB, standardFBHover } from '../twincat/stdlib';
 import { extractStFromTwinCAT } from '../twincat/tcExtractor';
+import { findPragmaDoc, pragmaHover } from '../twincat/pragmas';
 
 // ---------------------------------------------------------------------------
 // Position helpers
@@ -70,6 +73,9 @@ export function findNodeAtPosition(ast: SourceFile, line: number, character: num
       case 'ProgramDeclaration':
       case 'FunctionBlockDeclaration': {
         const pou = node as ProgramDeclaration | FunctionBlockDeclaration;
+        for (const p of pou.pragmas) {
+          const child = visit(p); if (child) deepest = child;
+        }
         for (const vb of pou.varBlocks) {
           const child = visit(vb);
           if (child) deepest = child;
@@ -83,6 +89,9 @@ export function findNodeAtPosition(ast: SourceFile, line: number, character: num
 
       case 'FunctionDeclaration': {
         const fn = node as FunctionDeclaration;
+        for (const p of fn.pragmas) {
+          const child = visit(p); if (child) deepest = child;
+        }
         for (const vb of fn.varBlocks) {
           const child = visit(vb);
           if (child) deepest = child;
@@ -105,6 +114,9 @@ export function findNodeAtPosition(ast: SourceFile, line: number, character: num
 
       case 'VarDeclaration': {
         const vd = node as VarDeclaration;
+        for (const p of vd.pragmas) {
+          const child = visit(p); if (child) deepest = child;
+        }
         const typeChild = visit(vd.type);
         if (typeChild) deepest = typeChild;
         if (vd.initialValue) {
@@ -248,7 +260,12 @@ function varDeclHover(vd: VarDeclaration): string {
     const dims = typeRef.arrayDims.map(d => `${d.low}..${d.high}`).join(', ');
     typeName = `ARRAY[${dims}] OF ${typeName}`;
   }
-  return `\`${vd.name} : ${typeName}\``;
+  let result = `\`${vd.name} : ${typeName}\``;
+  if (vd.pragmas.length > 0) {
+    const pragmaSummary = vd.pragmas.map(p => p.raw).join(' ');
+    result += `\n\n*Pragmas:* \`${pragmaSummary}\``;
+  }
+  return result;
 }
 
 function pouHover(decl: TopLevelDeclaration): string {
@@ -304,6 +321,17 @@ export function handleHover(
   const { line, character } = params.position;
   const node = findNodeAtPosition(ast, line, character);
   if (!node) return null;
+
+  // We handle Pragma nodes and NameExpression nodes
+  if (node.kind === 'Pragma') {
+    const pragma = node as Pragma;
+    const doc = findPragmaDoc(pragma.name);
+    const value = doc ? pragmaHover(doc) : `**\`${pragma.raw}\`**`;
+    return {
+      contents: { kind: MarkupKind.Markdown, value },
+      range: { start: node.range.start, end: node.range.end },
+    };
+  }
 
   // We only produce hover for NameExpression nodes (identifiers)
   if (node.kind !== 'NameExpression') return null;

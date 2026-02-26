@@ -188,4 +188,31 @@ describe('Lexer', () => {
       expect(tokens[0].kind).toBe(TokenKind.END_UNION);
     });
   });
+
+  describe('pragma tokens', () => {
+    it('tokenizes {attribute \'hide\'} as PRAGMA', () => {
+      const tokens = tokenize("{attribute 'hide'}");
+      expect(tokens[0].kind).toBe(TokenKind.PRAGMA);
+      expect(tokens[0].text).toBe("{attribute 'hide'}");
+    });
+
+    it('tokenizes {attribute \'monitoring\' := \'call\'} as PRAGMA', () => {
+      const tokens = tokenize("{attribute 'monitoring' := 'call'}");
+      expect(tokens[0].kind).toBe(TokenKind.PRAGMA);
+      expect(tokens[0].text).toBe("{attribute 'monitoring' := 'call'}");
+    });
+
+    it('pragma token has correct range', () => {
+      const tokens = tokenize("{attribute 'hide'}");
+      expect(tokens[0].range.start).toEqual({ line: 0, character: 0 });
+      expect(tokens[0].range.end.character).toBeGreaterThan(0);
+    });
+
+    it('pragma followed by identifier tokenizes both', () => {
+      const tokens = tokenize("{attribute 'hide'} myVar");
+      expect(tokens[0].kind).toBe(TokenKind.PRAGMA);
+      expect(tokens[1].kind).toBe(TokenKind.IDENTIFIER);
+      expect(tokens[1].text).toBe('myVar');
+    });
+  });
 });

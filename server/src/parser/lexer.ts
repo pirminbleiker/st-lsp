@@ -115,6 +115,7 @@ export enum TokenKind {
 
   // Special
   EOF = 'EOF',
+  PRAGMA = 'PRAGMA',
 }
 
 const KEYWORDS: ReadonlyMap<string, TokenKind> = new Map([
@@ -291,6 +292,11 @@ export class Lexer {
     const startPos = this.currentPos();
     const ch = this.peek();
 
+    // Pragma: {attribute '...'} or any {braced} construct
+    if (ch === '{') {
+      return this.readPragma(startPos);
+    }
+
     // Number literals
     if (ch >= '0' && ch <= '9') {
       return this.readNumber(startPos);
@@ -308,6 +314,19 @@ export class Lexer {
 
     // Operators and punctuation
     return this.readSymbol(startPos);
+  }
+
+  private readPragma(startPos: Position): Token {
+    let text = '';
+    this.advance(); // consume '{'
+    text += '{';
+    while (this.pos < this.src.length && this.peek() !== '}') {
+      text += this.advance();
+    }
+    if (this.pos < this.src.length) {
+      text += this.advance(); // consume '}'
+    }
+    return { kind: TokenKind.PRAGMA, text, range: this.makeRange(startPos) };
   }
 
   private readNumber(startPos: Position): Token {
