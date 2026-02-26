@@ -135,6 +135,46 @@ function getEnclosingFbExtends(
 }
 
 /**
+ * If the line up to the cursor contains `<ident> :=`, return the LHS identifier.
+ * Returns null if not in an assignment context.
+ */
+function getLhsIdentifierForAssignment(text: string, line: number, character: number): string | null {
+  const lines = text.split('\n');
+  if (line >= lines.length) return null;
+  const lineUpToCursor = lines[line].slice(0, character);
+  const assignIdx = lineUpToCursor.lastIndexOf(':=');
+  if (assignIdx < 0) return null;
+  // After := there should only be whitespace or a partial identifier (no operators)
+  const afterAssign = lineUpToCursor.slice(assignIdx + 2);
+  if (/[^A-Za-z0-9_.\s]/.test(afterAssign)) return null;
+  const beforeAssign = lineUpToCursor.slice(0, assignIdx).trimEnd();
+  const identMatch = beforeAssign.match(/\b([A-Za-z_][A-Za-z0-9_]*)$/);
+  return identMatch ? identMatch[1] : null;
+}
+
+/**
+ * If the cursor is inside a CASE...OF block, return the selector identifier.
+ * Scans backwards to find the nearest enclosing CASE...OF, accounting for nesting.
+ */
+function getCaseSelectorIdentifier(text: string, line: number): string | null {
+  const lines = text.split('\n');
+  let depth = 0;
+  for (let l = line; l >= 0; l--) {
+    const lineText = lines[l];
+    if (/\bEND_CASE\b/i.test(lineText)) depth++;
+    const match = /\bCASE\s+([A-Za-z_][A-Za-z0-9_]*)\s+OF\b/i.exec(lineText);
+    if (match) {
+      if (depth > 0) {
+        depth--;
+      } else {
+        return match[1];
+      }
+    }
+  }
+  return null;
+}
+
+/**
  * Collect members (VAR_OUTPUT, VAR_IN_OUT, non-PRIVATE non-FINAL methods and
  * properties) from the FB named `fbName`, searching `declarations` and the
  * workspace index.  Walks the EXTENDS chain recursively up to `maxDepth`.
@@ -222,6 +262,73 @@ function getSuperMembers(
   }
 
   return [];
+}
+
+/**
+ * Find an EnumDeclaration by type name, searching local declarations then workspace index.
+ */
+function findEnumDeclaration(
+  typeName: string,
+  declarations: TopLevelDeclaration[],
+  currentUri: string,
+  workspaceIndex?: WorkspaceIndex,
+): EnumDeclaration | null {
+  const upperName = typeName.toUpperCase();
+
+  for (const decl of declarations) {
+    if (decl.kind === 'TypeDeclarationBlock') {
+      const typeBlock = decl as TypeDeclarationBlock;
+      for (const typeDecl of typeBlock.declarations) {
+        if (typeDecl.kind === 'EnumDeclaration' && typeDecl.name.toUpperCase() === upperName) {
+          return typeDecl as EnumDeclaration;
+        }
+      }
+    }
+  }
+
+  if (workspaceIndex) {
+    for (const fileUri of workspaceIndex.getProjectFiles()) {
+      if (fileUri === currentUri) continue;
+      let fileDeclarations: TopLevelDeclaration[] | undefined;
+      const cached = workspaceIndex.getAst?.(fileUri);
+      if (cached) {
+        fileDeclarations = cached.ast.declarations;
+      } else {
+        try {
+          const filePath = fileUri.startsWith('file://')
+            ? decodeURIComponent(fileUri.replace(/^file:\/\//, ''))
+            : fileUri;
+          const rawText = fs.readFileSync(filePath, 'utf8');
+          const fileText = extractStFromTwinCAT(filePath, rawText).stCode;
+          fileDeclarations = parse(fileText).ast.declarations;
+        } catch {
+          continue;
+        }
+      }
+      for (const decl of fileDeclarations) {
+        if (decl.kind === 'TypeDeclarationBlock') {
+          for (const typeDecl of (decl as TypeDeclarationBlock).declarations) {
+            if (typeDecl.kind === 'EnumDeclaration' && typeDecl.name.toUpperCase() === upperName) {
+              return typeDecl as EnumDeclaration;
+            }
+          }
+        }
+      }
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Convert an EnumDeclaration into CompletionItems (EnumName.ValueName format).
+ */
+function enumValuesToCompletionItems(enumDecl: EnumDeclaration): CompletionItem[] {
+  return enumDecl.values.map(v => ({
+    label: `${enumDecl.name}.${v.name}`,
+    kind: CompletionItemKind.EnumMember,
+    detail: `${enumDecl.name} enum value`,
+  }));
 }
 
 /**
@@ -381,6 +488,34 @@ export function handleCompletion(
       identBeforeDot, vars, ast.declarations, params.textDocument.uri, workspaceIndex,
     );
     return members ?? [];
+  }
+
+  // Enum-aware assignment completion: when cursor is on RHS of ':=', return
+  // only the enum values if the LHS variable has an enum type.
+  const lhsIdent = getLhsIdentifierForAssignment(text, pos.line, pos.character);
+  if (lhsIdent !== null) {
+    const vars = collectVarDeclarations(ast.declarations, pos);
+    const vd = vars.find(v => v.name.toUpperCase() === lhsIdent.toUpperCase());
+    if (vd) {
+      const enumDecl = findEnumDeclaration(
+        vd.type.name, ast.declarations, params.textDocument.uri, workspaceIndex,
+      );
+      if (enumDecl) return enumValuesToCompletionItems(enumDecl);
+    }
+  }
+
+  // CASE selector enum completion: when cursor is inside a CASE...OF block where
+  // the selector variable has an enum type, return only the relevant enum values.
+  const caseSelectorIdent = getCaseSelectorIdentifier(text, pos.line);
+  if (caseSelectorIdent !== null) {
+    const vars = collectVarDeclarations(ast.declarations, pos);
+    const vd = vars.find(v => v.name.toUpperCase() === caseSelectorIdent.toUpperCase());
+    if (vd) {
+      const enumDecl = findEnumDeclaration(
+        vd.type.name, ast.declarations, params.textDocument.uri, workspaceIndex,
+      );
+      if (enumDecl) return enumValuesToCompletionItems(enumDecl);
+    }
   }
 
   const items: CompletionItem[] = [];

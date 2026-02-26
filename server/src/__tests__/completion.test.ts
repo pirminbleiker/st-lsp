@@ -311,6 +311,7 @@ notDeclared.`;
     });
   });
 
+<<<<<<< HEAD
   describe('SUPER^. member completion', () => {
     const parentSrc = `FUNCTION_BLOCK FB_Parent
 VAR_OUTPUT
@@ -501,4 +502,92 @@ describe('Library-aware FB completion', () => {
     const tonItem = items.find(i => i.label === 'TON');
     expect(tonItem?.detail).toContain('Tc2_Standard');
   });
+});
+
+describe('enum-aware assignment completion', () => {
+  const src = `TYPE
+  E_Mode : (Auto, Manual, Off);
+END_TYPE
+
+PROGRAM Main
+VAR
+  eMode : E_Mode;
+  counter : INT;
+END_VAR
+eMode :=
+END_PROGRAM`;
+  // line 9: "eMode := " (cursor at char 9, after ":= ")
+
+  it('returns only enum values on RHS of := for enum-typed variable', () => {
+    const doc = makeDoc(src);
+    const items = handleCompletion(makeParams(doc.uri, 9, 9), doc);
+    const labels = items.map(i => i.label);
+    expect(labels).toContain('E_Mode.Auto');
+    expect(labels).toContain('E_Mode.Manual');
+    expect(labels).toContain('E_Mode.Off');
+  });
+
+  it('enum member items have EnumMember kind', () => {
+    const doc = makeDoc(src);
+    const items = handleCompletion(makeParams(doc.uri, 9, 9), doc);
+    const item = items.find(i => i.label === 'E_Mode.Auto');
+    expect(item).toBeDefined();
+    expect(item?.kind).toBe(CompletionItemKind.EnumMember);
+  });
+
+  it('enum member items have correct detail', () => {
+    const doc = makeDoc(src);
+    const items = handleCompletion(makeParams(doc.uri, 9, 9), doc);
+    const item = items.find(i => i.label === 'E_Mode.Auto');
+    expect(item?.detail).toBe('E_Mode enum value');
+  });
+
+  it('does not return keywords when in enum assignment context', () => {
+    const doc = makeDoc(src);
+    const items = handleCompletion(makeParams(doc.uri, 9, 9), doc);
+    const labels = items.map(i => i.label);
+    expect(labels).not.toContain('IF');
+    expect(labels).not.toContain('WHILE');
+  });
+
+  it('falls through to flat completion for non-enum-typed variable assignment', () => {
+    const src2 = `PROGRAM Main\nVAR\n  counter : INT;\nEND_VAR\ncounter := \nEND_PROGRAM`;
+    const doc2 = makeDoc(src2);
+    const items = handleCompletion(makeParams(doc2.uri, 4, 11), doc2);
+    const labels = items.map(i => i.label);
+    expect(labels).toContain('IF');
+  });
+});
+
+describe('CASE selector enum completion', () => {
+  const src = `TYPE
+  E_Mode : (Auto, Manual, Off);
+END_TYPE
+
+PROGRAM Main
+VAR
+  eMode : E_Mode;
+END_VAR
+CASE eMode OF
+
+END_CASE
+END_PROGRAM`;
+  // line 9: "  " (cursor at char 2, blank inside CASE block)
+
+  it('returns enum values when cursor is inside CASE block with enum selector', () => {
+    const doc = makeDoc(src);
+    const items = handleCompletion(makeParams(doc.uri, 9, 2), doc);
+    const labels = items.map(i => i.label);
+    expect(labels).toContain('E_Mode.Auto');
+    expect(labels).toContain('E_Mode.Manual');
+    expect(labels).toContain('E_Mode.Off');
+  });
+
+  it('does not return keywords when in CASE enum context', () => {
+    const doc = makeDoc(src);
+    const items = handleCompletion(makeParams(doc.uri, 9, 2), doc);
+    const labels = items.map(i => i.label);
+    expect(labels).not.toContain('IF');
+  });
+});
 });
