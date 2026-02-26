@@ -17,6 +17,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import { extractStFromTwinCAT, OffsetMap } from './tcExtractor';
 
 /**
  * Result of reading a single project file.
@@ -26,6 +27,17 @@ export interface ProjectReadResult {
   fileUris: string[];
   /** Any non-fatal warnings encountered during parsing. */
   warnings: string[];
+}
+
+/**
+ * Result of extracting ST code from a source file.
+ * TODO: Replace extraction logic with tcExtractor implementation (sl-adf4)
+ */
+export interface ExtractedStFile {
+  /** The extracted ST code content */
+  stCode: string;
+  /** Offset mapping for location tracking */
+  offsets: OffsetMap;
 }
 
 /**
@@ -141,3 +153,30 @@ export function isProjectFile(filePath: string): boolean {
   const ext = path.extname(filePath).toLowerCase();
   return PROJECT_FILE_EXTENSIONS.includes(ext as ProjectFileExtension);
 }
+
+/**
+ * Read a source file and extract ST code.
+ * Handles both plain .st files and TwinCAT-wrapped formats (.TcPOU, .TcGVL, etc).
+ *
+ * TODO: Replace with tcExtractor implementation (sl-adf4)
+ *
+ * @param filePath - Absolute path to the source file
+ * @returns Extracted ST code and offset information
+ */
+export function readAndExtractStFile(filePath: string): ExtractedStFile {
+  let content: string;
+  try {
+    content = fs.readFileSync(filePath, 'utf-8');
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    throw new Error(`Failed to read file "${filePath}": ${msg}`);
+  }
+
+  // TODO: Replace with tcExtractor implementation (sl-adf4)
+  const extracted = extractStFromTwinCAT(filePath, content);
+  return {
+    stCode: extracted.stCode,
+    offsets: extracted.offsets,
+  };
+}
+
