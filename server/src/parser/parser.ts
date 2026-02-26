@@ -1,6 +1,7 @@
 /** IEC 61131-3 Structured Text recursive-descent parser */
 
 import {
+  AliasDeclaration,
   ArrayDim,
   AssignmentStatement,
   BinaryExpression,
@@ -11,8 +12,11 @@ import {
   CaseClause,
   CaseStatement,
   CaseValue,
+  ContinueStatement,
   ElsifClause,
   EmptyStatement,
+  EnumDeclaration,
+  EnumValue,
   ExitStatement,
   Expression,
   ForStatement,
@@ -20,11 +24,14 @@ import {
   FunctionDeclaration,
   IfStatement,
   IntegerLiteral,
+  InterfaceDeclaration,
   MemberExpression,
+  MethodDeclaration,
   NameExpression,
   ParseError,
   Position,
   ProgramDeclaration,
+  PropertyDeclaration,
   Range,
   RealLiteral,
   RepeatStatement,
@@ -32,8 +39,11 @@ import {
   SourceFile,
   Statement,
   StringLiteral,
+  StructDeclaration,
   SubscriptExpression,
   TopLevelDeclaration,
+  TypeDeclaration,
+  TypeDeclarationBlock,
   TypeRef,
   UnaryExpression,
   VarBlock,
@@ -136,6 +146,10 @@ class Parser {
         return this.parseFunctionBlockDeclaration();
       case TokenKind.FUNCTION:
         return this.parseFunctionDeclaration();
+      case TokenKind.TYPE:
+        return this.parseTypeDeclarationBlock();
+      case TokenKind.INTERFACE:
+        return this.parseInterfaceDeclaration();
       default:
         this.addError(`Unexpected token '${tok.text}' at top level`, tok.range);
         this.advance();
@@ -166,11 +180,59 @@ class Parser {
     const nameTok = this.expect(TokenKind.IDENTIFIER, 'Expected function block name');
     const name = nameTok.text;
 
+    // Optional EXTENDS <name>
+    let extendsName: string | undefined;
+    if (this.check(TokenKind.EXTENDS)) {
+      this.advance();
+      const extTok = this.expect(TokenKind.IDENTIFIER, 'Expected base function block name after EXTENDS');
+      extendsName = extTok.text;
+    }
+
+    // Optional IMPLEMENTS <name>, <name>, ...
+    const implementsList: string[] = [];
+    if (this.check(TokenKind.IMPLEMENTS)) {
+      this.advance();
+      do {
+        const implTok = this.expect(TokenKind.IDENTIFIER, 'Expected interface name after IMPLEMENTS');
+        implementsList.push(implTok.text);
+      } while (this.match(TokenKind.COMMA));
+    }
+
     const varBlocks = this.parseVarBlocks();
-    const body = this.parseStatementList(TokenKind.END_FUNCTION_BLOCK);
+
+    // Parse body statements, methods, and properties
+    const body: Statement[] = [];
+    const methods: MethodDeclaration[] = [];
+    const properties: PropertyDeclaration[] = [];
+
+    while (!this.check(TokenKind.END_FUNCTION_BLOCK) && !this.check(TokenKind.EOF)) {
+      if (this.check(TokenKind.METHOD)) {
+        methods.push(this.parseMethodDeclaration());
+      } else if (this.check(TokenKind.PROPERTY)) {
+        properties.push(this.parsePropertyDeclaration());
+      } else {
+        try {
+          const stmt = this.parseStatement();
+          if (stmt) body.push(stmt);
+        } catch {
+          this.skipToSemicolon();
+        }
+      }
+    }
+
     this.expect(TokenKind.END_FUNCTION_BLOCK, "Expected 'END_FUNCTION_BLOCK'");
 
-    return { kind: 'FunctionBlockDeclaration', name, varBlocks, body, range: this.endRange(start) };
+    return {
+      kind: 'FunctionBlockDeclaration',
+      name,
+      extends: extendsName,
+      implements: implementsList,
+      varBlocks,
+      body,
+      methods,
+      properties,
+      range: this.endRange(start),
+    };
   }
 
   // ---- FUNCTION ---------------------------------------------------------
@@ -203,6 +265,8 @@ class Parser {
     TokenKind.VAR_IN_OUT,
     TokenKind.VAR_GLOBAL,
     TokenKind.VAR_EXTERNAL,
+    TokenKind.VAR_TEMP,
+    TokenKind.VAR_STAT,
   ]);
 
   private parseVarBlocks(): VarBlock[] {
@@ -403,6 +467,13 @@ class Parser {
         return { kind: 'ExitStatement', range: this.endRange(start) };
       }
 
+      case TokenKind.CONTINUE: {
+        const start = this.startRange();
+        this.advance();
+        this.match(TokenKind.SEMICOLON);
+        return { kind: 'ContinueStatement', range: this.endRange(start) } as ContinueStatement;
+      }
+
       default:
         // Assignment or call statement
         return this.parseAssignmentOrCall();
@@ -419,6 +490,8 @@ class Parser {
       TokenKind.END_IF, TokenKind.END_FOR, TokenKind.END_WHILE,
       TokenKind.END_REPEAT, TokenKind.END_CASE, TokenKind.END_VAR,
       TokenKind.END_PROGRAM, TokenKind.END_FUNCTION, TokenKind.END_FUNCTION_BLOCK,
+      TokenKind.END_TYPE, TokenKind.END_STRUCT, TokenKind.END_ENUM,
+      TokenKind.END_METHOD, TokenKind.END_PROPERTY, TokenKind.END_INTERFACE,
       TokenKind.EOF,
     ]);
     while (!this.check(TokenKind.SEMICOLON) && !endKeywords.has(this.peek().kind)) {
@@ -901,6 +974,282 @@ class Parser {
         // Return a placeholder so the parse can continue
         return { kind: 'NameExpression', name: '', range: tok.range } as NameExpression;
     }
+  }
+
+  // ---- TYPE...END_TYPE --------------------------------------------------
+
+  private parseTypeDeclarationBlock(): TypeDeclarationBlock {
+    const start = this.startRange();
+    this.advance(); // TYPE
+    const declarations: TypeDeclaration[] = [];
+
+    while (!this.check(TokenKind.END_TYPE) && !this.check(TokenKind.EOF)) {
+      try {
+        const nameTok = this.expect(TokenKind.IDENTIFIER, 'Expected type name');
+        const name = nameTok.text;
+        this.expect(TokenKind.COLON, "Expected ':' after type name");
+
+        let decl: TypeDeclaration;
+        if (this.check(TokenKind.STRUCT)) {
+          decl = this.parseStructBody(name, start);
+          this.match(TokenKind.SEMICOLON);
+        } else if (this.check(TokenKind.ENUM)) {
+          this.advance(); // ENUM
+          decl = this.parseEnumBlock(name, start);
+          this.match(TokenKind.SEMICOLON);
+        } else if (this.check(TokenKind.LPAREN)) {
+          decl = this.parseEnumBody(name, start);
+          // RPAREN and SEMICOLON are consumed inside parseEnumBody
+        } else {
+          decl = this.parseAliasBody(name, start);
+          // SEMICOLON consumed inside parseAliasBody
+        }
+
+        declarations.push(decl);
+      } catch {
+        this.skipToSemicolon();
+      }
+    }
+
+    this.expect(TokenKind.END_TYPE, "Expected 'END_TYPE'");
+
+    return {
+      kind: 'TypeDeclarationBlock',
+      declarations,
+      range: this.endRange(start),
+    };
+  }
+
+  private parseStructBody(name: string, blockStart: Position): StructDeclaration {
+    const start = blockStart;
+    this.advance(); // STRUCT
+
+    // Optional EXTENDS
+    let extendsName: string | undefined;
+    if (this.check(TokenKind.EXTENDS)) {
+      this.advance();
+      const extTok = this.expect(TokenKind.IDENTIFIER, 'Expected base struct name after EXTENDS');
+      extendsName = extTok.text;
+    }
+
+    const fields: VarDeclaration[] = [];
+    while (!this.check(TokenKind.END_STRUCT) && !this.check(TokenKind.EOF)) {
+      try {
+        fields.push(this.parseVarDeclaration());
+      } catch {
+        this.skipToSemicolon();
+      }
+    }
+
+    this.expect(TokenKind.END_STRUCT, "Expected 'END_STRUCT'");
+
+    return {
+      kind: 'StructDeclaration',
+      name,
+      extends: extendsName,
+      fields,
+      range: this.endRange(start),
+    };
+  }
+
+  /** Parse ( Val1, Val2 := 5 ) old-style enum syntax */
+  private parseEnumBody(name: string, blockStart: Position): EnumDeclaration {
+    const start = blockStart;
+    this.advance(); // (
+    const values: EnumValue[] = [];
+
+    while (!this.check(TokenKind.RPAREN) && !this.check(TokenKind.EOF)) {
+      const valStart = this.startRange();
+      const valTok = this.expect(TokenKind.IDENTIFIER, 'Expected enum member name');
+      let value: Expression | undefined;
+      if (this.match(TokenKind.ASSIGN)) {
+        value = this.parseExpression();
+      }
+      values.push({ name: valTok.text, value, range: this.endRange(valStart) });
+      if (!this.match(TokenKind.COMMA)) break;
+    }
+
+    this.expect(TokenKind.RPAREN, "Expected ')'");
+    this.match(TokenKind.SEMICOLON);
+
+    return {
+      kind: 'EnumDeclaration',
+      name,
+      values,
+      range: this.endRange(start),
+    };
+  }
+
+  /** Parse ENUM...END_ENUM block-style syntax */
+  private parseEnumBlock(name: string, blockStart: Position): EnumDeclaration {
+    const start = blockStart;
+    // Optional base type: ENUM : INT
+    let baseType: TypeRef | undefined;
+    if (this.check(TokenKind.COLON)) {
+      this.advance();
+      baseType = this.parseTypeRef();
+    }
+
+    const values: EnumValue[] = [];
+    while (!this.check(TokenKind.END_ENUM) && !this.check(TokenKind.EOF)) {
+      const valStart = this.startRange();
+      const valTok = this.expect(TokenKind.IDENTIFIER, 'Expected enum member name');
+      let value: Expression | undefined;
+      if (this.match(TokenKind.ASSIGN)) {
+        value = this.parseExpression();
+      }
+      values.push({ name: valTok.text, value, range: this.endRange(valStart) });
+      this.match(TokenKind.SEMICOLON);
+      this.match(TokenKind.COMMA);
+    }
+
+    this.expect(TokenKind.END_ENUM, "Expected 'END_ENUM'");
+
+    return {
+      kind: 'EnumDeclaration',
+      name,
+      baseType,
+      values,
+      range: this.endRange(start),
+    };
+  }
+
+  private parseAliasBody(name: string, blockStart: Position): AliasDeclaration {
+    const start = blockStart;
+    const type = this.parseTypeRef();
+    this.expect(TokenKind.SEMICOLON, "Expected ';' after alias type");
+
+    return {
+      kind: 'AliasDeclaration',
+      name,
+      type,
+      range: this.endRange(start),
+    };
+  }
+
+  // ---- INTERFACE --------------------------------------------------------
+
+  private parseInterfaceDeclaration(): InterfaceDeclaration {
+    const start = this.startRange();
+    this.advance(); // INTERFACE
+    const nameTok = this.expect(TokenKind.IDENTIFIER, 'Expected interface name');
+    const name = nameTok.text;
+
+    // Optional EXTENDS <name>, <name>, ...
+    const extendsList: string[] = [];
+    if (this.check(TokenKind.EXTENDS)) {
+      this.advance();
+      do {
+        const extTok = this.expect(TokenKind.IDENTIFIER, 'Expected interface name after EXTENDS');
+        extendsList.push(extTok.text);
+      } while (this.match(TokenKind.COMMA));
+    }
+
+    const methods: MethodDeclaration[] = [];
+    const properties: PropertyDeclaration[] = [];
+
+    while (!this.check(TokenKind.END_INTERFACE) && !this.check(TokenKind.EOF)) {
+      if (this.check(TokenKind.METHOD)) {
+        methods.push(this.parseMethodDeclaration());
+      } else if (this.check(TokenKind.PROPERTY)) {
+        properties.push(this.parsePropertyDeclaration());
+      } else {
+        // Skip unknown tokens with error recovery
+        this.addError(`Unexpected token '${this.peek().text}' inside INTERFACE`, this.peek().range);
+        this.advance();
+      }
+    }
+
+    this.expect(TokenKind.END_INTERFACE, "Expected 'END_INTERFACE'");
+
+    return {
+      kind: 'InterfaceDeclaration',
+      name,
+      extends: extendsList,
+      methods,
+      properties,
+      range: this.endRange(start),
+    };
+  }
+
+  // ---- METHOD -----------------------------------------------------------
+
+  /** Modifier keywords that can appear before or after METHOD keyword */
+  private readonly METHOD_MODIFIERS: ReadonlySet<TokenKind> = new Set([
+    TokenKind.ABSTRACT,
+    TokenKind.OVERRIDE,
+    TokenKind.FINAL_KW,
+    TokenKind.PUBLIC,
+    TokenKind.PRIVATE,
+    TokenKind.PROTECTED,
+    TokenKind.INTERNAL,
+  ]);
+
+  private parseMethodDeclaration(): MethodDeclaration {
+    const start = this.startRange();
+    this.advance(); // METHOD
+
+    // Collect modifiers (can appear before name)
+    const modifiers: string[] = [];
+    while (this.METHOD_MODIFIERS.has(this.peek().kind)) {
+      modifiers.push(this.advance().text.toUpperCase());
+    }
+
+    const nameTok = this.expect(TokenKind.IDENTIFIER, 'Expected method name');
+    const name = nameTok.text;
+
+    // Optional return type: METHOD Name : TypeRef
+    let returnType: TypeRef | undefined;
+    if (this.match(TokenKind.COLON)) {
+      returnType = this.parseTypeRef();
+    }
+
+    const varBlocks = this.parseVarBlocks();
+    const body = this.parseStatementList(TokenKind.END_METHOD);
+    this.expect(TokenKind.END_METHOD, "Expected 'END_METHOD'");
+
+    return {
+      kind: 'MethodDeclaration',
+      name,
+      returnType,
+      modifiers,
+      varBlocks,
+      body,
+      range: this.endRange(start),
+    };
+  }
+
+  // ---- PROPERTY ---------------------------------------------------------
+
+  private parsePropertyDeclaration(): PropertyDeclaration {
+    const start = this.startRange();
+    this.advance(); // PROPERTY
+
+    // Collect modifiers
+    const modifiers: string[] = [];
+    while (this.METHOD_MODIFIERS.has(this.peek().kind)) {
+      modifiers.push(this.advance().text.toUpperCase());
+    }
+
+    const nameTok = this.expect(TokenKind.IDENTIFIER, 'Expected property name');
+    const name = nameTok.text;
+
+    this.expect(TokenKind.COLON, "Expected ':' after property name");
+    const type = this.parseTypeRef();
+
+    // Skip optional GET/SET blocks until END_PROPERTY
+    while (!this.check(TokenKind.END_PROPERTY) && !this.check(TokenKind.EOF)) {
+      this.advance();
+    }
+    this.expect(TokenKind.END_PROPERTY, "Expected 'END_PROPERTY'");
+
+    return {
+      kind: 'PropertyDeclaration',
+      name,
+      type,
+      modifiers,
+      range: this.endRange(start),
+    };
   }
 
   // ---- Helpers ----------------------------------------------------------

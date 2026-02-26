@@ -12,6 +12,9 @@ import {
   VarDeclaration,
   Position,
   TopLevelDeclaration,
+  TypeDeclarationBlock,
+  StructDeclaration,
+  EnumDeclaration,
 } from '../parser/ast';
 import { BUILTIN_TYPES } from '../twincat/types';
 import { STANDARD_FBS } from '../twincat/stdlib';
@@ -22,10 +25,21 @@ const KEYWORDS = [
   'WHILE', 'END_WHILE',
   'REPEAT', 'UNTIL', 'END_REPEAT',
   'CASE', 'OF', 'END_CASE',
-  'PROGRAM', 'FUNCTION_BLOCK', 'FUNCTION', 'METHOD', 'PROPERTY', 'INTERFACE',
+  'PROGRAM', 'END_PROGRAM',
+  'FUNCTION_BLOCK', 'END_FUNCTION_BLOCK',
+  'FUNCTION', 'END_FUNCTION',
+  'METHOD', 'END_METHOD',
+  'PROPERTY', 'END_PROPERTY',
+  'INTERFACE', 'END_INTERFACE',
   'VAR', 'VAR_INPUT', 'VAR_OUTPUT', 'VAR_IN_OUT', 'VAR_GLOBAL', 'VAR_TEMP', 'VAR_STAT', 'VAR_EXTERNAL', 'VAR_CONFIG', 'END_VAR',
-  'TYPE', 'STRUCT', 'END_STRUCT', 'ENUM', 'END_ENUM',
-  'ARRAY', 'POINTER', 'REFERENCE', 'OF', 'EXTENDS', 'IMPLEMENTS',
+  'TYPE', 'END_TYPE',
+  'STRUCT', 'END_STRUCT',
+  'ENUM', 'END_ENUM',
+  'ARRAY', 'POINTER', 'REFERENCE', 'OF',
+  'EXTENDS', 'IMPLEMENTS',
+  'ABSTRACT', 'OVERRIDE', 'FINAL',
+  'PUBLIC', 'PRIVATE', 'PROTECTED', 'INTERNAL',
+  'SUPER',
   'RETURN', 'EXIT', 'CONTINUE',
   'TRUE', 'FALSE', 'NULL',
   'AND', 'OR', 'XOR', 'NOT',
@@ -118,14 +132,52 @@ export function handleCompletion(
 
   // 5. POUs in the same file
   for (const decl of ast.declarations) {
-    if (decl.kind === 'ProgramDeclaration' || 
-        decl.kind === 'FunctionBlockDeclaration' || 
+    if (decl.kind === 'ProgramDeclaration' ||
+        decl.kind === 'FunctionBlockDeclaration' ||
         decl.kind === 'FunctionDeclaration') {
       const pou = decl as ProgramDeclaration | FunctionBlockDeclaration | FunctionDeclaration;
       items.push({
         label: pou.name,
         kind: decl.kind === 'FunctionDeclaration' ? CompletionItemKind.Function : CompletionItemKind.Class,
       });
+    }
+  }
+
+  // 6. Struct and enum type names from TYPE...END_TYPE blocks
+  for (const decl of ast.declarations) {
+    if (decl.kind === 'TypeDeclarationBlock') {
+      const typeBlock = decl as TypeDeclarationBlock;
+      for (const typeDecl of typeBlock.declarations) {
+        if (typeDecl.kind === 'StructDeclaration') {
+          const structDecl = typeDecl as StructDeclaration;
+          items.push({
+            label: structDecl.name,
+            kind: CompletionItemKind.Struct,
+            detail: 'STRUCT',
+          });
+        } else if (typeDecl.kind === 'EnumDeclaration') {
+          const enumDecl = typeDecl as EnumDeclaration;
+          items.push({
+            label: enumDecl.name,
+            kind: CompletionItemKind.Enum,
+            detail: 'ENUM',
+          });
+          // Also add enum member values
+          for (const enumVal of enumDecl.values) {
+            items.push({
+              label: `${enumDecl.name}.${enumVal.name}`,
+              kind: CompletionItemKind.EnumMember,
+              detail: `${enumDecl.name} enum member`,
+            });
+          }
+        } else if (typeDecl.kind === 'AliasDeclaration') {
+          items.push({
+            label: typeDecl.name,
+            kind: CompletionItemKind.TypeParameter,
+            detail: `Alias for ${typeDecl.type.name}`,
+          });
+        }
+      }
     }
   }
 

@@ -45,7 +45,9 @@ export interface SourceFile extends AstNode {
 export type TopLevelDeclaration =
   | ProgramDeclaration
   | FunctionBlockDeclaration
-  | FunctionDeclaration;
+  | FunctionDeclaration
+  | TypeDeclarationBlock
+  | InterfaceDeclaration;
 
 // ---------------------------------------------------------------------------
 // Top-level declarations
@@ -61,8 +63,12 @@ export interface ProgramDeclaration extends AstNode {
 export interface FunctionBlockDeclaration extends AstNode {
   kind: 'FunctionBlockDeclaration';
   name: string;
+  extends?: string;
+  implements: string[];
   varBlocks: VarBlock[];
   body: Statement[];
+  methods: MethodDeclaration[];
+  properties: PropertyDeclaration[];
 }
 
 export interface FunctionDeclaration extends AstNode {
@@ -83,7 +89,9 @@ export type VarKind =
   | 'VAR_OUTPUT'
   | 'VAR_IN_OUT'
   | 'VAR_GLOBAL'
-  | 'VAR_EXTERNAL';
+  | 'VAR_EXTERNAL'
+  | 'VAR_TEMP'
+  | 'VAR_STAT';
 
 export interface VarBlock extends AstNode {
   kind: 'VarBlock';
@@ -112,6 +120,7 @@ export type Statement =
   | CaseStatement
   | ReturnStatement
   | ExitStatement
+  | ContinueStatement
   | EmptyStatement;
 
 export interface AssignmentStatement extends AstNode {
@@ -188,6 +197,10 @@ export interface ReturnStatement extends AstNode {
 
 export interface ExitStatement extends AstNode {
   kind: 'ExitStatement';
+}
+
+export interface ContinueStatement extends AstNode {
+  kind: 'ContinueStatement';
 }
 
 export interface EmptyStatement extends AstNode {
@@ -267,6 +280,71 @@ export interface StringLiteral extends AstNode {
 export interface BoolLiteral extends AstNode {
   kind: 'BoolLiteral';
   value: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// TYPE...END_TYPE declarations
+// ---------------------------------------------------------------------------
+
+export interface StructDeclaration extends AstNode {
+  kind: 'StructDeclaration';
+  name: string;
+  extends?: string;
+  fields: VarDeclaration[];
+}
+
+export interface EnumValue {
+  name: string;
+  value?: Expression;
+  range: Range;
+}
+
+export interface EnumDeclaration extends AstNode {
+  kind: 'EnumDeclaration';
+  name: string;
+  baseType?: TypeRef;
+  values: EnumValue[];
+}
+
+export interface AliasDeclaration extends AstNode {
+  kind: 'AliasDeclaration';
+  name: string;
+  type: TypeRef;
+}
+
+export type TypeDeclaration = StructDeclaration | EnumDeclaration | AliasDeclaration;
+
+export interface TypeDeclarationBlock extends AstNode {
+  kind: 'TypeDeclarationBlock';
+  declarations: TypeDeclaration[];
+}
+
+// ---------------------------------------------------------------------------
+// INTERFACE declaration
+// ---------------------------------------------------------------------------
+
+export interface MethodDeclaration extends AstNode {
+  kind: 'MethodDeclaration';
+  name: string;
+  returnType?: TypeRef;
+  modifiers: string[];
+  varBlocks: VarBlock[];
+  body: Statement[];
+}
+
+export interface PropertyDeclaration extends AstNode {
+  kind: 'PropertyDeclaration';
+  name: string;
+  type: TypeRef;
+  modifiers: string[];
+}
+
+export interface InterfaceDeclaration extends AstNode {
+  kind: 'InterfaceDeclaration';
+  name: string;
+  extends: string[];
+  methods: MethodDeclaration[];
+  properties: PropertyDeclaration[];
 }
 
 // ---------------------------------------------------------------------------

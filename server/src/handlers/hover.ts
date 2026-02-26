@@ -13,13 +13,16 @@ import { Hover, MarkupKind, TextDocumentPositionParams } from 'vscode-languagese
 import { TextDocument } from 'vscode-languageserver-textdocument';
 import {
   AstNode,
+  EnumDeclaration,
   FunctionBlockDeclaration,
   FunctionDeclaration,
   NameExpression,
   Position,
   ProgramDeclaration,
   SourceFile,
+  StructDeclaration,
   TopLevelDeclaration,
+  TypeDeclarationBlock,
   VarDeclaration,
 } from '../parser/ast';
 import { parse } from '../parser/parser';
@@ -257,7 +260,30 @@ function pouHover(decl: TopLevelDeclaration): string {
       const retType = decl.returnType ? ` : ${decl.returnType.name}` : '';
       return `**FUNCTION** \`${decl.name}${retType}\``;
     }
+    case 'InterfaceDeclaration':
+      return `**INTERFACE** \`${decl.name}\``;
+    default:
+      return '';
   }
+}
+
+function structHover(decl: StructDeclaration): string {
+  const fields = decl.fields.map(f => {
+    let typeName = f.type.name;
+    if (f.type.isPointer) typeName = `POINTER TO ${typeName}`;
+    else if (f.type.isReference) typeName = `REFERENCE TO ${typeName}`;
+    else if (f.type.isArray && f.type.arrayDims) {
+      const dims = f.type.arrayDims.map(d => `${d.low}..${d.high}`).join(', ');
+      typeName = `ARRAY[${dims}] OF ${typeName}`;
+    }
+    return `  ${f.name} : ${typeName};`;
+  }).join('\n');
+  return `**STRUCT** \`${decl.name}\`\n\`\`\`\nSTRUCT\n${fields}\nEND_STRUCT\n\`\`\``;
+}
+
+function enumHover(decl: EnumDeclaration): string {
+  const values = decl.values.map(v => `  ${v.name}`).join('\n');
+  return `**ENUM** \`${decl.name}\`\n\`\`\`\n(\n${values}\n)\n\`\`\``;
 }
 
 // ---------------------------------------------------------------------------
@@ -319,6 +345,27 @@ export function handleHover(
       contents: { kind: MarkupKind.Markdown, value: pouHover(pouDecl) },
       range: { start: node.range.start, end: node.range.end },
     };
+  }
+
+  // 5. Struct or enum declaration inside TYPE...END_TYPE blocks?
+  for (const decl of ast.declarations) {
+    if (decl.kind !== 'TypeDeclarationBlock') continue;
+    const typeBlock = decl as TypeDeclarationBlock;
+    for (const typeDecl of typeBlock.declarations) {
+      if (typeDecl.name.toUpperCase() !== name.toUpperCase()) continue;
+      if (typeDecl.kind === 'StructDeclaration') {
+        return {
+          contents: { kind: MarkupKind.Markdown, value: structHover(typeDecl as StructDeclaration) },
+          range: { start: node.range.start, end: node.range.end },
+        };
+      }
+      if (typeDecl.kind === 'EnumDeclaration') {
+        return {
+          contents: { kind: MarkupKind.Markdown, value: enumHover(typeDecl as EnumDeclaration) },
+          range: { start: node.range.start, end: node.range.end },
+        };
+      }
+    }
   }
 
   return null;
