@@ -12,6 +12,7 @@ import {
   FunctionDeclaration,
   VarDeclaration,
   Position,
+  SourceFile,
   TopLevelDeclaration,
   TypeDeclarationBlock,
   StructDeclaration,
@@ -196,6 +197,12 @@ export function handleCompletion(
 
   // 7. POUs and types from workspace index (other files)
   if (workspaceIndex) {
+    // Extract prefix typed at cursor for filtering (ST identifiers: letters, digits, underscore)
+    const lines = text.split('\n');
+    const lineUpToCursor = (lines[pos.line] ?? '').slice(0, pos.character);
+    const prefixMatch = lineUpToCursor.match(/[A-Za-z_][A-Za-z0-9_]*$/);
+    const prefix = prefixMatch ? prefixMatch[0].toUpperCase() : '';
+
     // Build a set of labels already added from the current file to avoid duplicates
     const existingLabels = new Set(items.map(i => i.label));
 
@@ -206,18 +213,24 @@ export function handleCompletion(
       // Skip the current document (already covered by sections 4–6 above)
       if (fileUri === currentUri) continue;
 
-      let fileText: string;
-      try {
-        const filePath = fileUri.startsWith('file://')
-          ? decodeURIComponent(fileUri.replace(/^file:\/\//, ''))
-          : fileUri;
-        const rawText = fs.readFileSync(filePath, 'utf8');
-        fileText = extractStFromTwinCAT(filePath, rawText).stCode;
-      } catch {
-        continue;
+      // Use cached AST when available; fall back to reading from disk
+      let otherAst: SourceFile;
+      const cached = workspaceIndex.getAst?.(fileUri);
+      if (cached) {
+        otherAst = cached.ast;
+      } else {
+        let fileText: string;
+        try {
+          const filePath = fileUri.startsWith('file://')
+            ? decodeURIComponent(fileUri.replace(/^file:\/\//, ''))
+            : fileUri;
+          const rawText = fs.readFileSync(filePath, 'utf8');
+          fileText = extractStFromTwinCAT(filePath, rawText).stCode;
+        } catch {
+          continue;
+        }
+        ({ ast: otherAst } = parse(fileText));
       }
-
-      const { ast: otherAst } = parse(fileText);
 
       for (const decl of otherAst.declarations) {
         if (
@@ -226,7 +239,7 @@ export function handleCompletion(
           decl.kind === 'FunctionDeclaration'
         ) {
           const pou = decl as ProgramDeclaration | FunctionBlockDeclaration | FunctionDeclaration;
-          if (!existingLabels.has(pou.name)) {
+          if (!existingLabels.has(pou.name) && (!prefix || pou.name.toUpperCase().startsWith(prefix))) {
             existingLabels.add(pou.name);
             items.push({
               label: pou.name,
@@ -241,7 +254,7 @@ export function handleCompletion(
           for (const typeDecl of typeBlock.declarations) {
             if (typeDecl.kind === 'StructDeclaration') {
               const structDecl = typeDecl as StructDeclaration;
-              if (!existingLabels.has(structDecl.name)) {
+              if (!existingLabels.has(structDecl.name) && (!prefix || structDecl.name.toUpperCase().startsWith(prefix))) {
                 existingLabels.add(structDecl.name);
                 items.push({
                   label: structDecl.name,
@@ -251,7 +264,7 @@ export function handleCompletion(
               }
             } else if (typeDecl.kind === 'EnumDeclaration') {
               const enumDecl = typeDecl as EnumDeclaration;
-              if (!existingLabels.has(enumDecl.name)) {
+              if (!existingLabels.has(enumDecl.name) && (!prefix || enumDecl.name.toUpperCase().startsWith(prefix))) {
                 existingLabels.add(enumDecl.name);
                 items.push({
                   label: enumDecl.name,
@@ -260,7 +273,7 @@ export function handleCompletion(
                 });
                 for (const enumVal of enumDecl.values) {
                   const memberLabel = `${enumDecl.name}.${enumVal.name}`;
-                  if (!existingLabels.has(memberLabel)) {
+                  if (!existingLabels.has(memberLabel) && (!prefix || memberLabel.toUpperCase().startsWith(prefix))) {
                     existingLabels.add(memberLabel);
                     items.push({
                       label: memberLabel,
@@ -271,7 +284,7 @@ export function handleCompletion(
                 }
               }
             } else if (typeDecl.kind === 'AliasDeclaration') {
-              if (!existingLabels.has(typeDecl.name)) {
+              if (!existingLabels.has(typeDecl.name) && (!prefix || typeDecl.name.toUpperCase().startsWith(prefix))) {
                 existingLabels.add(typeDecl.name);
                 items.push({
                   label: typeDecl.name,
@@ -281,7 +294,7 @@ export function handleCompletion(
               }
             } else if (typeDecl.kind === 'UnionDeclaration') {
               const unionDecl = typeDecl as UnionDeclaration;
-              if (!existingLabels.has(unionDecl.name)) {
+              if (!existingLabels.has(unionDecl.name) && (!prefix || unionDecl.name.toUpperCase().startsWith(prefix))) {
                 existingLabels.add(unionDecl.name);
                 items.push({
                   label: unionDecl.name,
