@@ -19,6 +19,8 @@ import {
 	RenameParams,
 	WorkspaceEdit,
 	PrepareRenameParams,
+	WorkspaceSymbolParams,
+	WorkspaceSymbol,
 } from 'vscode-languageserver/node';
 
 import { TextDocument } from 'vscode-languageserver-textdocument';
@@ -30,6 +32,7 @@ import { handleDocumentSymbols } from './handlers/documentSymbols';
 import { handleSignatureHelp } from './handlers/signatureHelp';
 import { handleReferences } from './handlers/references';
 import { handleRename, handlePrepareRename } from './handlers/rename';
+import { handleWorkspaceSymbol } from './handlers/workspaceSymbol';
 import { createWorkspaceIndex, WorkspaceIndex } from './twincat/workspaceIndex';
 
 const connection = createConnection(ProposedFeatures.all);
@@ -69,6 +72,7 @@ connection.onInitialize((params: InitializeParams): InitializeResult => {
 				prepareProvider: true,
 			},
 			documentSymbolProvider: true,
+			workspaceSymbolProvider: true,
 			signatureHelpProvider: {
 				triggerCharacters: ['(', ','],
 			},
@@ -140,6 +144,12 @@ connection.onRenameRequest(
 	(params: RenameParams): WorkspaceEdit | null => {
 		const document = documents.get(params.textDocument.uri);
 		return handleRename(params, document, workspaceIndex);
+	}
+);
+
+connection.onWorkspaceSymbol(
+	(params: WorkspaceSymbolParams): WorkspaceSymbol[] => {
+		return handleWorkspaceSymbol(params, workspaceIndex);
 	}
 );
 
