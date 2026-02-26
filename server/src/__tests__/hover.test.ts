@@ -122,7 +122,6 @@ describe('handleHover', () => {
     });
   });
 
-<<<<<<< HEAD
   describe('hover over pragma attribute', () => {
     // {attribute 'hide'} on line 0, then FUNCTION_BLOCK on line 1
     const src = [
