@@ -121,4 +121,30 @@ describe('handleHover', () => {
       expect(result).toBeNull();
     });
   });
+
+  describe('hover over action name', () => {
+    it('returns action hover for action name called directly in FB body', () => {
+      // When an action is called without THIS. (e.g., Run(); as a NameExpression),
+      // hovering over it should show action hover info.
+      const srcWithCall = [
+        'FUNCTION_BLOCK MyFB',
+        'VAR x : INT; END_VAR',
+        'Run();',
+        'END_FUNCTION_BLOCK',
+        'ACTION Run:',
+        'x := x + 1;',
+        'END_ACTION',
+      ].join('\n');
+      const doc2 = makeDoc(srcWithCall);
+      // Line 2: "Run();" — hover over "Run" at character 0
+      const result = handleHover(makeParams(doc2.uri, 2, 0), doc2);
+      // "Run" resolves to the action declaration
+      expect(result).not.toBeNull();
+      if (result) {
+        const contents = result.contents as { kind: string; value: string };
+        expect(contents.value).toContain('Run');
+        expect(contents.value).toContain('MyFB');
+      }
+    });
+  });
 });

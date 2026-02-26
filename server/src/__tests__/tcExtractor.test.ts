@@ -2,6 +2,8 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import * as path from 'path';
 import * as fs from 'fs';
 import { extractST, ExtractionResult } from '../twincat/tcExtractor';
+import { parse } from '../parser/parser';
+import type { FunctionBlockDeclaration } from '../parser/ast';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -729,5 +731,108 @@ describe('lineMap consistency', () => {
       const lineCount = r.source === '' ? 0 : r.source.split('\n').length;
       expect(r.lineMap).toHaveLength(lineCount);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 11. ACTION block extraction from .TcPOU
+// ---------------------------------------------------------------------------
+
+describe('.TcPOU Action block extraction', () => {
+  const xmlWithActions = [
+    '<?xml version="1.0" encoding="utf-8"?>',                            // line 0
+    '<TcPlcObject>',                                                      // line 1
+    '  <POU Name="MyFB">',                                               // line 2
+    '    <Declaration><![CDATA[FUNCTION_BLOCK MyFB',                     // line 3
+    'VAR',                                                                // line 4
+    '  x : INT;',                                                         // line 5
+    'END_VAR]]></Declaration>',                                          // line 6
+    '    <Implementation>',                                              // line 7
+    '      <ST><![CDATA[x := 0;]]></ST>',                               // line 8
+    '    </Implementation>',                                             // line 9
+    '    <Action Name="Run" Id="{abc}">',                                // line 10
+    '      <Implementation>',                                            // line 11
+    '        <ST><![CDATA[x := x + 1;]]></ST>',                         // line 12
+    '      </Implementation>',                                           // line 13
+    '    </Action>',                                                      // line 14
+    '    <Action Name="Reset" Id="{def}">',                              // line 15
+    '      <Implementation>',                                            // line 16
+    '        <ST><![CDATA[x := 0;]]></ST>',                             // line 17
+    '      </Implementation>',                                           // line 18
+    '    </Action>',                                                      // line 19
+    '  </POU>',                                                           // line 20
+    '</TcPlcObject>',                                                    // line 21
+  ].join('\n');
+
+  it('extracts action sections', () => {
+    const r = extractST(xmlWithActions, '.TcPOU');
+    const actionSections = r.sections.filter(s => s.kind === 'action');
+    expect(actionSections).toHaveLength(2);
+  });
+
+  it('action sections have correct names', () => {
+    const r = extractST(xmlWithActions, '.TcPOU');
+    const actionSections = r.sections.filter(s => s.kind === 'action');
+    expect(actionSections[0].actionName).toBe('Run');
+    expect(actionSections[1].actionName).toBe('Reset');
+  });
+
+  it('action sections have correct content', () => {
+    const r = extractST(xmlWithActions, '.TcPOU');
+    const actionSections = r.sections.filter(s => s.kind === 'action');
+    expect(actionSections[0].content).toContain('x := x + 1;');
+    expect(actionSections[1].content).toContain('x := 0;');
+  });
+
+  it('combined source contains ACTION...END_ACTION blocks', () => {
+    const r = extractST(xmlWithActions, '.TcPOU');
+    expect(r.source).toContain('ACTION Run:');
+    expect(r.source).toContain('END_ACTION');
+    expect(r.source).toContain('ACTION Reset:');
+  });
+
+  it('lineMap covers the full combined source including action wrappers', () => {
+    const r = extractST(xmlWithActions, '.TcPOU');
+    const sourceLines = r.source.split('\n').length;
+    expect(r.lineMap).toHaveLength(sourceLines);
+  });
+
+  it('lineMap entries are non-negative', () => {
+    const r = extractST(xmlWithActions, '.TcPOU');
+    for (const line of r.lineMap) {
+      expect(line).toBeGreaterThanOrEqual(0);
+    }
+  });
+
+  it('non-POU files do not extract actions', () => {
+    const gvlXml = [
+      '<TcPlcObject><GVL Name="G">',
+      '  <Declaration><![CDATA[VAR_GLOBAL',
+      'END_VAR]]></Declaration>',
+      '</GVL></TcPlcObject>',
+    ].join('\n');
+    const r = extractST(gvlXml, '.TcGVL');
+    expect(r.sections.filter(s => s.kind === 'action')).toHaveLength(0);
+  });
+
+  it('POU with no Action children has no action sections', () => {
+    const xml = [
+      '<TcPlcObject><POU Name="Simple">',
+      '  <Declaration><![CDATA[FUNCTION_BLOCK Simple\nVAR END_VAR]]></Declaration>',
+      '  <Implementation><ST><![CDATA[;]]></ST></Implementation>',
+      '</POU></TcPlcObject>',
+    ].join('\n');
+    const r = extractST(xml, '.TcPOU');
+    expect(r.sections.filter(s => s.kind === 'action')).toHaveLength(0);
+  });
+
+  it('parsed source contains ActionDeclaration nodes after FB', () => {
+    const r = extractST(xmlWithActions, '.TcPOU');
+    const { ast } = parse(r.source);
+    const fb = ast.declarations[0] as FunctionBlockDeclaration;
+    expect(fb.kind).toBe('FunctionBlockDeclaration');
+    expect(fb.actions).toHaveLength(2);
+    expect(fb.actions[0].name).toBe('Run');
+    expect(fb.actions[1].name).toBe('Reset');
   });
 });

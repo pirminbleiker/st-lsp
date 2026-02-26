@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { parse } from '../parser/parser';
 import {
+  ActionDeclaration,
+  FunctionBlockDeclaration,
   ProgramDeclaration,
   FunctionDeclaration,
   AssignmentStatement,
@@ -286,6 +288,78 @@ END_PROGRAM`;
       expect(ast.declarations).toHaveLength(1);
       const prog = ast.declarations[0] as ProgramDeclaration;
       expect(prog.name).toBe('Outer');
+    });
+  });
+
+  describe('ACTION blocks', () => {
+    const src = `FUNCTION_BLOCK MyFB
+VAR
+  x : INT;
+END_VAR
+x := 0;
+END_FUNCTION_BLOCK
+ACTION Run:
+x := x + 1;
+END_ACTION
+ACTION Reset:
+x := 0;
+END_ACTION`;
+
+    it('parses FB with trailing ACTION blocks without errors', () => {
+      const { errors } = parse(src);
+      expect(errors).toHaveLength(0);
+    });
+
+    it('FB declaration has 2 actions', () => {
+      const { ast } = parse(src);
+      const fb = ast.declarations[0] as FunctionBlockDeclaration;
+      expect(fb.kind).toBe('FunctionBlockDeclaration');
+      expect(fb.actions).toHaveLength(2);
+    });
+
+    it('first action is named Run', () => {
+      const { ast } = parse(src);
+      const fb = ast.declarations[0] as FunctionBlockDeclaration;
+      const action = fb.actions[0] as ActionDeclaration;
+      expect(action.kind).toBe('ActionDeclaration');
+      expect(action.name).toBe('Run');
+    });
+
+    it('second action is named Reset', () => {
+      const { ast } = parse(src);
+      const fb = ast.declarations[0] as FunctionBlockDeclaration;
+      const action = fb.actions[1] as ActionDeclaration;
+      expect(action.name).toBe('Reset');
+    });
+
+    it('action body contains statements', () => {
+      const { ast } = parse(src);
+      const fb = ast.declarations[0] as FunctionBlockDeclaration;
+      const runAction = fb.actions[0] as ActionDeclaration;
+      expect(runAction.body).toHaveLength(1);
+      expect(runAction.body[0].kind).toBe('AssignmentStatement');
+    });
+
+    it('FB with no actions has empty actions array', () => {
+      const noActionSrc = `FUNCTION_BLOCK Plain
+VAR x : INT; END_VAR
+END_FUNCTION_BLOCK`;
+      const { ast } = parse(noActionSrc);
+      const fb = ast.declarations[0] as FunctionBlockDeclaration;
+      expect(fb.actions).toHaveLength(0);
+    });
+
+    it('ACTION without colon is also parsed', () => {
+      const noColonSrc = `FUNCTION_BLOCK Foo
+END_FUNCTION_BLOCK
+ACTION Bar
+; // noop
+END_ACTION`;
+      const { ast, errors } = parse(noColonSrc);
+      expect(errors).toHaveLength(0);
+      const fb = ast.declarations[0] as FunctionBlockDeclaration;
+      expect(fb.actions).toHaveLength(1);
+      expect(fb.actions[0].name).toBe('Bar');
     });
   });
 });

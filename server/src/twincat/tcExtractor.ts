@@ -20,8 +20,8 @@ import * as path from 'path';
 // ---------------------------------------------------------------------------
 
 export interface ExtractedSection {
-  /** Whether this section holds declarations or executable code. */
-  kind: 'declaration' | 'implementation';
+  /** Whether this section holds declarations, executable code, or an action body. */
+  kind: 'declaration' | 'implementation' | 'action';
   /** The raw ST text from this section (no surrounding XML). */
   content: string;
   /**
@@ -29,6 +29,8 @@ export interface ExtractedSection {
    * line begins.
    */
   startLine: number;
+  /** Action name — only present when kind === 'action'. */
+  actionName?: string;
 }
 
 export interface ExtractionResult {
@@ -73,9 +75,13 @@ function lineAtPos(str: string, pos: number): number {
 
 interface RawCData {
   content: string;
-  kind: 'declaration' | 'implementation';
+  kind: 'declaration' | 'implementation' | 'action';
   /** 0-based line in the original file where the first line of content lives. */
   startLine: number;
+  /** For action sections: the name from the <Action Name="..."> attribute. */
+  actionName?: string;
+  /** For action sections: line of the synthetic ACTION header in the original file. */
+  headerLine?: number;
 }
 
 /**
@@ -119,6 +125,12 @@ function extractTopLevelCDATAs(xml: string): RawCData[] {
   // Find Implementation > ST CDATA.
   const implResult = extractImplementationCData(xml, body, containerStart);
   if (implResult) results.push(implResult);
+
+  // For POU containers, also extract <Action Name="..."> children.
+  if (containerTagName.toUpperCase() === 'POU') {
+    const actionResults = extractActionCDATAs(xml, body, containerStart);
+    results.push(...actionResults);
+  }
 
   return results;
 }
@@ -194,6 +206,57 @@ function extractImplementationCData(
 }
 
 /**
+ * Extract all <Action Name="..."> implementation CDATAs from a POU body.
+ * Each action has only an <Implementation><ST> section (no <Declaration>).
+ */
+function extractActionCDATAs(
+  xml: string,
+  body: string,
+  bodyOffsetInXml: number,
+): RawCData[] {
+  const results: RawCData[] = [];
+
+  // Match all <Action ... Name="ActionName" ...> opening tags in the body.
+  const actionTagRe = /<Action\b([^>]*)>/gi;
+  let tagMatch: RegExpExecArray | null;
+
+  while ((tagMatch = actionTagRe.exec(body)) !== null) {
+    const attrStr = tagMatch[1];
+    const nameMatch = /\bName="([^"]+)"/i.exec(attrStr);
+    if (!nameMatch) continue;
+
+    const actionName = nameMatch[1];
+    const actionTagPosInXml = bodyOffsetInXml + tagMatch.index;
+    const headerLine = lineAtPos(xml, actionTagPosInXml);
+
+    // Find the content between <Action ...> and </Action>.
+    const actionBodyStart = tagMatch.index + tagMatch[0].length;
+    const actionCloseTag = '</Action>';
+    const actionCloseIdx = body.indexOf(actionCloseTag, actionBodyStart);
+    const actionBodyText = actionCloseIdx === -1
+      ? body.slice(actionBodyStart)
+      : body.slice(actionBodyStart, actionCloseIdx);
+
+    // Extract Implementation > ST CDATA from the action body.
+    const implCData = extractImplementationCData(
+      xml,
+      actionBodyText,
+      bodyOffsetInXml + actionBodyStart,
+    );
+    if (!implCData) continue;
+
+    results.push({
+      ...implCData,
+      kind: 'action',
+      actionName,
+      headerLine,
+    });
+  }
+
+  return results;
+}
+
+/**
  * Build an ExtractionResult from a list of ordered raw CDATA sections.
  */
 function buildResult(cdatas: RawCData[]): ExtractionResult {
@@ -205,6 +268,7 @@ function buildResult(cdatas: RawCData[]): ExtractionResult {
     kind: c.kind,
     content: c.content,
     startLine: c.startLine,
+    actionName: c.actionName,
   }));
 
   const sourceParts: string[] = [];
@@ -216,15 +280,34 @@ function buildResult(cdatas: RawCData[]): ExtractionResult {
     // Add a blank separator line between sections (mapped to the line
     // immediately before the next section's content begins in the original).
     if (si > 0) {
-      lineMap.push(c.startLine > 0 ? c.startLine - 1 : c.startLine);
+      const separatorLine = c.startLine > 0 ? c.startLine - 1 : c.startLine;
+      lineMap.push(separatorLine);
       sourceParts.push('');
     }
 
-    const lines = c.content.split('\n');
-    for (let i = 0; i < lines.length; i++) {
-      lineMap.push(c.startLine + i);
+    if (c.kind === 'action') {
+      // Wrap action body with synthetic ACTION <name>: / END_ACTION header+footer.
+      const hdrLine = c.headerLine ?? (c.startLine > 0 ? c.startLine - 1 : c.startLine);
+      // ACTION <name>: header line
+      lineMap.push(hdrLine);
+      sourceParts.push(`ACTION ${c.actionName}:`);
+
+      const lines = c.content.split('\n');
+      for (let i = 0; i < lines.length; i++) {
+        lineMap.push(c.startLine + i);
+      }
+      sourceParts.push(c.content);
+
+      // END_ACTION footer line (mapped just past the last content line)
+      lineMap.push(c.startLine + lines.length);
+      sourceParts.push('END_ACTION');
+    } else {
+      const lines = c.content.split('\n');
+      for (let i = 0; i < lines.length; i++) {
+        lineMap.push(c.startLine + i);
+      }
+      sourceParts.push(c.content);
     }
-    sourceParts.push(c.content);
   }
 
   return {

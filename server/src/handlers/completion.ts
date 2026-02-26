@@ -149,6 +149,23 @@ export function handleCompletion(
     }
   }
 
+  // 5a. THIS. member completion: actions and methods of the enclosing FB
+  const linePrefix = text.split('\n')[pos.line]?.slice(0, pos.character) ?? '';
+  if (/\bTHIS\s*\.\s*$/i.test(linePrefix)) {
+    for (const decl of ast.declarations) {
+      if (decl.kind !== 'FunctionBlockDeclaration') continue;
+      const fb = decl as FunctionBlockDeclaration;
+      if (!positionContains(fb.range.start, fb.range.end, pos)) continue;
+      for (const action of fb.actions) {
+        items.push({ label: action.name, kind: CompletionItemKind.Method, detail: 'ACTION' });
+      }
+      for (const method of fb.methods) {
+        items.push({ label: method.name, kind: CompletionItemKind.Method });
+      }
+      break;
+    }
+  }
+
   // 6. Struct and enum type names from TYPE...END_TYPE blocks
   for (const decl of ast.declarations) {
     if (decl.kind === 'TypeDeclarationBlock') {
