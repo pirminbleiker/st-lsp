@@ -21,6 +21,9 @@ import {
 	PrepareRenameParams,
 	CodeLens,
 	CodeLensParams,
+	DocumentFormattingParams,
+	DocumentRangeFormattingParams,
+	TextEdit,
 } from 'vscode-languageserver/node';
 
 import { TextDocument } from 'vscode-languageserver-textdocument';
@@ -33,6 +36,7 @@ import { handleSignatureHelp } from './handlers/signatureHelp';
 import { handleReferences } from './handlers/references';
 import { handleRename, handlePrepareRename } from './handlers/rename';
 import { handleCodeLens } from './handlers/codeLens';
+import { handleFormatting, handleRangeFormatting } from './handlers/formatting';
 import { createWorkspaceIndex, WorkspaceIndex } from './twincat/workspaceIndex';
 
 const connection = createConnection(ProposedFeatures.all);
@@ -78,6 +82,8 @@ connection.onInitialize((params: InitializeParams): InitializeResult => {
 			codeLensProvider: {
 				resolveProvider: false,
 			},
+			documentFormattingProvider: true,
+			documentRangeFormattingProvider: true,
 		},
 	};
 
@@ -167,6 +173,20 @@ connection.onCodeLens(
 	(params: CodeLensParams): CodeLens[] => {
 		const document = documents.get(params.textDocument.uri);
 		return handleCodeLens(params, document, workspaceIndex);
+	}
+);
+
+connection.onDocumentFormatting(
+	(params: DocumentFormattingParams): TextEdit[] => {
+		const document = documents.get(params.textDocument.uri);
+		return handleFormatting(params, document);
+	}
+);
+
+connection.onDocumentRangeFormatting(
+	(params: DocumentRangeFormattingParams): TextEdit[] => {
+		const document = documents.get(params.textDocument.uri);
+		return handleRangeFormatting(params, document);
 	}
 );
 
