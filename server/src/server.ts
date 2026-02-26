@@ -26,6 +26,8 @@ import {
 	TextEdit,
 	WorkspaceSymbolParams,
 	WorkspaceSymbol,
+	CodeAction,
+	CodeActionParams,
 } from 'vscode-languageserver/node';
 
 import { TextDocument } from 'vscode-languageserver-textdocument';
@@ -40,6 +42,7 @@ import { handleRename, handlePrepareRename } from './handlers/rename';
 import { handleCodeLens } from './handlers/codeLens';
 import { handleFormatting, handleRangeFormatting } from './handlers/formatting';
 import { handleWorkspaceSymbol } from './handlers/workspaceSymbol';
+import { handleCodeActions } from './handlers/codeActions';
 import { createWorkspaceIndex, WorkspaceIndex } from './twincat/workspaceIndex';
 
 const connection = createConnection(ProposedFeatures.all);
@@ -88,6 +91,9 @@ connection.onInitialize((params: InitializeParams): InitializeResult => {
 			},
 			documentFormattingProvider: true,
 			documentRangeFormattingProvider: true,
+			codeActionProvider: {
+				resolveProvider: false,
+			},
 		},
 	};
 
@@ -197,6 +203,13 @@ connection.onDocumentRangeFormatting(
 	(params: DocumentRangeFormattingParams): TextEdit[] => {
 		const document = documents.get(params.textDocument.uri);
 		return handleRangeFormatting(params, document);
+	}
+);
+
+connection.onCodeAction(
+	(params: CodeActionParams): CodeAction[] => {
+		const document = documents.get(params.textDocument.uri);
+		return handleCodeActions(params, document);
 	}
 );
 
