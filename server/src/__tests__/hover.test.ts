@@ -121,4 +121,66 @@ describe('handleHover', () => {
       expect(result).toBeNull();
     });
   });
+
+  describe('hover over pragma attribute', () => {
+    // {attribute 'hide'} on line 0, then FUNCTION_BLOCK on line 1
+    const src = [
+      "{attribute 'hide'}",
+      'FUNCTION_BLOCK MyFB',
+      'VAR',
+      '  x : INT;',
+      'END_VAR',
+      'END_FUNCTION_BLOCK',
+    ].join('\n');
+
+    it('returns hover documentation for a known pragma', () => {
+      const doc = makeDoc(src);
+      // Line 0: "{attribute 'hide'}" — hover in the middle of the pragma
+      const result = handleHover(makeParams(doc.uri, 0, 5), doc);
+      expect(result).not.toBeNull();
+      if (result) {
+        const contents = result.contents as { kind: string; value: string };
+        expect(contents.value).toContain('hide');
+        expect(contents.value).toContain('IntelliSense');
+      }
+    });
+
+    const srcMonitoring = [
+      "{attribute 'monitoring' := 'call'}",
+      'FUNCTION_BLOCK MonFB',
+      'END_FUNCTION_BLOCK',
+    ].join('\n');
+
+    it('returns hover documentation for monitoring pragma', () => {
+      const doc = makeDoc(srcMonitoring);
+      const result = handleHover(makeParams(doc.uri, 0, 5), doc);
+      expect(result).not.toBeNull();
+      if (result) {
+        const contents = result.contents as { kind: string; value: string };
+        expect(contents.value).toContain('monitoring');
+      }
+    });
+  });
+
+  describe('hover over variable with pragma shows pragma summary', () => {
+    const src = [
+      'FUNCTION_BLOCK MyFB',
+      'VAR',
+      "  {attribute 'hide'}",
+      '  hiddenVar : BOOL;',
+      'END_VAR',
+      'END_FUNCTION_BLOCK',
+    ].join('\n');
+
+    it('variable hover includes pragma summary', () => {
+      const doc = makeDoc(src);
+      // Hover over the pragma itself on line 2
+      const result = handleHover(makeParams(doc.uri, 2, 5), doc);
+      expect(result).not.toBeNull();
+      if (result) {
+        const contents = result.contents as { kind: string; value: string };
+        expect(contents.value).toContain('hide');
+      }
+    });
+  });
 });

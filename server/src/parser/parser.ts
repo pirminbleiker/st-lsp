@@ -30,6 +30,7 @@ import {
   NameExpression,
   ParseError,
   Position,
+  Pragma,
   ProgramDeclaration,
   PropertyDeclaration,
   Range,
@@ -115,6 +116,38 @@ class Parser {
     return { start, end: prev.range.end };
   }
 
+  // ---- Pragmas -----------------------------------------------------------
+
+  /**
+   * Consume any consecutive PRAGMA tokens and parse them into Pragma nodes.
+   * Called before parsing declarations that can be annotated.
+   */
+  private parsePragmas(): Pragma[] {
+    const pragmas: Pragma[] = [];
+    while (this.check(TokenKind.PRAGMA)) {
+      const tok = this.advance();
+      pragmas.push(this.parsePragmaToken(tok));
+    }
+    return pragmas;
+  }
+
+  /**
+   * Parse the text of a PRAGMA token into a Pragma AST node.
+   * Expected format: `{attribute 'name'}` or `{attribute 'name' := 'value'}`
+   */
+  private parsePragmaToken(tok: Token): Pragma {
+    const raw = tok.text;
+    // Extract content between braces
+    const inner = raw.slice(1, raw.endsWith('}') ? raw.length - 1 : raw.length).trim();
+    // Match: attribute 'name' or attribute 'name' := 'value'
+    const m = inner.match(/^attribute\s+'([^']+)'(?:\s*:=\s*'([^']*)')?/i);
+    if (m) {
+      return { kind: 'Pragma', name: m[1], value: m[2], raw, range: tok.range };
+    }
+    // Unknown pragma form — use the inner text as name
+    return { kind: 'Pragma', name: inner, raw, range: tok.range };
+  }
+
   // ---- Source file -------------------------------------------------------
 
   parseSourceFile(): SourceFile {
@@ -139,14 +172,16 @@ class Parser {
   }
 
   private parseTopLevelDeclaration(): TopLevelDeclaration | null {
+    // Collect leading pragma annotations before the declaration keyword
+    const pragmas = this.parsePragmas();
     const tok = this.peek();
     switch (tok.kind) {
       case TokenKind.PROGRAM:
-        return this.parseProgramDeclaration();
+        return this.parseProgramDeclaration(pragmas);
       case TokenKind.FUNCTION_BLOCK:
-        return this.parseFunctionBlockDeclaration();
+        return this.parseFunctionBlockDeclaration(pragmas);
       case TokenKind.FUNCTION:
-        return this.parseFunctionDeclaration();
+        return this.parseFunctionDeclaration(pragmas);
       case TokenKind.TYPE:
         return this.parseTypeDeclarationBlock();
       case TokenKind.INTERFACE:
@@ -163,8 +198,8 @@ class Parser {
 
   // ---- PROGRAM ----------------------------------------------------------
 
-  private parseProgramDeclaration(): ProgramDeclaration {
-    const start = this.startRange();
+  private parseProgramDeclaration(pragmas: Pragma[] = []): ProgramDeclaration {
+    const start = pragmas.length > 0 ? pragmas[0].range.start : this.startRange();
     this.advance(); // PROGRAM
     const nameTok = this.expect(TokenKind.IDENTIFIER, 'Expected program name');
     const name = nameTok.text;
@@ -173,13 +208,13 @@ class Parser {
     const body = this.parseStatementList(TokenKind.END_PROGRAM);
     this.expect(TokenKind.END_PROGRAM, "Expected 'END_PROGRAM'");
 
-    return { kind: 'ProgramDeclaration', name, varBlocks, body, range: this.endRange(start) };
+    return { kind: 'ProgramDeclaration', name, pragmas, varBlocks, body, range: this.endRange(start) };
   }
 
   // ---- FUNCTION_BLOCK ---------------------------------------------------
 
-  private parseFunctionBlockDeclaration(): FunctionBlockDeclaration {
-    const start = this.startRange();
+  private parseFunctionBlockDeclaration(pragmas: Pragma[] = []): FunctionBlockDeclaration {
+    const start = pragmas.length > 0 ? pragmas[0].range.start : this.startRange();
     this.advance(); // FUNCTION_BLOCK
     const nameTok = this.expect(TokenKind.IDENTIFIER, 'Expected function block name');
     const name = nameTok.text;
@@ -229,6 +264,7 @@ class Parser {
     return {
       kind: 'FunctionBlockDeclaration',
       name,
+      pragmas,
       extends: extendsName,
       implements: implementsList,
       varBlocks,
@@ -241,8 +277,8 @@ class Parser {
 
   // ---- FUNCTION ---------------------------------------------------------
 
-  private parseFunctionDeclaration(): FunctionDeclaration {
-    const start = this.startRange();
+  private parseFunctionDeclaration(pragmas: Pragma[] = []): FunctionDeclaration {
+    const start = pragmas.length > 0 ? pragmas[0].range.start : this.startRange();
     this.advance(); // FUNCTION
     const nameTok = this.expect(TokenKind.IDENTIFIER, 'Expected function name');
     const name = nameTok.text;
@@ -257,7 +293,7 @@ class Parser {
     const body = this.parseStatementList(TokenKind.END_FUNCTION);
     this.expect(TokenKind.END_FUNCTION, "Expected 'END_FUNCTION'");
 
-    return { kind: 'FunctionDeclaration', name, returnType, varBlocks, body, range: this.endRange(start) };
+    return { kind: 'FunctionDeclaration', name, pragmas, returnType, varBlocks, body, range: this.endRange(start) };
   }
 
   // ---- VAR blocks -------------------------------------------------------
@@ -276,8 +312,12 @@ class Parser {
 
   private parseVarBlocks(): VarBlock[] {
     const blocks: VarBlock[] = [];
-    while (this.VAR_KEYWORDS.has(this.peek().kind)) {
-      blocks.push(this.parseVarBlock());
+    while (this.VAR_KEYWORDS.has(this.peek().kind) || this.check(TokenKind.PRAGMA)) {
+      // Skip pragmas that appear before a VAR keyword (rare but valid)
+      while (this.check(TokenKind.PRAGMA)) this.advance();
+      if (this.VAR_KEYWORDS.has(this.peek().kind)) {
+        blocks.push(this.parseVarBlock());
+      }
     }
     return blocks;
   }
@@ -302,7 +342,8 @@ class Parser {
   }
 
   private parseVarDeclaration(): VarDeclaration {
-    const start = this.startRange();
+    const pragmas = this.parsePragmas();
+    const start = pragmas.length > 0 ? pragmas[0].range.start : this.startRange();
     const nameTok = this.expect(TokenKind.IDENTIFIER, 'Expected variable name');
     const name = nameTok.text;
 
@@ -316,7 +357,7 @@ class Parser {
 
     this.expect(TokenKind.SEMICOLON, "Expected ';'");
 
-    return { kind: 'VarDeclaration', name, type, initialValue, range: this.endRange(start) };
+    return { kind: 'VarDeclaration', name, pragmas, type, initialValue, range: this.endRange(start) };
   }
 
   // ---- Type references --------------------------------------------------
