@@ -308,4 +308,131 @@ notDeclared.`;
       });
     });
   });
+
+  describe('SUPER^. member completion', () => {
+    const parentSrc = `FUNCTION_BLOCK FB_Parent
+VAR_OUTPUT
+  Status : BOOL;
+END_VAR
+VAR_IN_OUT
+  Buffer : INT;
+END_VAR
+METHOD DoWork : BOOL
+END_METHOD
+METHOD PRIVATE HideMe : BOOL
+END_METHOD
+METHOD FINAL SealMe : BOOL
+END_METHOD
+PROPERTY MyProp : INT
+END_PROPERTY
+PROPERTY PRIVATE HiddenProp : INT
+END_PROPERTY
+END_FUNCTION_BLOCK
+
+FUNCTION_BLOCK FB_Child EXTENDS FB_Parent
+VAR
+  dummy : BOOL;
+END_VAR
+`;
+
+    it('returns parent VAR_OUTPUT on SUPER^. trigger', () => {
+      const src = parentSrc + `  SUPER^.`;
+      const doc = makeDoc(src);
+      // cursor at end of last line
+      const lines = src.split('\n');
+      const lastLine = lines.length - 1;
+      const items = handleCompletion(makeParams(doc.uri, lastLine, lines[lastLine].length), doc);
+      const labels = items.map(i => i.label);
+      expect(labels).toContain('Status');
+    });
+
+    it('returns parent VAR_IN_OUT on SUPER^. trigger', () => {
+      const src = parentSrc + `  SUPER^.`;
+      const doc = makeDoc(src);
+      const lines = src.split('\n');
+      const lastLine = lines.length - 1;
+      const items = handleCompletion(makeParams(doc.uri, lastLine, lines[lastLine].length), doc);
+      const labels = items.map(i => i.label);
+      expect(labels).toContain('Buffer');
+    });
+
+    it('returns accessible parent methods on SUPER^. trigger', () => {
+      const src = parentSrc + `  SUPER^.`;
+      const doc = makeDoc(src);
+      const lines = src.split('\n');
+      const lastLine = lines.length - 1;
+      const items = handleCompletion(makeParams(doc.uri, lastLine, lines[lastLine].length), doc);
+      const labels = items.map(i => i.label);
+      expect(labels).toContain('DoWork');
+    });
+
+    it('excludes PRIVATE methods from SUPER^. completion', () => {
+      const src = parentSrc + `  SUPER^.`;
+      const doc = makeDoc(src);
+      const lines = src.split('\n');
+      const lastLine = lines.length - 1;
+      const items = handleCompletion(makeParams(doc.uri, lastLine, lines[lastLine].length), doc);
+      const labels = items.map(i => i.label);
+      expect(labels).not.toContain('HideMe');
+    });
+
+    it('excludes FINAL methods from SUPER^. completion', () => {
+      const src = parentSrc + `  SUPER^.`;
+      const doc = makeDoc(src);
+      const lines = src.split('\n');
+      const lastLine = lines.length - 1;
+      const items = handleCompletion(makeParams(doc.uri, lastLine, lines[lastLine].length), doc);
+      const labels = items.map(i => i.label);
+      expect(labels).not.toContain('SealMe');
+    });
+
+    it('returns accessible parent properties on SUPER^. trigger', () => {
+      const src = parentSrc + `  SUPER^.`;
+      const doc = makeDoc(src);
+      const lines = src.split('\n');
+      const lastLine = lines.length - 1;
+      const items = handleCompletion(makeParams(doc.uri, lastLine, lines[lastLine].length), doc);
+      const labels = items.map(i => i.label);
+      expect(labels).toContain('MyProp');
+    });
+
+    it('excludes PRIVATE properties from SUPER^. completion', () => {
+      const src = parentSrc + `  SUPER^.`;
+      const doc = makeDoc(src);
+      const lines = src.split('\n');
+      const lastLine = lines.length - 1;
+      const items = handleCompletion(makeParams(doc.uri, lastLine, lines[lastLine].length), doc);
+      const labels = items.map(i => i.label);
+      expect(labels).not.toContain('HiddenProp');
+    });
+
+    it('returns empty list when not inside an EXTENDS FB', () => {
+      const src = `PROGRAM Main\nVAR\nEND_VAR\n  SUPER^.`;
+      const doc = makeDoc(src);
+      const lines = src.split('\n');
+      const lastLine = lines.length - 1;
+      const items = handleCompletion(makeParams(doc.uri, lastLine, lines[lastLine].length), doc);
+      expect(items).toEqual([]);
+    });
+
+    it('handles chained EXTENDS (grandparent members accessible)', () => {
+      const src = `FUNCTION_BLOCK FB_Grandparent
+METHOD GrandMethod : BOOL
+END_METHOD
+END_FUNCTION_BLOCK
+FUNCTION_BLOCK FB_Middle EXTENDS FB_Grandparent
+END_FUNCTION_BLOCK
+FUNCTION_BLOCK FB_Child EXTENDS FB_Middle
+VAR
+  dummy : BOOL;
+END_VAR
+  SUPER^.`;
+      const doc = makeDoc(src);
+      const lines = src.split('\n');
+      const lastLine = lines.length - 1;
+      const items = handleCompletion(makeParams(doc.uri, lastLine, lines[lastLine].length), doc);
+      const labels = items.map(i => i.label);
+      expect(labels).toContain('GrandMethod');
+    });
+  });
 });

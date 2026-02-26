@@ -14,6 +14,7 @@ import { TextDocument } from 'vscode-languageserver-textdocument';
 import {
   FunctionBlockDeclaration,
   FunctionDeclaration,
+  MemberExpression,
   NameExpression,
   Position,
   ProgramDeclaration,
@@ -90,6 +91,101 @@ function findActionDeclaration(
   return undefined;
 }
 
+/**
+ * Collect declarations from the workspace index into an array of
+ * `{ uri, declarations }` pairs (excluding `currentUri`).
+ */
+function loadWorkspaceDeclarations(
+  currentUri: string,
+  workspaceIndex: WorkspaceIndex | undefined,
+): Array<{ uri: string; declarations: TopLevelDeclaration[] }> {
+  if (!workspaceIndex) return [];
+  const result: Array<{ uri: string; declarations: TopLevelDeclaration[] }> = [];
+  for (const fileUri of workspaceIndex.getProjectFiles()) {
+    if (fileUri === currentUri) continue;
+    const cached = workspaceIndex.getAst(fileUri);
+    if (cached) {
+      result.push({ uri: fileUri, declarations: cached.ast.declarations });
+    } else {
+      try {
+        const filePath = fileUri.startsWith('file://')
+          ? decodeURIComponent(fileUri.replace(/^file:\/\//, ''))
+          : fileUri;
+        const rawText = fs.readFileSync(filePath, 'utf8');
+        const fileText = extractStFromTwinCAT(filePath, rawText).stCode;
+        result.push({ uri: fileUri, declarations: parse(fileText).ast.declarations });
+      } catch {
+        // skip unreadable files
+      }
+    }
+  }
+  return result;
+}
+
+/**
+ * Find a method or property named `memberName` in the FB named `fbName`,
+ * walking the EXTENDS chain recursively up to `maxDepth`.
+ * Returns `{ uri, node }` for the matching declaration or null.
+ */
+function findSuperMemberDeclaration(
+  fbName: string,
+  memberName: string,
+  localDeclarations: TopLevelDeclaration[],
+  workspaceFiles: Array<{ uri: string; declarations: TopLevelDeclaration[] }>,
+  currentUri: string,
+  depth: number,
+): { uri: string; node: { range: { start: Position; end: Position } } } | null {
+  if (depth <= 0) return null;
+
+  const upperFb = fbName.toUpperCase();
+  const upperMember = memberName.toUpperCase();
+
+  const allSources: Array<{ uri: string; declarations: TopLevelDeclaration[] }> = [
+    { uri: currentUri, declarations: localDeclarations },
+    ...workspaceFiles,
+  ];
+
+  for (const { uri, declarations } of allSources) {
+    for (const decl of declarations) {
+      if (decl.kind !== 'FunctionBlockDeclaration') continue;
+      const fb = decl as FunctionBlockDeclaration;
+      if (fb.name.toUpperCase() !== upperFb) continue;
+
+      // Search methods
+      const method = fb.methods.find(m => m.name.toUpperCase() === upperMember);
+      if (method) return { uri, node: method };
+
+      // Search properties
+      const prop = fb.properties.find(p => p.name.toUpperCase() === upperMember);
+      if (prop) return { uri, node: prop };
+
+      // Recurse into parent chain
+      if (fb.extends) {
+        return findSuperMemberDeclaration(
+          fb.extends, memberName, localDeclarations, workspaceFiles, currentUri, depth - 1,
+        );
+      }
+
+      return null;
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Find the enclosing FUNCTION_BLOCK declaration's `extends` field at `pos`.
+ */
+function getEnclosingFbExtends(ast: SourceFile, pos: Position): string | null {
+  for (const decl of ast.declarations) {
+    if (decl.kind !== 'FunctionBlockDeclaration') continue;
+    const fb = decl as FunctionBlockDeclaration;
+    if (!positionContains(fb.range.start, fb.range.end, pos)) continue;
+    return fb.extends ?? null;
+  }
+  return null;
+}
+
 // ---------------------------------------------------------------------------
 // Location builders
 // ---------------------------------------------------------------------------
@@ -121,14 +217,35 @@ export function handleDefinition(
 
   const { line, character } = params.position;
   const node = findNodeAtPosition(ast, line, character);
-  if (!node || node.kind !== 'NameExpression') return null;
+  if (!node) return null;
+
+  const pos: Position = { line, character };
+  const uri = params.textDocument.uri;
+
+  // SUPER^.Member go-to-definition: navigate to the parent FB's member declaration.
+  if (
+    node.kind === 'MemberExpression' &&
+    (node as MemberExpression).base.kind === 'NameExpression' &&
+    ((node as MemberExpression).base as NameExpression).name.toUpperCase() === 'SUPER'
+  ) {
+    const memberName = (node as MemberExpression).member;
+    const parentFbName = getEnclosingFbExtends(ast, pos);
+    if (parentFbName && memberName) {
+      const workspaceFiles = loadWorkspaceDeclarations(uri, workspaceIndex);
+      const found = findSuperMemberDeclaration(
+        parentFbName, memberName, ast.declarations, workspaceFiles, uri, 10,
+      );
+      if (found) return toLocation(found.uri, found.node);
+    }
+    return null;
+  }
+
+  if (node.kind !== 'NameExpression') return null;
 
   const name = (node as NameExpression).name;
   if (!name) return null;
 
   const nameUpper = name.toUpperCase();
-  const pos: Position = { line, character };
-  const uri = params.textDocument.uri;
 
   // 1. Local VarDeclarations in the enclosing POU
   const localVars = collectLocalVars(ast, pos);

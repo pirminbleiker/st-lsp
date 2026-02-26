@@ -1027,6 +1027,17 @@ class Parser {
         } as NameExpression;
       }
 
+      case TokenKind.SUPER: {
+        // SUPER^ — pointer dereference of the parent FB instance.
+        // Consume SUPER and the optional '^' that follows it so that
+        // the postfix loop can then handle the trailing '.member' access.
+        this.advance(); // SUPER
+        if (this.peek().kind === TokenKind.IDENTIFIER && this.peek().text === '^') {
+          this.advance(); // ^
+        }
+        return { kind: 'NameExpression', name: 'SUPER', range: tok.range } as NameExpression;
+      }
+
       default:
         // Many keywords can be used as identifiers in context (e.g. type names)
         if (isKeywordUsableAsIdentifier(tok.kind)) {

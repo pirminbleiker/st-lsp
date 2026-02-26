@@ -105,6 +105,125 @@ function getIdentifierBeforeDot(text: string, line: number, character: number): 
 }
 
 /**
+ * Return true if the text immediately before the cursor ends with `SUPER^.`
+ * (case-insensitive, with optional whitespace around `^` and `.`).
+ */
+function isSuperBeforeDot(text: string, line: number, character: number): boolean {
+  const lines = text.split('\n');
+  if (line >= lines.length) return false;
+  const lineText = lines[line];
+  // The cursor must be at/after a '.' that follows SUPER^
+  const prefix = lineText.slice(0, character);
+  return /\bSUPER\s*\^\s*\.\s*$/i.test(prefix);
+}
+
+/**
+ * Return the `extends` name of the FUNCTION_BLOCK enclosing `pos`, or null.
+ */
+function getEnclosingFbExtends(
+  declarations: TopLevelDeclaration[],
+  pos: Position,
+): string | null {
+  for (const decl of declarations) {
+    if (decl.kind !== 'FunctionBlockDeclaration') continue;
+    const fb = decl as FunctionBlockDeclaration;
+    if (!positionContains(fb.range.start, fb.range.end, pos)) continue;
+    return fb.extends ?? null;
+  }
+  return null;
+}
+
+/**
+ * Collect members (VAR_OUTPUT, VAR_IN_OUT, non-PRIVATE non-FINAL methods and
+ * properties) from the FB named `fbName`, searching `declarations` and the
+ * workspace index.  Walks the EXTENDS chain recursively up to `maxDepth`.
+ */
+function getSuperMembers(
+  fbName: string,
+  declarations: TopLevelDeclaration[],
+  currentUri: string,
+  workspaceIndex: WorkspaceIndex | undefined,
+  depth: number,
+): CompletionItem[] {
+  if (depth <= 0) return [];
+
+  // Search current file, then workspace index
+  const allDeclarations: TopLevelDeclaration[][] = [declarations];
+  if (workspaceIndex) {
+    for (const fileUri of workspaceIndex.getProjectFiles()) {
+      if (fileUri === currentUri) continue;
+      const cached = workspaceIndex.getAst(fileUri);
+      if (cached) {
+        allDeclarations.push(cached.ast.declarations);
+      } else {
+        try {
+          const filePath = fileUri.startsWith('file://')
+            ? decodeURIComponent(fileUri.replace(/^file:\/\//, ''))
+            : fileUri;
+          const rawText = fs.readFileSync(filePath, 'utf8');
+          const fileText = extractStFromTwinCAT(filePath, rawText).stCode;
+          allDeclarations.push(parse(fileText).ast.declarations);
+        } catch {
+          // skip unreadable files
+        }
+      }
+    }
+  }
+
+  const upperName = fbName.toUpperCase();
+  for (const decls of allDeclarations) {
+    for (const decl of decls) {
+      if (decl.kind !== 'FunctionBlockDeclaration') continue;
+      const fb = decl as FunctionBlockDeclaration;
+      if (fb.name.toUpperCase() !== upperName) continue;
+
+      const items: CompletionItem[] = [];
+
+      // VAR_OUTPUT and VAR_IN_OUT
+      for (const vb of fb.varBlocks) {
+        if (vb.varKind === 'VAR_OUTPUT' || vb.varKind === 'VAR_IN_OUT') {
+          for (const vd of vb.declarations) {
+            items.push({ label: vd.name, kind: CompletionItemKind.Field, detail: vd.type.name });
+          }
+        }
+      }
+
+      // Methods — exclude PRIVATE and FINAL
+      for (const method of fb.methods) {
+        const mods = method.modifiers.map(m => m.toUpperCase());
+        if (mods.includes('PRIVATE') || mods.includes('FINAL')) continue;
+        items.push({
+          label: method.name,
+          kind: CompletionItemKind.Method,
+          detail: method.returnType?.name ?? 'void',
+        });
+      }
+
+      // Properties — exclude PRIVATE and FINAL
+      for (const prop of fb.properties) {
+        const mods = prop.modifiers.map(m => m.toUpperCase());
+        if (mods.includes('PRIVATE') || mods.includes('FINAL')) continue;
+        items.push({ label: prop.name, kind: CompletionItemKind.Property, detail: prop.type.name });
+      }
+
+      // Recurse into grandparent chain
+      if (fb.extends) {
+        const parentItems = getSuperMembers(
+          fb.extends, declarations, currentUri, workspaceIndex, depth - 1,
+        );
+        for (const pi of parentItems) {
+          if (!items.some(i => i.label === pi.label)) items.push(pi);
+        }
+      }
+
+      return items;
+    }
+  }
+
+  return [];
+}
+
+/**
  * Return completion items for the members exposed by `typeName`.
  * Searches `declarations` for a matching FUNCTION_BLOCK or STRUCT.
  *
@@ -239,6 +358,18 @@ export function handleCompletion(
   const extraction = extractStFromTwinCAT(document.uri, text);
   const { ast } = parse(extraction.stCode);
   const pos = params.position;
+
+  // SUPER^. member completion: when inside a child FB and user types 'SUPER^.',
+  // return the parent FB's inherited members.
+  if (isSuperBeforeDot(text, pos.line, pos.character)) {
+    const parentName = getEnclosingFbExtends(ast.declarations, pos);
+    if (parentName) {
+      return getSuperMembers(
+        parentName, ast.declarations, params.textDocument.uri, workspaceIndex, 10,
+      );
+    }
+    return [];
+  }
 
   // Dot-access member completion: when the user types '<ident>.', return only
   // the members of the resolved type rather than the flat keyword/type list.
