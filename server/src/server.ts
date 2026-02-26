@@ -16,6 +16,9 @@ import {
 	SignatureHelp,
 	SignatureHelpParams,
 	ReferenceParams,
+	RenameParams,
+	WorkspaceEdit,
+	PrepareRenameParams,
 } from 'vscode-languageserver/node';
 
 import { TextDocument } from 'vscode-languageserver-textdocument';
@@ -26,6 +29,7 @@ import { handleCompletion } from './handlers/completion';
 import { handleDocumentSymbols } from './handlers/documentSymbols';
 import { handleSignatureHelp } from './handlers/signatureHelp';
 import { handleReferences } from './handlers/references';
+import { handleRename, handlePrepareRename } from './handlers/rename';
 import { createWorkspaceIndex, WorkspaceIndex } from './twincat/workspaceIndex';
 
 const connection = createConnection(ProposedFeatures.all);
@@ -61,6 +65,9 @@ connection.onInitialize((params: InitializeParams): InitializeResult => {
 			hoverProvider: true,
 			definitionProvider: true,
 			referencesProvider: true,
+			renameProvider: {
+				prepareProvider: true,
+			},
 			documentSymbolProvider: true,
 			signatureHelpProvider: {
 				triggerCharacters: ['(', ','],
@@ -119,6 +126,20 @@ connection.onReferences(
 	(params: ReferenceParams): Location[] => {
 		const document = documents.get(params.textDocument.uri);
 		return handleReferences(params, document, workspaceIndex);
+	}
+);
+
+connection.onPrepareRename(
+	(params: PrepareRenameParams) => {
+		const document = documents.get(params.textDocument.uri);
+		return handlePrepareRename(params, document);
+	}
+);
+
+connection.onRenameRequest(
+	(params: RenameParams): WorkspaceEdit | null => {
+		const document = documents.get(params.textDocument.uri);
+		return handleRename(params, document, workspaceIndex);
 	}
 );
 
