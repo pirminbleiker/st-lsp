@@ -19,6 +19,9 @@ import {
 	RenameParams,
 	WorkspaceEdit,
 	PrepareRenameParams,
+	DocumentFormattingParams,
+	DocumentRangeFormattingParams,
+	TextEdit,
 } from 'vscode-languageserver/node';
 
 import { TextDocument } from 'vscode-languageserver-textdocument';
@@ -30,6 +33,7 @@ import { handleDocumentSymbols } from './handlers/documentSymbols';
 import { handleSignatureHelp } from './handlers/signatureHelp';
 import { handleReferences } from './handlers/references';
 import { handleRename, handlePrepareRename } from './handlers/rename';
+import { handleFormatting, handleRangeFormatting } from './handlers/formatting';
 import { createWorkspaceIndex, WorkspaceIndex } from './twincat/workspaceIndex';
 
 const connection = createConnection(ProposedFeatures.all);
@@ -72,6 +76,8 @@ connection.onInitialize((params: InitializeParams): InitializeResult => {
 			signatureHelpProvider: {
 				triggerCharacters: ['(', ','],
 			},
+			documentFormattingProvider: true,
+			documentRangeFormattingProvider: true,
 		},
 	};
 
@@ -154,6 +160,20 @@ connection.onSignatureHelp(
 	(params: SignatureHelpParams): SignatureHelp | null => {
 		const document = documents.get(params.textDocument.uri);
 		return handleSignatureHelp(params, document);
+	}
+);
+
+connection.onDocumentFormatting(
+	(params: DocumentFormattingParams): TextEdit[] => {
+		const document = documents.get(params.textDocument.uri);
+		return handleFormatting(params, document);
+	}
+);
+
+connection.onDocumentRangeFormatting(
+	(params: DocumentRangeFormattingParams): TextEdit[] => {
+		const document = documents.get(params.textDocument.uri);
+		return handleRangeFormatting(params, document);
 	}
 );
 
