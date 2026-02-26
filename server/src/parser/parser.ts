@@ -216,6 +216,10 @@ class Parser {
   private parseFunctionBlockDeclaration(pragmas: Pragma[] = []): FunctionBlockDeclaration {
     const start = pragmas.length > 0 ? pragmas[0].range.start : this.startRange();
     this.advance(); // FUNCTION_BLOCK
+    // Skip optional modifiers before the name (e.g. ABSTRACT, FINAL)
+    while (this.check(TokenKind.ABSTRACT) || this.check(TokenKind.FINAL_KW)) {
+      this.advance();
+    }
     const nameTok = this.expect(TokenKind.IDENTIFIER, 'Expected function block name');
     const name = nameTok.text;
 
