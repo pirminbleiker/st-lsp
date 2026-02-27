@@ -1,0 +1,16 @@
+title: ST LSP Documentation
+description: IEC 61131-3 Structured Text Language Server for VS Code
+baseurl: "/st-lsp"
+url: "https://pirminbleiker.github.io"
+
+remote_theme: just-the-docs/just-the-docs@v0.10.0
+
+plugins:
+  - jekyll-remote-theme
+
+color_scheme: dark
+search_enabled: true
+
+aux_links:
+  "GitHub": "https://github.com/pirminbleiker/st-lsp"
+  "Download": "https://github.com/pirminbleiker/st-lsp/releases/tag/canary"
