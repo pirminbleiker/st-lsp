@@ -47,7 +47,8 @@ export type TopLevelDeclaration =
   | FunctionBlockDeclaration
   | FunctionDeclaration
   | TypeDeclarationBlock
-  | InterfaceDeclaration;
+  | InterfaceDeclaration
+  | GvlDeclaration;
 
 // ---------------------------------------------------------------------------
 // Top-level declarations
@@ -81,6 +82,11 @@ export interface FunctionDeclaration extends AstNode {
   returnType: TypeRef | null;
   varBlocks: VarBlock[];
   body: Statement[];
+}
+
+export interface GvlDeclaration extends AstNode {
+  kind: 'GvlDeclaration';
+  varBlocks: VarBlock[];
 }
 
 // ---------------------------------------------------------------------------

@@ -23,6 +23,7 @@ import {
   ForStatement,
   FunctionBlockDeclaration,
   FunctionDeclaration,
+  GvlDeclaration,
   IfStatement,
   IntegerLiteral,
   InterfaceDeclaration,
@@ -197,6 +198,8 @@ class Parser {
         return this.parseTypeDeclarationBlock();
       case TokenKind.INTERFACE:
         return this.parseInterfaceDeclaration();
+      case TokenKind.VAR_GLOBAL:
+        return this.parseGvlDeclaration();
       case TokenKind.NAMESPACE:
         this.skipNamespaceBlock();
         return null;
@@ -1305,6 +1308,14 @@ class Parser {
       properties,
       range: this.endRange(start),
     };
+  }
+
+  // ---- GLOBAL VARIABLE LIST (GVL) ----------------------------------------
+
+  private parseGvlDeclaration(): GvlDeclaration {
+    const start = this.startRange();
+    const varBlocks = this.parseVarBlocks();
+    return { kind: 'GvlDeclaration', varBlocks, range: this.endRange(start) };
   }
 
   // ---- METHOD -----------------------------------------------------------

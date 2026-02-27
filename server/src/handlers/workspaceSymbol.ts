@@ -10,6 +10,7 @@ import {
   ProgramDeclaration,
   FunctionBlockDeclaration,
   FunctionDeclaration,
+  GvlDeclaration,
   InterfaceDeclaration,
   TypeDeclarationBlock,
   StructDeclaration,
@@ -119,6 +120,10 @@ function collectSymbols(
           }
         }
       }
+
+    } else if (decl.kind === 'GvlDeclaration') {
+      const gvl = decl as GvlDeclaration;
+      addGlobalVars(gvl.varBlocks, uri, query, results);
     }
   }
 }

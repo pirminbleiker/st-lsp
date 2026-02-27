@@ -3,6 +3,7 @@ import { parse } from '../parser/parser';
 import {
   ActionDeclaration,
   FunctionBlockDeclaration,
+  GvlDeclaration,
   ProgramDeclaration,
   FunctionDeclaration,
   AssignmentStatement,
@@ -360,6 +361,48 @@ END_ACTION`;
       const fb = ast.declarations[0] as FunctionBlockDeclaration;
       expect(fb.actions).toHaveLength(1);
       expect(fb.actions[0].name).toBe('Bar');
+    });
+  });
+
+  describe('GVL (standalone VAR_GLOBAL)', () => {
+    it('parses a bare VAR_GLOBAL block as GvlDeclaration', () => {
+      const src = `VAR_GLOBAL
+  gCounter : INT;
+  gFlag : BOOL;
+END_VAR`;
+      const { ast, errors } = parse(src);
+      expect(errors).toHaveLength(0);
+      expect(ast.declarations).toHaveLength(1);
+      const gvl = ast.declarations[0] as GvlDeclaration;
+      expect(gvl.kind).toBe('GvlDeclaration');
+    });
+
+    it('GvlDeclaration contains the declared variables', () => {
+      const src = `VAR_GLOBAL
+  gCounter : INT;
+  gFlag : BOOL;
+END_VAR`;
+      const { ast } = parse(src);
+      const gvl = ast.declarations[0] as GvlDeclaration;
+      expect(gvl.varBlocks).toHaveLength(1);
+      expect(gvl.varBlocks[0].varKind).toBe('VAR_GLOBAL');
+      const names = gvl.varBlocks[0].declarations.map(d => d.name);
+      expect(names).toContain('gCounter');
+      expect(names).toContain('gFlag');
+    });
+
+    it('parses multiple VAR_GLOBAL blocks in sequence', () => {
+      const src = `VAR_GLOBAL
+  g1 : INT;
+END_VAR
+VAR_GLOBAL
+  g2 : BOOL;
+END_VAR`;
+      const { ast, errors } = parse(src);
+      expect(errors).toHaveLength(0);
+      expect(ast.declarations).toHaveLength(1);
+      const gvl = ast.declarations[0] as GvlDeclaration;
+      expect(gvl.varBlocks).toHaveLength(2);
     });
   });
 });

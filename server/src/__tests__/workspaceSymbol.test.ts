@@ -152,6 +152,34 @@ describe('handleWorkspaceSymbol', () => {
     });
   });
 
+  describe('standalone VAR_GLOBAL (GVL files)', () => {
+    it('returns Variable symbols from top-level VAR_GLOBAL block', () => {
+      const src = 'VAR_GLOBAL\n  gCounter : INT;\n  gFlag : BOOL;\nEND_VAR';
+      const index = makeIndex({ 'file:///GVL.st': src });
+      const symbols = handleWorkspaceSymbol(makeParams(''), index);
+      expect(symbols).toHaveLength(2);
+      expect(symbols.some(v => v.name === 'gCounter')).toBe(true);
+      expect(symbols.some(v => v.name === 'gFlag')).toBe(true);
+      expect(symbols.every(s => s.kind === SymbolKind.Variable)).toBe(true);
+    });
+
+    it('matches variables from GVL by query', () => {
+      const src = 'VAR_GLOBAL\n  gCounter : INT;\n  gFlag : BOOL;\nEND_VAR';
+      const index = makeIndex({ 'file:///GVL.st': src });
+      const symbols = handleWorkspaceSymbol(makeParams('flag'), index);
+      expect(symbols).toHaveLength(1);
+      expect(symbols[0].name).toBe('gFlag');
+    });
+
+    it('handles multiple VAR_GLOBAL blocks in GVL file', () => {
+      const src = 'VAR_GLOBAL\n  g1 : INT;\nEND_VAR\nVAR_GLOBAL\n  g2 : BOOL;\nEND_VAR';
+      const index = makeIndex({ 'file:///multi_gvl.st': src });
+      const symbols = handleWorkspaceSymbol(makeParams(''), index);
+      expect(symbols.some(s => s.name === 'g1')).toBe(true);
+      expect(symbols.some(s => s.name === 'g2')).toBe(true);
+    });
+  });
+
   describe('query filtering', () => {
     const src = 'PROGRAM Main\nEND_PROGRAM\nFUNCTION_BLOCK FB_Valve\nEND_FUNCTION_BLOCK\nFUNCTION Add : INT\nEND_FUNCTION';
     const index = makeIndex({ 'file:///multi.st': src });

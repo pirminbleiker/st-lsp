@@ -23,6 +23,7 @@ import {
 } from './projectReader';
 import { parse } from '../parser/parser';
 import { SourceFile, ParseError } from '../parser/ast';
+import { extractStFromTwinCAT } from './tcExtractor';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -305,7 +306,8 @@ export class WorkspaceIndex extends EventEmitter {
     try {
       const filePath = uriToPath(uri);
       const text = fs.readFileSync(filePath, 'utf-8');
-      const result = parse(text);
+      const { stCode } = extractStFromTwinCAT(filePath, text);
+      const result = parse(stCode);
       this.astCache.set(uri, { ast: result.ast, errors: result.errors });
     } catch {
       // File may not exist or may not be readable yet — skip silently.
