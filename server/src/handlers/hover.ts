@@ -336,7 +336,8 @@ function structHover(decl: StructDeclaration): string {
 
 function enumHover(decl: EnumDeclaration): string {
   const values = decl.values.map(v => `  ${v.name}`).join('\n');
-  return `**ENUM** \`${decl.name}\`\n\`\`\`\n(\n${values}\n)\n\`\`\``;
+  const baseTypeSuffix = decl.baseType ? ` : ${decl.baseType.name}` : '';
+  return `**ENUM** \`${decl.name}${baseTypeSuffix}\`\n\`\`\`\n(\n${values}\n)\n\`\`\``;
 }
 
 // ---------------------------------------------------------------------------

@@ -246,6 +246,61 @@ END_TYPE`;
       expect(enumDecl.kind).toBe('EnumDeclaration');
       expect(enumDecl.name).toBe('E_Mode');
       expect(enumDecl.values).toHaveLength(3);
+      expect(enumDecl.baseType).toBeUndefined();
+    });
+
+    it('parses typed enum (baseType before :=)', () => {
+      const src = `TYPE Color : INT := (Red:=1, Green:=2);
+END_TYPE`;
+      const { ast, errors } = parse(src);
+      expect(errors).toHaveLength(0);
+      const block = ast.declarations[0] as TypeDeclarationBlock;
+      const enumDecl = block.declarations[0] as EnumDeclaration;
+      expect(enumDecl.kind).toBe('EnumDeclaration');
+      expect(enumDecl.name).toBe('Color');
+      expect(enumDecl.baseType?.name).toBe('INT');
+      expect(enumDecl.values).toHaveLength(2);
+      expect(enumDecl.values[0].name).toBe('Red');
+      expect(enumDecl.values[1].name).toBe('Green');
+    });
+
+    it('parses typed enum (baseType after closing paren)', () => {
+      const src = `TYPE Color : (Red:=1, Green:=2) INT;
+END_TYPE`;
+      const { ast, errors } = parse(src);
+      expect(errors).toHaveLength(0);
+      const block = ast.declarations[0] as TypeDeclarationBlock;
+      const enumDecl = block.declarations[0] as EnumDeclaration;
+      expect(enumDecl.kind).toBe('EnumDeclaration');
+      expect(enumDecl.name).toBe('Color');
+      expect(enumDecl.baseType?.name).toBe('INT');
+      expect(enumDecl.values).toHaveLength(2);
+    });
+
+    it('parses typed enum with DINT base type and no explicit values', () => {
+      const src = `TYPE Color : DINT := (Red, Green, Blue);
+END_TYPE`;
+      const { ast, errors } = parse(src);
+      expect(errors).toHaveLength(0);
+      const block = ast.declarations[0] as TypeDeclarationBlock;
+      const enumDecl = block.declarations[0] as EnumDeclaration;
+      expect(enumDecl.baseType?.name).toBe('DINT');
+      expect(enumDecl.values).toHaveLength(3);
+    });
+
+    it('parses block-style ENUM...END_ENUM still works', () => {
+      const src = `TYPE Color : ENUM : INT
+Red := 1;
+Green := 2;
+END_ENUM;
+END_TYPE`;
+      const { ast, errors } = parse(src);
+      expect(errors).toHaveLength(0);
+      const block = ast.declarations[0] as TypeDeclarationBlock;
+      const enumDecl = block.declarations[0] as EnumDeclaration;
+      expect(enumDecl.kind).toBe('EnumDeclaration');
+      expect(enumDecl.baseType?.name).toBe('INT');
+      expect(enumDecl.values).toHaveLength(2);
     });
 
     it('parses alias declaration', () => {

@@ -1098,6 +1098,16 @@ class Parser {
         } else if (this.check(TokenKind.LPAREN)) {
           decl = this.parseEnumBody(name, start);
           // RPAREN and SEMICOLON are consumed inside parseEnumBody
+        } else if (
+          this.check(TokenKind.IDENTIFIER) &&
+          this.peek(1).kind === TokenKind.ASSIGN
+        ) {
+          // TYPE Color : INT := (Red:=1, Green:=2); — typed enum, baseType before :=
+          const baseType = this.parseTypeRef();
+          this.expect(TokenKind.ASSIGN, "Expected ':='");
+          // parseEnumBody expects to be positioned at '(' and consumes it internally
+          decl = this.parseEnumBody(name, start, baseType);
+          // RPAREN and SEMICOLON are consumed inside parseEnumBody
         } else {
           decl = this.parseAliasBody(name, start);
           // SEMICOLON consumed inside parseAliasBody
@@ -1195,8 +1205,8 @@ class Parser {
     }
   }
 
-  /** Parse ( Val1, Val2 := 5 ) old-style enum syntax */
-  private parseEnumBody(name: string, blockStart: Position): EnumDeclaration {
+  /** Parse ( Val1, Val2 := 5 ) [TrailingType] enum syntax */
+  private parseEnumBody(name: string, blockStart: Position, baseType?: TypeRef): EnumDeclaration {
     const start = blockStart;
     this.advance(); // (
     const values: EnumValue[] = [];
@@ -1213,11 +1223,18 @@ class Parser {
     }
 
     this.expect(TokenKind.RPAREN, "Expected ')'");
+
+    // TYPE Color : (Red:=1) INT; — trailing base type after )
+    if (!baseType && this.check(TokenKind.IDENTIFIER)) {
+      baseType = this.parseTypeRef();
+    }
+
     this.match(TokenKind.SEMICOLON);
 
     return {
       kind: 'EnumDeclaration',
       name,
+      baseType,
       values,
       range: this.endRange(start),
     };
