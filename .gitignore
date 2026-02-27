@@ -3,6 +3,7 @@
 .logs/
 node_modules/
 out/
+server-out/
 *.vsix
 .beads/
 .gemini/

@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.0.1",
   "description": "VS Code extension for IEC 61131-3 Structured Text",
-  "publisher": "st-lsp",
+  "publisher": "pirminbleiker",
   "engines": {
     "vscode": "^1.85.0"
   },
@@ -36,7 +36,9 @@
   },
   "scripts": {
     "compile": "tsc -p tsconfig.json",
-    "watch": "tsc -p tsconfig.json --watch"
+    "watch": "tsc -p tsconfig.json --watch",
+    "vscode:prepublish": "npm run compile",
+    "package": "npm run compile && node scripts/copy-server.js && npx vsce package --no-dependencies"
   },
   "dependencies": {
     "vscode-languageclient": "^9.0.1"
@@ -44,6 +46,7 @@
   "devDependencies": {
     "@types/node": "^20.0.0",
     "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "^3.0.0",
     "typescript": "^5.3.0"
   }
 }
