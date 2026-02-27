@@ -464,7 +464,11 @@ export function handleCompletion(
 
   const text = document.getText();
   const extraction = extractStFromTwinCAT(document.uri, text);
-  const { ast } = parse(extraction.stCode);
+  // If extraction returned no code from non-empty content, the document content
+  // is likely already-extracted ST fed to a handler with a TwinCAT file URI.
+  // Fall back to parsing the raw text directly so completions are available.
+  const stCode = extraction.stCode.length > 0 || text.length === 0 ? extraction.stCode : text;
+  const { ast } = parse(stCode);
   const pos = params.position;
 
   // SUPER^. member completion: when inside a child FB and user types 'SUPER^.',
