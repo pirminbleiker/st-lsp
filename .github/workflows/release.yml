@@ -5,23 +5,22 @@ on:
     workflows: ["CI"]
     branches: [main]
     types: [completed]
-  push:
-    tags:
-      - 'v*'
   workflow_dispatch:
 
 jobs:
   release:
-    # For workflow_run triggers, only proceed if CI passed
     if: >
       github.event_name != 'workflow_run' ||
       github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      issues: write
+      pull-requests: write
     steps:
       - uses: actions/checkout@v4
         with:
+          fetch-depth: 0
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
       - uses: actions/setup-node@v4
@@ -33,41 +32,7 @@ jobs:
 
       - run: npm run compile
 
-      - name: Bundle server
-        run: npm run bundle --workspace=server
-
-      - run: npm run test
-
-      - name: Bundle client
-        run: npm run bundle --workspace=client
-
-      - name: Package VSIX
-        run: cd client && node scripts/copy-server.js && npx vsce package --no-dependencies
-
-      - name: Get version and SHA
-        id: meta
-        run: |
-          echo "version=$(node -p "require('./client/package.json').version")" >> $GITHUB_OUTPUT
-          echo "sha=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
-
-      - name: Publish canary release
-        if: github.event_name == 'workflow_run' || github.event_name == 'workflow_dispatch'
+      - name: Release
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          SHA="${{ steps.meta.outputs.sha }}"
-          gh release delete canary --yes --cleanup-tag || true
-          gh release create canary client/*.vsix \
-            --title "Canary Build ($SHA)" \
-            --notes "Automated canary build from $SHA" \
-            --prerelease \
-            --target ${{ github.event.workflow_run.head_sha || github.sha }}
-
-      - name: Publish versioned release
-        if: startsWith(github.ref, 'refs/tags/v')
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh release create "${{ github.ref_name }}" client/*.vsix \
-            --title "Release ${{ steps.meta.outputs.version }}" \
-            --generate-notes
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npx semantic-release
