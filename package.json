@@ -12,5 +12,8 @@
     "watch": "npm run watch --workspaces --if-present",
     "lint": "eslint . --ext ts",
     "typecheck": "tsc --noEmit -p server/tsconfig.json && tsc --noEmit -p client/tsconfig.json"
+  },
+  "devDependencies": {
+    "eslint": "^8.0.0"
   }
 }
