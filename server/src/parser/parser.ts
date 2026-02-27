@@ -791,27 +791,58 @@ class Parser {
 
   /**
    * Lookahead: are we at the start of a new CASE label?
-   * A case label is an expression-like token (INTEGER, MINUS INTEGER,
-   * IDENTIFIER) followed eventually by COLON (not COLON EQUALS).
-   * We use a conservative 2-token lookahead.
+   * Handles:
+   *   - Boolean literals:       TRUE : / FALSE :
+   *   - Negative integers:      - INTEGER : / - INTEGER .. / - INTEGER ,
+   *   - Integers:               INTEGER : / INTEGER .. / INTEGER ,
+   *   - Plain identifiers:      IDENT : / IDENT .. / IDENT ,
+   *   - Enum-qualified idents:  IDENT . IDENT : / IDENT . IDENT .. / IDENT . IDENT ,
    */
   private isAtCaseLabel(): boolean {
     const tok0 = this.peek(0);
-    // Negative integer: - INTEGER
+
+    // Boolean labels: TRUE : or FALSE :
+    if (tok0.kind === TokenKind.TRUE || tok0.kind === TokenKind.FALSE) {
+      return this.peek(1).kind === TokenKind.COLON;
+    }
+
+    // Negative integer: - INTEGER followed by : or .. or ,
     if (tok0.kind === TokenKind.MINUS) {
       const tok1 = this.peek(1);
+      if (tok1.kind !== TokenKind.INTEGER) return false;
       const tok2 = this.peek(2);
-      return tok1.kind === TokenKind.INTEGER &&
-        tok2.kind === TokenKind.COLON;
+      return tok2.kind === TokenKind.COLON ||
+        tok2.kind === TokenKind.DOTDOT ||
+        tok2.kind === TokenKind.COMMA;
     }
-    // Integer or identifier
-    if (tok0.kind === TokenKind.INTEGER || tok0.kind === TokenKind.IDENTIFIER) {
+
+    // Integer: N : or N .. or N ,
+    if (tok0.kind === TokenKind.INTEGER) {
       const tok1 = this.peek(1);
-      // Direct: N :
-      if (tok1.kind === TokenKind.COLON) return true;
-      // Range or comma list: N .. or N ,
-      if (tok1.kind === TokenKind.DOTDOT || tok1.kind === TokenKind.COMMA) return true;
+      return tok1.kind === TokenKind.COLON ||
+        tok1.kind === TokenKind.DOTDOT ||
+        tok1.kind === TokenKind.COMMA;
     }
+
+    // Identifier: plain or enum-qualified
+    if (tok0.kind === TokenKind.IDENTIFIER) {
+      const tok1 = this.peek(1);
+      // Plain identifier: IDENT : or IDENT .. or IDENT ,
+      if (tok1.kind === TokenKind.COLON ||
+          tok1.kind === TokenKind.DOTDOT ||
+          tok1.kind === TokenKind.COMMA) return true;
+      // Enum-qualified: IDENT . IDENT : or IDENT . IDENT .. or IDENT . IDENT ,
+      if (tok1.kind === TokenKind.DOT) {
+        const tok2 = this.peek(2);
+        if (tok2.kind === TokenKind.IDENTIFIER) {
+          const tok3 = this.peek(3);
+          return tok3.kind === TokenKind.COLON ||
+            tok3.kind === TokenKind.DOTDOT ||
+            tok3.kind === TokenKind.COMMA;
+        }
+      }
+    }
+
     return false;
   }
 

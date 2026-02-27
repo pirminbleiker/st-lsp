@@ -417,6 +417,165 @@ END_PROGRAM`;
       const { errors } = parse(src);
       expect(errors).toHaveLength(0);
     });
+
+    it('parses CASE with TRUE:/FALSE: boolean labels', () => {
+      const src = `PROGRAM P
+VAR b : BOOL; x : INT; END_VAR
+CASE b OF
+  TRUE:  x := 1;
+  FALSE: x := 0;
+END_CASE;
+END_PROGRAM`;
+      const { errors, ast } = parse(src);
+      expect(errors).toHaveLength(0);
+      const prog = ast.declarations[0] as ProgramDeclaration;
+      const stmt = prog.body[0] as CaseStatement;
+      expect(stmt.cases).toHaveLength(2);
+    });
+
+    it('parses CASE with enum-qualified labels (E_State.Running:)', () => {
+      const src = `PROGRAM P
+VAR eMode : INT; x : INT; END_VAR
+CASE eMode OF
+  E_State.Running:  x := 1;
+  E_State.Stopped:  x := 0;
+  E_State.Error:    x := -1;
+END_CASE;
+END_PROGRAM`;
+      const { errors, ast } = parse(src);
+      expect(errors).toHaveLength(0);
+      const prog = ast.declarations[0] as ProgramDeclaration;
+      const stmt = prog.body[0] as CaseStatement;
+      expect(stmt.cases).toHaveLength(3);
+    });
+
+    it('parses CASE with negative integer labels', () => {
+      const src = `PROGRAM P
+VAR x : INT; y : INT; END_VAR
+CASE x OF
+  -1: y := 1;
+  -2: y := 2;
+   0: y := 0;
+END_CASE;
+END_PROGRAM`;
+      const { errors, ast } = parse(src);
+      expect(errors).toHaveLength(0);
+      const prog = ast.declarations[0] as ProgramDeclaration;
+      const stmt = prog.body[0] as CaseStatement;
+      expect(stmt.cases).toHaveLength(3);
+    });
+
+    it('parses CASE with range starting from negative (-1..5:)', () => {
+      const src = `PROGRAM P
+VAR x : INT; y : INT; END_VAR
+CASE x OF
+  -10..-1: y := -1;
+  0:       y := 0;
+  1..10:   y := 1;
+END_CASE;
+END_PROGRAM`;
+      const { errors, ast } = parse(src);
+      expect(errors).toHaveLength(0);
+      const prog = ast.declarations[0] as ProgramDeclaration;
+      const stmt = prog.body[0] as CaseStatement;
+      expect(stmt.cases[0].values[0].kind).toBe('range');
+    });
+
+    it('parses CASE with multiple statements per branch', () => {
+      const src = `PROGRAM P
+VAR mode : INT; x : INT; y : INT; END_VAR
+CASE mode OF
+  1: x := 1; y := 10;
+  2: x := 2; y := 20;
+END_CASE;
+END_PROGRAM`;
+      const { errors, ast } = parse(src);
+      expect(errors).toHaveLength(0);
+      const prog = ast.declarations[0] as ProgramDeclaration;
+      const stmt = prog.body[0] as CaseStatement;
+      expect(stmt.cases[0].body).toHaveLength(2);
+      expect(stmt.cases[1].body).toHaveLength(2);
+    });
+
+    it('parses CASE with nested IF inside branch', () => {
+      const src = `PROGRAM P
+VAR mode : INT; x : INT; y : INT; END_VAR
+CASE mode OF
+  1:
+    IF x > 0 THEN
+      y := 1;
+    ELSE
+      y := -1;
+    END_IF;
+  2:
+    y := 0;
+END_CASE;
+END_PROGRAM`;
+      const { errors, ast } = parse(src);
+      expect(errors).toHaveLength(0);
+      const prog = ast.declarations[0] as ProgramDeclaration;
+      const stmt = prog.body[0] as CaseStatement;
+      expect(stmt.cases).toHaveLength(2);
+      expect(stmt.cases[0].body[0].kind).toBe('IfStatement');
+    });
+
+    it('parses CASE with nested FOR inside branch', () => {
+      const src = `PROGRAM P
+VAR mode : INT; i : INT; x : INT; END_VAR
+CASE mode OF
+  1:
+    FOR i := 0 TO 10 DO
+      x := x + i;
+    END_FOR;
+  2:
+    x := 0;
+END_CASE;
+END_PROGRAM`;
+      const { errors, ast } = parse(src);
+      expect(errors).toHaveLength(0);
+      const prog = ast.declarations[0] as ProgramDeclaration;
+      const stmt = prog.body[0] as CaseStatement;
+      expect(stmt.cases).toHaveLength(2);
+      expect(stmt.cases[0].body[0].kind).toBe('ForStatement');
+    });
+
+    it('parses CASE with nested WHILE inside branch', () => {
+      const src = `PROGRAM P
+VAR mode : INT; x : INT; END_VAR
+CASE mode OF
+  1:
+    WHILE x > 0 DO
+      x := x - 1;
+    END_WHILE;
+  2:
+    x := 0;
+END_CASE;
+END_PROGRAM`;
+      const { errors, ast } = parse(src);
+      expect(errors).toHaveLength(0);
+      const prog = ast.declarations[0] as ProgramDeclaration;
+      const stmt = prog.body[0] as CaseStatement;
+      expect(stmt.cases).toHaveLength(2);
+      expect(stmt.cases[0].body[0].kind).toBe('WhileStatement');
+    });
+
+    it('parses CASE with ELSE containing nested control flow', () => {
+      const src = `PROGRAM P
+VAR mode : INT; i : INT; x : INT; END_VAR
+CASE mode OF
+  1: x := 1;
+  ELSE
+    FOR i := 0 TO 5 DO
+      x := x + i;
+    END_FOR;
+END_CASE;
+END_PROGRAM`;
+      const { errors, ast } = parse(src);
+      expect(errors).toHaveLength(0);
+      const prog = ast.declarations[0] as ProgramDeclaration;
+      const stmt = prog.body[0] as CaseStatement;
+      expect(stmt.else).toBeDefined();
+    });
   });
 });
 
