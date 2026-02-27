@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "hooks": {
+    "sessionStart": [
+      {
+        "type": "command",
+        "bash": "export PATH=\"$HOME/go/bin:$HOME/.local/bin:$PATH\" && gt prime --hook",
+        "timeoutSec": 30
+      }
+    ],
+    "sessionEnd": [
+      {
+        "type": "command",
+        "bash": "export PATH=\"$HOME/go/bin:$HOME/.local/bin:$PATH\" && gt costs record",
+        "timeoutSec": 10
+      }
+    ],
+    "userPromptSubmitted": [
+      {
+        "type": "command",
+        "bash": "export PATH=\"$HOME/go/bin:$HOME/.local/bin:$PATH\" && gt mail check --inject",
+        "timeoutSec": 10
+      }
+    ],
+    "preToolUse": [
+      {
+        "type": "command",
+        "bash": "export PATH=\"$HOME/go/bin:$HOME/.local/bin:$PATH\" && INPUT=$(cat) && TOOL_ARGS=$(echo \"$INPUT\" | jq -r '.toolArgs // empty') && if echo \"$TOOL_ARGS\" | grep -qE 'gh pr create|git checkout -b|git switch -c'; then gt tap guard pr-workflow || echo '{\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"PR workflow blocked by gt tap guard\"}'; fi",
+        "timeoutSec": 10
+      }
+    ]
+  }
+}
