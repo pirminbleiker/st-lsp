@@ -45,29 +45,22 @@ jobs:
           echo "version=$(node -p "require('./client/package.json').version")" >> $GITHUB_OUTPUT
           echo "sha=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
 
-      - name: Delete existing canary release
+      - name: Publish canary release
         if: github.event_name == 'workflow_run' || github.event_name == 'workflow_dispatch'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release delete canary --yes --cleanup-tag 2>/dev/null || true
-
-      - name: Publish canary release
-        if: github.event_name == 'workflow_run' || github.event_name == 'workflow_dispatch'
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: canary
-          name: "Canary Build (latest main)"
-          prerelease: true
-          files: client/*.vsix
-          body: |
-            Automated build from commit ${{ github.event.workflow_run.head_sha || github.sha }}
-
-            ${{ github.event.workflow_run.head_commit.message }}
+        run: |
+          gh release delete canary --yes --cleanup-tag 2>/dev/null || true
+          gh release create canary client/*.vsix \
+            --title "Canary Build (latest main)" \
+            --notes "Automated canary build from $(git rev-parse --short HEAD)" \
+            --prerelease
 
       - name: Publish versioned release
         if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
-        with:
-          name: "Release ${{ steps.meta.outputs.version }}"
-          prerelease: false
-          files: client/*.vsix
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ github.ref_name }}" client/*.vsix \
+            --title "Release ${{ steps.meta.outputs.version }}" \
+            --generate-notes
