@@ -9,6 +9,7 @@
   ],
   "scripts": {
     "compile": "npm run compile --workspaces",
+    "bundle": "npm run bundle --workspace=server",
     "watch": "npm run watch --workspaces --if-present",
     "test": "npm run test --workspace=server",
     "lint": "eslint . --ext ts",
