@@ -103,6 +103,16 @@ class Parser {
     return tok;
   }
 
+  /** Accept any identifier-like token (IDENTIFIER or a keyword usable as a name) as a declaration name. */
+  private expectName(message: string): Token {
+    const tok = this.peek();
+    if (tok.kind === TokenKind.IDENTIFIER || isKeywordUsableAsIdentifier(tok.kind)) {
+      return this.advance();
+    }
+    this.addError(message, tok.range);
+    return tok;
+  }
+
   private addError(message: string, range: Range): void {
     this.errors.push({ message, range });
   }
@@ -221,7 +231,7 @@ class Parser {
     while (this.check(TokenKind.ABSTRACT) || this.check(TokenKind.FINAL_KW)) {
       this.advance();
     }
-    const nameTok = this.expect(TokenKind.IDENTIFIER, 'Expected function block name');
+    const nameTok = this.expectName('Expected function block name');
     const name = nameTok.text;
 
     // Optional EXTENDS <name>
@@ -689,7 +699,7 @@ class Parser {
     const body = this.parseStatementList(TokenKind.UNTIL);
     this.expect(TokenKind.UNTIL, "Expected 'UNTIL'");
     const condition = this.parseExpression();
-    this.expect(TokenKind.SEMICOLON, "Expected ';'");
+    this.expect(TokenKind.END_REPEAT, "Expected 'END_REPEAT'");
 
     return { kind: 'RepeatStatement', body, condition, range: this.endRange(start) };
   }
@@ -1046,7 +1056,8 @@ class Parser {
         }
 
         this.addError(`Unexpected token '${tok.text}' in expression`, tok.range);
-        // Return a placeholder so the parse can continue
+        // Advance to prevent infinite loops in statement parsing loops
+        this.advance();
         return { kind: 'NameExpression', name: '', range: tok.range } as NameExpression;
     }
   }
@@ -1413,10 +1424,13 @@ class Parser {
 
 /** Some keywords can appear as identifiers in certain syntactic positions. */
 function isKeywordUsableAsIdentifier(kind: TokenKind): boolean {
-  // Type names that happen to be keywords
+  // Type names and modifiers that happen to be keywords — can appear as identifiers
   const keywordIdents = new Set<TokenKind>([
     TokenKind.OF, TokenKind.TO, TokenKind.BY, TokenKind.DO,
     TokenKind.MOD,
+    // Access modifiers and OOP qualifiers — frequently used as identifier names
+    TokenKind.PUBLIC, TokenKind.PRIVATE, TokenKind.PROTECTED, TokenKind.INTERNAL,
+    TokenKind.ABSTRACT, TokenKind.OVERRIDE, TokenKind.FINAL_KW,
   ]);
   return keywordIdents.has(kind);
 }
