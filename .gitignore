@@ -5,6 +5,7 @@ node_modules/
 out/
 server-out/
 *.vsix
+client/server-out/
 .beads/
 .gemini/
 .copilot/
