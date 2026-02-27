@@ -31,6 +31,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { extractStFromTwinCAT, OffsetMap } from './tcExtractor';
+import { findFilesSync } from './fsUtils';
 
 /**
  * A library referenced by a TwinCAT PLC project.
@@ -290,18 +291,10 @@ export function readProjectFile(projectFilePath: string): ProjectReadResult {
   // TcSmProject (.tsproj / .tspproj) — the Compile items live in the sibling
   // .plcproj file(s) in the same directory; read those instead.
   if (isTcSmProjectFormat(xml)) {
-    let plcprojFiles: string[];
-    try {
-      plcprojFiles = fs
-        .readdirSync(projectDir)
-        .filter((f) => path.extname(f).toLowerCase() === '.plcproj')
-        .map((f) => path.join(projectDir, f));
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      throw new Error(
-        `Failed to scan directory for .plcproj files next to "${projectFilePath}": ${msg}`,
-      );
-    }
+    const plcprojFiles = findFilesSync(
+      projectDir,
+      (f) => path.extname(f).toLowerCase() === '.plcproj',
+    );
 
     const allFolders: string[] = [];
     let combinedMetadata: ProjectMetadata | undefined;

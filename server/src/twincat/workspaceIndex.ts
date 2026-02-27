@@ -24,6 +24,8 @@ import {
 import { parse } from '../parser/parser';
 import { SourceFile, ParseError } from '../parser/ast';
 import { extractStFromTwinCAT } from './tcExtractor';
+import { findFilesSync } from './fsUtils';
+export { findFilesSync } from './fsUtils';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -67,26 +69,8 @@ function pathToUri(absPath: string): string {
 
 /**
  * Recursively collect all files matching a predicate under a directory.
- * Silently skips directories that cannot be read.
+ * Re-exported from fsUtils for backward compatibility.
  */
-function findFilesSync(dir: string, predicate: (filePath: string) => boolean): string[] {
-  const results: string[] = [];
-  let entries: fs.Dirent[];
-  try {
-    entries = fs.readdirSync(dir, { withFileTypes: true });
-  } catch {
-    return results;
-  }
-  for (const entry of entries) {
-    const fullPath = path.join(dir, entry.name);
-    if (entry.isDirectory()) {
-      results.push(...findFilesSync(fullPath, predicate));
-    } else if (entry.isFile() && predicate(fullPath)) {
-      results.push(fullPath);
-    }
-  }
-  return results;
-}
 
 // ---------------------------------------------------------------------------
 // WorkspaceIndex

@@ -145,6 +145,24 @@ describe('TcSmProject format (.tspproj)', () => {
     expect(result.folders).toContain('mobject-collections/Dictionary');
     expect(result.folders).toContain('mobject-core/Impl');
   });
+
+  it('discovers .plcproj in subdirectory', () => {
+    write('lib.tspproj', TCSMPROJECT_XML);
+    write(path.join('subdir', 'lib.plcproj'), PLCPROJ_XML);
+    const result = readProjectFile(path.join(tmpDir, 'lib.tspproj'));
+    expect(result.fileUris.length).toBeGreaterThan(0);
+    expect(result.fileUris.some((u) => u.endsWith('Foo.TcPOU'))).toBe(true);
+  });
+
+  it('returns empty fileUris without crash when no .plcproj anywhere', () => {
+    write('lib.tspproj', TCSMPROJECT_XML);
+    let result: ReturnType<typeof readProjectFile> | undefined;
+    expect(() => {
+      result = readProjectFile(path.join(tmpDir, 'lib.tspproj'));
+    }).not.toThrow();
+    expect(result!.fileUris).toHaveLength(0);
+    expect(result!.warnings.length).toBeGreaterThan(0);
+  });
 });
 
 // ---------------------------------------------------------------------------

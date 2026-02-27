@@ -75,6 +75,9 @@ connection.onInitialize((params: InitializeParams): InitializeResult => {
 		params.workspaceFolders?.[0]?.uri ?? params.rootUri ?? undefined;
 	if (workspaceRoot) {
 		workspaceIndex = createWorkspaceIndex(workspaceRoot);
+		workspaceIndex.on('error', (err) =>
+			connection.console.warn('Workspace index: ' + (err as Error).message),
+		);
 	}
 
 	const result: InitializeResult = {

@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<TcSmProject TcSmVersion="1.0.0.1" SchemaVersion="1.0.0.1">
+  <Project Name="ConveyorSystem" Id="{AAAABBBB-CCCC-DDDD-EEEE-FFFFFFFFFFFF}">
+    <Plc>
+      <Project File="PLCs\MyPLC\MyPLC.xti"/>
+    </Plc>
+  </Project>
+</TcSmProject>
