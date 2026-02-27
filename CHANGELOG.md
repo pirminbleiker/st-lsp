@@ -1,3 +1,10 @@
+## [1.1.1](https://github.com/pirminbleiker/st-lsp/compare/v1.1.0...v1.1.1) (2026-02-27)
+
+
+### Bug Fixes
+
+* **semanticTokens:** fix multiline token length bug + add test (sl-je5k) ([fdabf18](https://github.com/pirminbleiker/st-lsp/commit/fdabf18d5acd69f70d7dff564df0d0e614f8d844))
+
 # [1.1.0](https://github.com/pirminbleiker/st-lsp/compare/v1.0.0...v1.1.0) (2026-02-27)
 
 
