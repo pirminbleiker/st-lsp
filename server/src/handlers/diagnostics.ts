@@ -583,6 +583,16 @@ function runSemanticAnalysis(ast: SourceFile, libraryRefs?: LibraryRef[]): Diagn
 					message: 'Type mismatch: cannot assign numeric expression to BOOL variable',
 					source: 'st-lsp',
 				});
+			} else if (lhsCat === 'numeric' && rhsCat === 'bool') {
+				diagnostics.push({
+					severity: DiagnosticSeverity.Warning,
+					range: {
+						start: { line: assign.range.start.line, character: assign.range.start.character },
+						end:   { line: assign.range.end.line,   character: assign.range.end.character },
+					},
+					message: 'Type mismatch: cannot assign BOOL expression to numeric variable',
+					source: 'st-lsp',
+				});
 			} else if (lhsCat === 'numeric' && rhsCat === 'string') {
 				diagnostics.push({
 					severity: DiagnosticSeverity.Warning,
@@ -690,6 +700,16 @@ function runSemanticAnalysis(ast: SourceFile, libraryRefs?: LibraryRef[]): Diagn
 								end:   { line: assign.range.end.line,   character: assign.range.end.character },
 							},
 							message: 'Type mismatch: cannot assign numeric expression to BOOL variable',
+							source: 'st-lsp',
+						});
+					} else if (lhsCat === 'numeric' && rhsCat === 'bool') {
+						diagnostics.push({
+							severity: DiagnosticSeverity.Warning,
+							range: {
+								start: { line: assign.range.start.line, character: assign.range.start.character },
+								end:   { line: assign.range.end.line,   character: assign.range.end.character },
+							},
+							message: 'Type mismatch: cannot assign BOOL expression to numeric variable',
 							source: 'st-lsp',
 						});
 					} else if (lhsCat === 'numeric' && rhsCat === 'string') {

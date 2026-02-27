@@ -489,6 +489,31 @@ END_PROGRAM`;
       expect(warnings.some(d => d.message.toLowerCase().includes('type mismatch'))).toBe(true);
     });
 
+    it('warns when numeric variable is assigned a BOOL literal (TRUE)', () => {
+      const src = `PROGRAM P
+VAR
+  n : INT;
+END_VAR
+n := TRUE;
+END_PROGRAM`;
+      const diags = getDiagnostics(src);
+      const warnings = diags.filter(d => d.severity === 2);
+      expect(warnings.some(d => d.message.toLowerCase().includes('type mismatch'))).toBe(true);
+    });
+
+    it('warns when numeric variable is assigned a BOOL variable', () => {
+      const src = `PROGRAM P
+VAR
+  n : INT;
+  b : BOOL;
+END_VAR
+n := b;
+END_PROGRAM`;
+      const diags = getDiagnostics(src);
+      const warnings = diags.filter(d => d.severity === 2);
+      expect(warnings.some(d => d.message.toLowerCase().includes('type mismatch'))).toBe(true);
+    });
+
     it('does not warn when BOOL is assigned a boolean literal (TRUE/FALSE)', () => {
       const src = `PROGRAM P
 VAR
