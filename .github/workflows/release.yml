@@ -1,0 +1,64 @@
+name: Release
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    branches: [main]
+    types: [completed]
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  release:
+    # For workflow_run triggers, only proceed if CI passed
+    if: >
+      github.event_name != 'workflow_run' ||
+      github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - run: npm ci
+
+      - run: npm run compile
+
+      - name: Package VSIX
+        run: cd client && node scripts/copy-server.js && npx vsce package --no-dependencies
+
+      - name: Get version and SHA
+        id: meta
+        run: |
+          echo "version=$(node -p "require('./client/package.json').version")" >> $GITHUB_OUTPUT
+          echo "sha=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+
+      - name: Publish canary release
+        if: github.event_name == 'workflow_run' || github.event_name == 'workflow_dispatch'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: canary
+          name: "Canary Build (latest main)"
+          prerelease: true
+          files: client/*.vsix
+          body: |
+            Automated build from commit ${{ github.event.workflow_run.head_sha || github.sha }}
+
+            ${{ github.event.workflow_run.head_commit.message }}
+
+      - name: Publish versioned release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "Release ${{ steps.meta.outputs.version }}"
+          prerelease: false
+          files: client/*.vsix
