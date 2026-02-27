@@ -10,6 +10,7 @@
   "scripts": {
     "compile": "npm run compile --workspaces",
     "watch": "npm run watch --workspaces --if-present",
+    "test": "npm run test --workspace=server",
     "lint": "eslint . --ext ts",
     "typecheck": "tsc --noEmit -p server/tsconfig.json && tsc --noEmit -p client/tsconfig.json"
   },
