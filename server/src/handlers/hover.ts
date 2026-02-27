@@ -34,6 +34,7 @@ import { findStandardFB, standardFBHover } from '../twincat/stdlib';
 import { extractStFromTwinCAT } from '../twincat/tcExtractor';
 import { findPragmaDoc, pragmaHover } from '../twincat/pragmas';
 import { WorkspaceIndex } from '../twincat/workspaceIndex';
+import { formatConstantValue } from './utils';
 
 // ---------------------------------------------------------------------------
 // Position helpers
@@ -287,6 +288,10 @@ function varDeclHover(vd: VarDeclaration, varKind: VarKind, qualifier?: string):
   }
   let result = `\`${vd.name} : ${typeName}\``;
 
+  if (qualifier === 'CONSTANT' && vd.initialValue) {
+    result += ` = \`${formatConstantValue(vd.initialValue)}\``;
+  }
+
   result += `\n\n*Block:* \`${varKind}${qualifier ? ` ${qualifier}` : ''}\``;
 
   // Show value range for simple (non-compound) builtin types
@@ -336,7 +341,9 @@ function structHover(decl: StructDeclaration): string {
 }
 
 function enumHover(decl: EnumDeclaration): string {
-  const values = decl.values.map(v => `  ${v.name}`).join('\n');
+  const values = decl.values.map(v =>
+    v.value ? `  ${v.name} := ${formatConstantValue(v.value)}` : `  ${v.name}`,
+  ).join('\n');
   const baseTypeSuffix = decl.baseType ? ` : ${decl.baseType.name}` : '';
   return `**ENUM** \`${decl.name}${baseTypeSuffix}\`\n\`\`\`\n(\n${values}\n)\n\`\`\``;
 }

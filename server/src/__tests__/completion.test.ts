@@ -589,3 +589,51 @@ END_PROGRAM`;
     expect(labels).not.toContain('IF');
   });
 });
+
+describe('completion for VAR CONSTANT shows value in detail', () => {
+  it('constant var completion includes value in detail', () => {
+    const src = [
+      'PROGRAM Prog',
+      'VAR CONSTANT',
+      '  MAX_COUNT : INT := 100;',
+      'END_VAR',
+      'VAR',
+      '  x : INT;',
+      'END_VAR',
+      'x := M',
+      'END_PROGRAM',
+    ].join('\n');
+    const doc = makeDoc(src);
+    // Cursor at end of line 7 (x := M|)
+    const items = handleCompletion(makeParams(doc.uri, 7, 6), doc);
+    const constItem = items.find(i => i.label === 'MAX_COUNT');
+    expect(constItem).toBeDefined();
+    if (constItem) {
+      expect(constItem.detail).toContain('100');
+    }
+  });
+});
+
+describe('completion for enum members shows value in detail', () => {
+  it('enum member completion includes value in detail', () => {
+    const src = [
+      'TYPE',
+      '  E_Color : (Red := 0, Green := 1, Blue := 2);',
+      'END_TYPE',
+      'PROGRAM Prog',
+      'VAR',
+      '  c : E_Color;',
+      'END_VAR',
+      'c := E',
+      'END_PROGRAM',
+    ].join('\n');
+    const doc = makeDoc(src);
+    // Cursor at end of line 7 (c := E|)
+    const items = handleCompletion(makeParams(doc.uri, 7, 6), doc);
+    const redItem = items.find(i => i.label === 'E_Color.Red');
+    expect(redItem).toBeDefined();
+    if (redItem) {
+      expect(redItem.detail).toContain('0');
+    }
+  });
+});

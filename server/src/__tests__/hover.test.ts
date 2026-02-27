@@ -408,3 +408,79 @@ describe('Hover library provenance', () => {
     }
   });
 });
+
+describe('hover over VAR CONSTANT variable shows value', () => {
+  it('shows constant value in hover', () => {
+    // Hover over the variable name used in the body (NameExpression)
+    const src = [
+      'PROGRAM Prog',
+      'VAR CONSTANT',
+      '  MAX_COUNT : INT := 100;',
+      'END_VAR',
+      'VAR',
+      '  x : INT;',
+      'END_VAR',
+      'x := MAX_COUNT;',
+      'END_PROGRAM',
+    ].join('\n');
+    const doc = makeDoc(src);
+    // Line 7: "x := MAX_COUNT;" — MAX_COUNT starts at char 5
+    const result = handleHover(makeParams(doc.uri, 7, 5), doc);
+    expect(result).not.toBeNull();
+    if (result) {
+      const contents = result.contents as { kind: string; value: string };
+      expect(contents.value).toContain('MAX_COUNT');
+      expect(contents.value).toContain('100');
+      expect(contents.value).toContain('CONSTANT');
+    }
+  });
+
+  it('shows expression text for complex constant initializer (2+3)', () => {
+    const src = [
+      'PROGRAM Prog',
+      'VAR CONSTANT',
+      '  RESULT : INT := 2 + 3;',
+      'END_VAR',
+      'VAR',
+      '  x : INT;',
+      'END_VAR',
+      'x := RESULT;',
+      'END_PROGRAM',
+    ].join('\n');
+    const doc = makeDoc(src);
+    // Line 7: "x := RESULT;" — RESULT starts at char 5
+    const result = handleHover(makeParams(doc.uri, 7, 5), doc);
+    expect(result).not.toBeNull();
+    if (result) {
+      const contents = result.contents as { kind: string; value: string };
+      expect(contents.value).toContain('2 + 3');
+    }
+  });
+});
+
+describe('hover over enum declaration shows member values', () => {
+  it('shows enum member explicit values in hover', () => {
+    // Hover over the enum type name used as a NameExpression in the body
+    const src = [
+      'TYPE',
+      '  E_Color : (Red := 0, Green := 1, Blue := 2);',
+      'END_TYPE',
+      'PROGRAM Prog',
+      'VAR',
+      '  c : E_Color;',
+      'END_VAR',
+      'c := E_Color.Red;',
+      'END_PROGRAM',
+    ].join('\n');
+    const doc = makeDoc(src);
+    // Line 7: "c := E_Color.Red;" — E_Color starts at char 5
+    const result = handleHover(makeParams(doc.uri, 7, 5), doc);
+    expect(result).not.toBeNull();
+    if (result) {
+      const contents = result.contents as { kind: string; value: string };
+      expect(contents.value).toContain('E_Color');
+      expect(contents.value).toContain('Red := 0');
+      expect(contents.value).toContain('Green := 1');
+    }
+  });
+});

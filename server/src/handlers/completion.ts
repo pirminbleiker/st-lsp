@@ -26,6 +26,7 @@ import { STANDARD_FBS, findStandardFB } from '../twincat/stdlib';
 import { getLibraryFBs } from '../twincat/libraryRegistry';
 import { WorkspaceIndex } from '../twincat/workspaceIndex';
 import { extractStFromTwinCAT } from '../twincat/tcExtractor';
+import { formatConstantValue } from './utils';
 
 const KEYWORDS = [
   'IF', 'THEN', 'ELSE', 'ELSIF', 'END_IF',
@@ -70,7 +71,7 @@ function positionContains(nodeStart: Position, nodeEnd: Position, pos: Position)
 function collectVarDeclarations(
   declarations: TopLevelDeclaration[],
   pos: Position,
-): VarDeclaration[] {
+): Array<{ vd: VarDeclaration; constant?: boolean }> {
   for (const decl of declarations) {
     if (!positionContains(decl.range.start, decl.range.end, pos)) continue;
     
@@ -78,11 +79,11 @@ function collectVarDeclarations(
     if (decl.kind === 'ProgramDeclaration' || 
         decl.kind === 'FunctionBlockDeclaration' || 
         decl.kind === 'FunctionDeclaration') {
-      const vars: VarDeclaration[] = [];
+      const vars: Array<{ vd: VarDeclaration; constant?: boolean }> = [];
       const pou = decl as ProgramDeclaration | FunctionBlockDeclaration | FunctionDeclaration;
       for (const vb of pou.varBlocks) {
         for (const vd of vb.declarations) {
-          vars.push(vd);
+          vars.push({ vd, constant: vb.constant });
         }
       }
       return vars;
@@ -329,7 +330,9 @@ function enumValuesToCompletionItems(enumDecl: EnumDeclaration): CompletionItem[
   return enumDecl.values.map(v => ({
     label: `${enumDecl.name}.${v.name}`,
     kind: CompletionItemKind.EnumMember,
-    detail: `${enumDecl.name} enum value`,
+    detail: v.value
+      ? `${enumDecl.name} enum value = ${formatConstantValue(v.value)}`
+      : `${enumDecl.name} enum value`,
   }));
 }
 
@@ -659,7 +662,7 @@ export function handleCompletion(
   if (identBeforeDot !== null) {
     const vars = collectVarDeclarations(ast.declarations, pos);
     const members = getDotAccessMembers(
-      identBeforeDot, vars, ast.declarations, params.textDocument.uri, workspaceIndex,
+      identBeforeDot, vars.map(v => v.vd), ast.declarations, params.textDocument.uri, workspaceIndex,
     );
     return members ?? [];
   }
@@ -669,10 +672,10 @@ export function handleCompletion(
   const lhsIdent = getLhsIdentifierForAssignment(text, pos.line, pos.character);
   if (lhsIdent !== null) {
     const vars = collectVarDeclarations(ast.declarations, pos);
-    const vd = vars.find(v => v.name.toUpperCase() === lhsIdent.toUpperCase());
+    const vd = vars.find(v => v.vd.name.toUpperCase() === lhsIdent.toUpperCase());
     if (vd) {
       const enumDecl = findEnumDeclaration(
-        vd.type.name, ast.declarations, params.textDocument.uri, workspaceIndex,
+        vd.vd.type.name, ast.declarations, params.textDocument.uri, workspaceIndex,
       );
       if (enumDecl) return enumValuesToCompletionItems(enumDecl);
     }
@@ -683,10 +686,10 @@ export function handleCompletion(
   const caseSelectorIdent = getCaseSelectorIdentifier(text, pos.line);
   if (caseSelectorIdent !== null) {
     const vars = collectVarDeclarations(ast.declarations, pos);
-    const vd = vars.find(v => v.name.toUpperCase() === caseSelectorIdent.toUpperCase());
+    const vd = vars.find(v => v.vd.name.toUpperCase() === caseSelectorIdent.toUpperCase());
     if (vd) {
       const enumDecl = findEnumDeclaration(
-        vd.type.name, ast.declarations, params.textDocument.uri, workspaceIndex,
+        vd.vd.type.name, ast.declarations, params.textDocument.uri, workspaceIndex,
       );
       if (enumDecl) return enumValuesToCompletionItems(enumDecl);
     }
@@ -728,10 +731,13 @@ export function handleCompletion(
 
   // 4. Variables in scope
   const vars = collectVarDeclarations(ast.declarations, pos);
-  for (const vd of vars) {
+  for (const { vd, constant } of vars) {
     items.push({
       label: vd.name,
       kind: CompletionItemKind.Variable,
+      ...(constant && vd.initialValue
+        ? { detail: `= ${formatConstantValue(vd.initialValue)}` }
+        : {}),
     });
   }
 
@@ -789,7 +795,9 @@ export function handleCompletion(
             items.push({
               label: `${enumDecl.name}.${enumVal.name}`,
               kind: CompletionItemKind.EnumMember,
-              detail: `${enumDecl.name} enum member`,
+              detail: enumVal.value
+                ? `${enumDecl.name} enum member = ${formatConstantValue(enumVal.value)}`
+                : `${enumDecl.name} enum member`,
             });
           }
         } else if (typeDecl.kind === 'AliasDeclaration') {
@@ -893,7 +901,9 @@ export function handleCompletion(
                     items.push({
                       label: memberLabel,
                       kind: CompletionItemKind.EnumMember,
-                      detail: `${enumDecl.name} enum member`,
+                      detail: enumVal.value
+                        ? `${enumDecl.name} enum member = ${formatConstantValue(enumVal.value)}`
+                        : `${enumDecl.name} enum member`,
                     });
                   }
                 }
