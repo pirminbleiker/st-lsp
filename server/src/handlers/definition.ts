@@ -3,9 +3,12 @@
  *
  * Given a cursor position, parses the document, finds the identifier under
  * the cursor, and locates its declaration:
- *   1. VarDeclarations in the enclosing POU (local scope)
- *   2. POU declarations (PROGRAM / FUNCTION_BLOCK / FUNCTION) in the current file
- *   3. POU declarations in other workspace files (cross-file search)
+ *   1. TypeRef under cursor → POU / type declaration (same file then workspace)
+ *   2. MemberExpression (non-SUPER) → method / property on the FB type of the base instance
+ *   3. SUPER^.Member → member declaration in the parent FB (walking EXTENDS chain)
+ *   4. VarDeclarations in the enclosing POU (local scope)
+ *   5. POU / type declarations in the current file
+ *   6. POU declarations in other workspace files (cross-file search)
  */
 
 import * as fs from 'fs';
@@ -20,6 +23,9 @@ import {
   ProgramDeclaration,
   SourceFile,
   TopLevelDeclaration,
+  TypeDeclaration,
+  TypeDeclarationBlock,
+  TypeRef,
   VarDeclaration,
 } from '../parser/ast';
 import { parse } from '../parser/parser';
@@ -186,6 +192,24 @@ function getEnclosingFbExtends(ast: SourceFile, pos: Position): string | null {
   return null;
 }
 
+/**
+ * Find a named type declaration (struct, enum, alias, union) inside any
+ * TypeDeclarationBlock in the file.
+ */
+function findTypeDeclaration(
+  ast: SourceFile,
+  name: string,
+): TypeDeclaration | undefined {
+  const upper = name.toUpperCase();
+  for (const decl of ast.declarations) {
+    if (decl.kind !== 'TypeDeclarationBlock') continue;
+    const block = decl as TypeDeclarationBlock;
+    const match = block.declarations.find(d => d.name.toUpperCase() === upper);
+    if (match) return match;
+  }
+  return undefined;
+}
+
 // ---------------------------------------------------------------------------
 // Location builders
 // ---------------------------------------------------------------------------
@@ -236,6 +260,65 @@ export function handleDefinition(
         parentFbName, memberName, ast.declarations, workspaceFiles, uri, 10,
       );
       if (found) return toLocation(found.uri, found.node);
+    }
+    return null;
+  }
+
+  // TypeRef navigation: cursor on a type name in a var declaration or return type.
+  // Navigate to the POU, struct, enum, alias, or union declaration for that type.
+  if (node.kind === 'TypeRef') {
+    const typeName = (node as TypeRef).name;
+    if (!typeName) return null;
+    const pouMatch = findPouDeclaration(ast, typeName);
+    if (pouMatch) return toLocation(uri, pouMatch);
+    const typeMatch = findTypeDeclaration(ast, typeName);
+    if (typeMatch) return toLocation(uri, typeMatch);
+    // Search workspace files
+    const wsFiles = loadWorkspaceDeclarations(uri, workspaceIndex);
+    for (const { uri: fileUri, declarations } of wsFiles) {
+      const upper = typeName.toUpperCase();
+      const wsMatch = declarations.find(
+        d => 'name' in d && (d as { name: string }).name.toUpperCase() === upper,
+      );
+      if (wsMatch) return toLocation(fileUri, wsMatch);
+      // Also search inside TypeDeclarationBlocks from workspace files
+      for (const decl of declarations) {
+        if (decl.kind !== 'TypeDeclarationBlock') continue;
+        const block = decl as TypeDeclarationBlock;
+        const tdMatch = block.declarations.find(d => d.name.toUpperCase() === upper);
+        if (tdMatch) return toLocation(fileUri, tdMatch);
+      }
+    }
+    return null;
+  }
+
+  // Non-SUPER MemberExpression: myFb.Method → navigate to method/property on the FB type.
+  if (node.kind === 'MemberExpression') {
+    const memberExpr = node as MemberExpression;
+    const memberName = memberExpr.member;
+    if (!memberName || memberExpr.base.kind !== 'NameExpression') return null;
+    const instanceName = (memberExpr.base as NameExpression).name;
+    const localVars = collectLocalVars(ast, pos);
+    const instanceVar = localVars.find(
+      v => v.name.toUpperCase() === instanceName.toUpperCase(),
+    );
+    if (!instanceVar) return null;
+    const fbTypeName = instanceVar.type.name;
+    const wsFiles = loadWorkspaceDeclarations(uri, workspaceIndex);
+    const allSources: Array<{ uri: string; declarations: TopLevelDeclaration[] }> = [
+      { uri, declarations: ast.declarations },
+      ...wsFiles,
+    ];
+    for (const { uri: srcUri, declarations } of allSources) {
+      for (const decl of declarations) {
+        if (decl.kind !== 'FunctionBlockDeclaration') continue;
+        const fb = decl as FunctionBlockDeclaration;
+        if (fb.name.toUpperCase() !== fbTypeName.toUpperCase()) continue;
+        const method = fb.methods.find(m => m.name.toUpperCase() === memberName.toUpperCase());
+        if (method) return toLocation(srcUri, method);
+        const prop = fb.properties.find(p => p.name.toUpperCase() === memberName.toUpperCase());
+        if (prop) return toLocation(srcUri, prop);
+      }
     }
     return null;
   }
