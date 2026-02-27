@@ -9,8 +9,13 @@
  *  - INTERFACE declarations
  *  - Control flow: IF, FOR, WHILE, REPEAT, CASE
  *  - Multi-line block comments (* ... *)
+ *
+ * For TwinCAT XML file formats (.TcPOU, .TcGVL, .TcDUT, .TcIO) the handler
+ * additionally folds the XML wrapper sections that surround CDATA content,
+ * and maps the ST folding positions back to the original file via lineMap.
  */
 
+import * as path from 'path';
 import { FoldingRange, FoldingRangeKind } from 'vscode-languageserver/node';
 import { TextDocument } from 'vscode-languageserver-textdocument';
 import {
@@ -18,8 +23,13 @@ import {
   VarBlock,
   MethodDeclaration,
   ActionDeclaration,
+  SourceFile,
 } from '../parser/ast';
 import { parse } from '../parser/parser';
+import { extractST, getXmlRanges } from '../twincat/tcExtractor';
+
+// TwinCAT XML file extensions that need the XML-aware folding handler
+const XML_EXT_SET = new Set(['.tcpou', '.tcgvl', '.tcdut', '.tcio', '.tctask']);
 
 function addRegion(ranges: FoldingRange[], startLine: number, endLine: number): void {
   if (endLine > startLine) {
@@ -102,10 +112,8 @@ function countNewlinesBefore(text: string, pos: number): number {
   return count;
 }
 
-export function handleFoldingRanges(document: TextDocument | undefined): FoldingRange[] {
-  if (!document) return [];
-  const text = document.getText();
-  const { ast } = parse(text);
+/** Collect all ST folding ranges from a parsed AST + source text. */
+function collectAstFoldingRanges(ast: SourceFile, text: string): FoldingRange[] {
   const ranges: FoldingRange[] = [];
 
   for (const decl of ast.declarations) {
@@ -148,5 +156,50 @@ export function handleFoldingRanges(document: TextDocument | undefined): Folding
   }
 
   collectBlockComments(text, ranges);
+  return ranges;
+}
+
+export function handleFoldingRanges(document: TextDocument | undefined): FoldingRange[] {
+  if (!document) return [];
+
+  const ext = path.extname(document.uri).toLowerCase();
+  if (XML_EXT_SET.has(ext)) {
+    return handleFoldingRangesXml(document, ext);
+  }
+
+  const text = document.getText();
+  const { ast } = parse(text);
+  return collectAstFoldingRanges(ast, text);
+}
+
+/** Folding range handler for TwinCAT XML files (.TcPOU, .TcGVL, etc.). */
+function handleFoldingRangesXml(document: TextDocument, ext: string): FoldingRange[] {
+  const text = document.getText();
+  const extraction = extractST(text, ext);
+  const { ast } = parse(extraction.source);
+  const lm = extraction.lineMap;
+  const ranges: FoldingRange[] = [];
+
+  // 1. XML wrapper section folds — fold regions that are entirely XML.
+  //    Use end.line - 1 to exclude lines that contain CDATA content starts,
+  //    and only add when the fold spans more than one line.
+  for (const xmlRange of getXmlRanges(text)) {
+    const foldStart = xmlRange.start.line;
+    const foldEnd   = xmlRange.end.line - 1;
+    if (foldEnd > foldStart) {
+      ranges.push({ startLine: foldStart, endLine: foldEnd, kind: FoldingRangeKind.Region });
+    }
+  }
+
+  // 2. ST content folds (computed in extracted-source space, remapped via lineMap).
+  const stRanges = collectAstFoldingRanges(ast, extraction.source);
+  for (const r of stRanges) {
+    const origStart = lm[r.startLine] ?? r.startLine;
+    const origEnd   = lm[r.endLine]   ?? r.endLine;
+    if (origEnd > origStart) {
+      ranges.push({ startLine: origStart, endLine: origEnd, kind: r.kind });
+    }
+  }
+
   return ranges;
 }

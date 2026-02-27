@@ -29,8 +29,24 @@ export interface ExtractedSection {
    * line begins.
    */
   startLine: number;
+  /**
+   * 0-based character offset within `startLine` where this section's content
+   * begins. This is 0 when the CDATA opens on its own line, or > 0 when the
+   * ST content starts on the same line as `<![CDATA[`.
+   */
+  startChar: number;
   /** Action name — only present when kind === 'action'. */
   actionName?: string;
+}
+
+// ---------------------------------------------------------------------------
+// XmlRange — matches the shape of vscode-languageserver-types Range
+// ---------------------------------------------------------------------------
+
+/** A character-level range in an XML source file (0-based line/character). */
+export interface XmlRange {
+  start: { line: number; character: number };
+  end: { line: number; character: number };
 }
 
 export interface ExtractionResult {
@@ -78,6 +94,8 @@ interface RawCData {
   kind: 'declaration' | 'implementation' | 'action';
   /** 0-based line in the original file where the first line of content lives. */
   startLine: number;
+  /** 0-based character offset within startLine where content begins. */
+  startChar: number;
   /** For action sections: the name from the <Action Name="..."> attribute. */
   actionName?: string;
   /** For action sections: line of the synthetic ACTION header in the original file. */
@@ -172,9 +190,16 @@ function extractFirstChildCData(
   // Determine startLine: if the character right after <![CDATA[ is a newline
   // the content begins on the following line.
   let startLine = lineAtPos(xml, contentPosInXml);
+
+  // Determine startChar: walk backwards from contentPosInXml to find the line start.
+  let lineStartPos = contentPosInXml;
+  while (lineStartPos > 0 && xml[lineStartPos - 1] !== '\n') lineStartPos--;
+  let startChar = contentPosInXml - lineStartPos;
+
   if (raw.startsWith('\n')) {
     startLine += 1;
     raw = raw.slice(1); // strip leading newline
+    startChar = 0;      // content now begins at start of the next line
   }
 
   // Strip a single trailing newline (TwinCAT often writes `…\n]]>`)
@@ -182,7 +207,7 @@ function extractFirstChildCData(
     raw = raw.slice(0, -1);
   }
 
-  return { content: raw, kind, startLine };
+  return { content: raw, kind, startLine, startChar };
 }
 
 /**
@@ -268,6 +293,7 @@ function buildResult(cdatas: RawCData[]): ExtractionResult {
     kind: c.kind,
     content: c.content,
     startLine: c.startLine,
+    startChar: c.startChar,
     actionName: c.actionName,
   }));
 
@@ -327,6 +353,64 @@ function buildResult(cdatas: RawCData[]): ExtractionResult {
  * All comparisons are done case-insensitively.
  */
 const XML_EXTENSIONS = new Set(['.tcpou', '.tcgvl', '.tcdut', '.tcio', '.tctask']);
+
+/**
+ * Return all character-level ranges in `text` that lie *outside* CDATA
+ * section content.  These ranges cover the XML wrapper (including the
+ * `<![CDATA[` and `]]>` markers themselves).
+ *
+ * Each XmlRange uses 0-based line/character positions compatible with the
+ * vscode-languageserver-types `Range` interface.
+ *
+ * Callers should only invoke this for files whose extension is in
+ * `XML_EXTENSIONS`.
+ */
+export function getXmlRanges(text: string): XmlRange[] {
+  const result: XmlRange[] = [];
+
+  /** Convert a character offset in `text` to a {line, character} position. */
+  function posToLocation(offset: number): { line: number; character: number } {
+    let line = 0;
+    let lineStart = 0;
+    for (let i = 0; i < offset; i++) {
+      if (text[i] === '\n') {
+        line++;
+        lineStart = i + 1;
+      }
+    }
+    return { line, character: offset - lineStart };
+  }
+
+  let xmlStart = 0; // start (inclusive) of the current XML wrapper region
+  let pos = 0;
+
+  while (pos < text.length) {
+    const cdataOpen = text.indexOf(CDATA_OPEN, pos);
+    if (cdataOpen === -1) break;
+
+    const cdataContentStart = cdataOpen + CDATA_OPEN_LEN; // first char of CDATA content
+    const cdataClose = text.indexOf(CDATA_CLOSE, cdataContentStart);
+    if (cdataClose === -1) break; // malformed
+
+    // XML wrapper region: from xmlStart up to (and including) '<![CDATA['
+    if (cdataContentStart > xmlStart) {
+      result.push({ start: posToLocation(xmlStart), end: posToLocation(cdataContentStart) });
+    }
+
+    // After the CDATA content, the XML wrapper resumes at ']]>'
+    xmlStart = cdataClose; // ']]>' is part of the XML wrapper
+    pos = cdataClose + CDATA_CLOSE.length;
+  }
+
+  // Final XML wrapper region: from the last ']]>' to the end of the file
+  if (xmlStart < text.length) {
+    result.push({ start: posToLocation(xmlStart), end: posToLocation(text.length) });
+  }
+
+  return result;
+}
+
+
 
 /**
  * Extract ST source from a TwinCAT file.

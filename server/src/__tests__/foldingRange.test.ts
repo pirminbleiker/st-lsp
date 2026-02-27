@@ -245,3 +245,66 @@ describe('handleFoldingRanges', () => {
     expect(ifStmt).toBeDefined();
   });
 });
+
+// ---------------------------------------------------------------------------
+// TcPOU (XML/CDATA) folding range handling
+// ---------------------------------------------------------------------------
+
+function makeTcPouDoc(content: string): TextDocument {
+  return TextDocument.create('file:///test.tcpou', 'iec-st', 1, content);
+}
+
+describe('handleFoldingRanges — TcPOU XML/CDATA files', () => {
+  const xmlPou = [
+    '<?xml version="1.0" encoding="utf-8"?>',  // line 0
+    '<TcPlcObject>',                            // line 1
+    '  <POU Name="Foo">',                       // line 2
+    '    <Declaration><![CDATA[',               // line 3
+    'FUNCTION_BLOCK Foo',                       // line 4
+    'VAR',                                      // line 5
+    '  x : INT;',                               // line 6
+    'END_VAR',                                  // line 7
+    ']]></Declaration>',                        // line 8  ← CDATA close / xml
+    '    <Implementation>',                     // line 9
+    '      <ST><![CDATA[x := 1;]]></ST>',      // line 10
+    '    </Implementation>',                    // line 11
+    '  </POU>',                                 // line 12
+    '</TcPlcObject>',                           // line 13
+  ].join('\n');
+
+  it('produces folding ranges for XML sections', () => {
+    const ranges = handleFoldingRanges(makeTcPouDoc(xmlPou));
+    // There should be at least one range covering the header XML (lines 0–2 or more)
+    const headerFold = ranges.find(r => r.startLine === 0);
+    expect(headerFold).toBeDefined();
+    expect(headerFold!.endLine).toBeGreaterThanOrEqual(2);
+  });
+
+  it('produces a folding range for the VAR block at correct original-file lines', () => {
+    const ranges = handleFoldingRanges(makeTcPouDoc(xmlPou));
+    // VAR starts at line 5, END_VAR at line 7 in the original file
+    const varFold = ranges.find(r => r.startLine === 5 && r.endLine === 7);
+    expect(varFold).toBeDefined();
+  });
+
+  it('produces a folding range for the POU body at correct original-file lines', () => {
+    const ranges = handleFoldingRanges(makeTcPouDoc(xmlPou));
+    // FUNCTION_BLOCK body: starts line 4, ends line 7 (END_VAR is last ST line before CDATA close)
+    const pouFold = ranges.find(r => r.startLine === 4);
+    expect(pouFold).toBeDefined();
+  });
+
+  it('does not produce negative-range folds', () => {
+    const ranges = handleFoldingRanges(makeTcPouDoc(xmlPou));
+    for (const r of ranges) {
+      expect(r.endLine).toBeGreaterThan(r.startLine);
+    }
+  });
+
+  it('still works correctly for plain .st files (regression)', () => {
+    const doc = TextDocument.create('file:///test.st', 'iec-st', 1,
+      'PROGRAM Main\nVAR x : INT; END_VAR\nEND_PROGRAM');
+    const ranges = handleFoldingRanges(doc);
+    expect(ranges.length).toBeGreaterThan(0);
+  });
+});

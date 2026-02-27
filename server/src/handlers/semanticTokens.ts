@@ -3,8 +3,13 @@
  *
  * Implements textDocument/semanticTokens/full by walking the lexer token
  * stream and resolving identifier roles from the AST.
+ *
+ * For TwinCAT XML file formats (.TcPOU, .TcGVL, .TcDUT, .TcIO) the handler
+ * extracts the CDATA sections, emits `comment` tokens for the XML wrapper,
+ * and emits normal ST tokens for the CDATA content with line-mapped positions.
  */
 
+import * as path from 'path';
 import { SemanticTokens, SemanticTokensBuilder } from 'vscode-languageserver/node';
 import { TextDocument } from 'vscode-languageserver-textdocument';
 import { Lexer, Token, TokenKind } from '../parser/lexer';
@@ -25,6 +30,7 @@ import {
 } from '../parser/ast';
 import { findBuiltinType } from '../twincat/types';
 import { findStandardFB } from '../twincat/stdlib';
+import { extractST, getXmlRanges, ExtractedSection, XmlRange } from '../twincat/tcExtractor';
 
 // ---------------------------------------------------------------------------
 // Legend (order determines indices used in encoding)
@@ -102,6 +108,9 @@ const KEYWORD_KINDS = new Set<TokenKind>([
   TokenKind.PUBLIC, TokenKind.PRIVATE, TokenKind.PROTECTED, TokenKind.INTERNAL,
   TokenKind.CONSTANT, TokenKind.RETAIN, TokenKind.PERSISTENT,
 ]);
+
+// TwinCAT XML file extensions that require the XML/CDATA-aware token handler
+const XML_EXT_SET = new Set(['.tcpou', '.tcgvl', '.tcdut', '.tcio', '.tctask']);
 
 // ---------------------------------------------------------------------------
 // Name role map — built from the AST
@@ -372,6 +381,11 @@ function buildDeclSites(tokens: Token[]): Set<string> {
 // ---------------------------------------------------------------------------
 
 export function handleSemanticTokens(document: TextDocument): SemanticTokens {
+  const ext = path.extname(document.uri).toLowerCase();
+  if (XML_EXT_SET.has(ext)) {
+    return handleSemanticTokensXml(document, ext);
+  }
+
   const text = document.getText();
   const { ast } = parse(text);
   const nameMap = buildNameMap(ast);
@@ -465,5 +479,152 @@ export function handleSemanticTokens(document: TextDocument): SemanticTokens {
     }
   }
 
+  return builder.build();
+}
+
+// ---------------------------------------------------------------------------
+// TwinCAT XML file handler
+// ---------------------------------------------------------------------------
+
+/** Flat token entry collected before final sort + emit. */
+interface TokenEntry {
+  line: number;
+  character: number;
+  length: number;
+  tokenType: number;
+  modifiers: number;
+}
+
+/**
+ * Emit `comment` semantic tokens for every non-empty character span in
+ * `xmlRange`, split across lines as needed.
+ */
+function collectXmlCommentTokens(
+  xmlRange: XmlRange,
+  textLines: string[],
+  out: TokenEntry[],
+): void {
+  for (let ln = xmlRange.start.line; ln <= xmlRange.end.line; ln++) {
+    const lineText = textLines[ln] ?? '';
+    const startChar = ln === xmlRange.start.line ? xmlRange.start.character : 0;
+    const endChar   = ln === xmlRange.end.line   ? xmlRange.end.character   : lineText.length;
+    const len = endChar - startChar;
+    if (len > 0) {
+      out.push({ line: ln, character: startChar, length: len, tokenType: TT_COMMENT, modifiers: 0 });
+    }
+  }
+}
+
+/**
+ * Lex one extracted CDATA section and emit semantic tokens mapped back to
+ * original-file positions via `section.startLine` and `section.startChar`.
+ */
+function collectStSectionTokens(
+  section: ExtractedSection,
+  nameMap: Map<string, NameRole>,
+  out: TokenEntry[],
+): void {
+  const sectionTokens = new Lexer(section.content).tokenizeWithTrivia();
+  const localDeclSites = buildDeclSites(sectionTokens);
+
+  function push(
+    localLine: number, localChar: number, len: number,
+    tokenType: number, modifiers: number,
+  ): void {
+    const origLine = section.startLine + localLine;
+    const origChar = localChar + (localLine === 0 ? section.startChar : 0);
+    out.push({ line: origLine, character: origChar, length: len, tokenType, modifiers });
+  }
+
+  for (const tok of sectionTokens) {
+    const { line: ll, character: lc } = tok.range.start;
+    const spanLines = tok.range.end.line - ll;
+    const length = tok.range.end.character - tok.range.start.character;
+    if (length <= 0) continue;
+
+    const isDecl  = localDeclSites.has(`${ll}:${lc}`);
+    const declMod = isDecl ? MOD_DECLARATION : 0;
+
+    switch (tok.kind) {
+      case TokenKind.INTEGER:
+      case TokenKind.REAL:
+        push(ll, lc, length, TT_NUMBER, 0);
+        break;
+
+      case TokenKind.STRING:
+        if (spanLines === 0) {
+          push(ll, lc, length, TT_STRING, 0);
+        } else {
+          const segs = tok.text.split('\n');
+          for (let i = 0; i < segs.length; i++) {
+            const segLen = segs[i].length;
+            if (segLen > 0) push(ll + i, i === 0 ? lc : 0, segLen, TT_STRING, 0);
+          }
+        }
+        break;
+
+      case TokenKind.COMMENT:
+        if (spanLines === 0) {
+          push(ll, lc, length, TT_COMMENT, 0);
+        } else {
+          const segs = tok.text.split('\n');
+          for (let i = 0; i < segs.length; i++) {
+            const segLen = segs[i].length;
+            if (segLen > 0) push(ll + i, i === 0 ? lc : 0, segLen, TT_COMMENT, 0);
+          }
+        }
+        break;
+
+      default:
+        if (KEYWORD_KINDS.has(tok.kind)) {
+          push(ll, lc, length, TT_KEYWORD, 0);
+          break;
+        }
+        if (tok.kind !== TokenKind.IDENTIFIER) break;
+        {
+          const upper = tok.text.toUpperCase();
+          if (findBuiltinType(upper)) {
+            push(ll, lc, length, TT_TYPE, declMod | MOD_DEFAULT_LIB);
+          } else if (findStandardFB(upper)) {
+            push(ll, lc, length, TT_FUNCTION, declMod | MOD_DEFAULT_LIB);
+          } else {
+            const role = nameMap.get(upper);
+            if (role) push(ll, lc, length, role.tokenType, declMod | role.modifiers);
+          }
+        }
+        break;
+    }
+  }
+}
+
+/** Semantic token handler for TwinCAT XML files (.TcPOU, .TcGVL, etc.). */
+function handleSemanticTokensXml(document: TextDocument, ext: string): SemanticTokens {
+  const text = document.getText();
+  const extraction = extractST(text, ext);
+
+  // Parse the combined extracted source for name roles (positions don't matter here).
+  const { ast } = parse(extraction.source);
+  const nameMap = buildNameMap(ast);
+
+  const allTokens: TokenEntry[] = [];
+
+  // 1. Comment tokens for XML wrapper regions
+  const textLines = text.split('\n');
+  for (const xmlRange of getXmlRanges(text)) {
+    collectXmlCommentTokens(xmlRange, textLines, allTokens);
+  }
+
+  // 2. ST tokens for each CDATA section with position mapping
+  for (const section of extraction.sections) {
+    collectStSectionTokens(section, nameMap, allTokens);
+  }
+
+  // 3. Sort by document order (required by SemanticTokensBuilder)
+  allTokens.sort((a, b) => a.line - b.line || a.character - b.character);
+
+  const builder = new SemanticTokensBuilder();
+  for (const t of allTokens) {
+    builder.push(t.line, t.character, t.length, t.tokenType, t.modifiers);
+  }
   return builder.build();
 }

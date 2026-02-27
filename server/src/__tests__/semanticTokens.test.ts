@@ -201,3 +201,80 @@ describe('handleSemanticTokens', () => {
     });
   });
 });
+
+// ---------------------------------------------------------------------------
+// TcPOU (XML/CDATA) semantic token handling
+// ---------------------------------------------------------------------------
+
+function makeTcPouDoc(content: string): TextDocument {
+  return TextDocument.create('file:///test.tcpou', 'iec-st', 1, content);
+}
+
+describe('handleSemanticTokens — TcPOU XML/CDATA files', () => {
+  const xmlPou = [
+    '<?xml version="1.0" encoding="utf-8"?>',  // line 0
+    '<TcPlcObject>',                            // line 1
+    '  <POU Name="Foo">',                       // line 2
+    '    <Declaration><![CDATA[',               // line 3  ← xml only
+    'FUNCTION_BLOCK Foo',                       // line 4  ← ST start
+    'VAR',                                      // line 5
+    '  x : INT;',                               // line 6
+    'END_VAR]]></Declaration>',                 // line 7  ← ST end / xml closes
+    '    <Implementation>',                     // line 8
+    '      <ST><![CDATA[x := 1;]]></ST>',      // line 9
+    '    </Implementation>',                    // line 10
+    '  </POU>',                                 // line 11
+    '</TcPlcObject>',                           // line 12
+  ].join('\n');
+
+  it('emits comment tokens for XML wrapper lines', () => {
+    const doc = makeTcPouDoc(xmlPou);
+    const { data } = handleSemanticTokens(doc);
+    const tokens = decodeTokens(data);
+    // Lines 0-3 are pure XML — they should all get comment tokens
+    const commentTokens = tokens.filter(t => t.tokenType === 'comment');
+    expect(commentTokens.some(t => t.line === 0)).toBe(true); // XML declaration line
+    expect(commentTokens.some(t => t.line === 1)).toBe(true); // <TcPlcObject>
+    expect(commentTokens.some(t => t.line === 2)).toBe(true); // <POU Name="Foo">
+  });
+
+  it('emits keyword token for FUNCTION_BLOCK on correct original line', () => {
+    const doc = makeTcPouDoc(xmlPou);
+    const { data } = handleSemanticTokens(doc);
+    const tokens = decodeTokens(data);
+    // FUNCTION_BLOCK is on line 4 (ST content line)
+    const fbToken = tokens.find(t => t.tokenType === 'keyword' && t.line === 4 && t.char === 0);
+    expect(fbToken).toBeDefined();
+    expect(fbToken?.length).toBe('FUNCTION_BLOCK'.length);
+  });
+
+  it('emits keyword token for VAR on correct original line', () => {
+    const doc = makeTcPouDoc(xmlPou);
+    const { data } = handleSemanticTokens(doc);
+    const tokens = decodeTokens(data);
+    const varToken = tokens.find(t => t.tokenType === 'keyword' && t.line === 5 && t.char === 0);
+    expect(varToken).toBeDefined();
+  });
+
+  it('no tokens overlap on mixed lines (line with ]]>)', () => {
+    const doc = makeTcPouDoc(xmlPou);
+    const { data } = handleSemanticTokens(doc);
+    const tokens = decodeTokens(data);
+    // Line 7 has 'END_VAR]]></Declaration>' — END_VAR ST token + comment for ']]>...'
+    const line7Tokens = tokens.filter(t => t.line === 7);
+    // Check no two tokens overlap
+    for (let i = 0; i < line7Tokens.length - 1; i++) {
+      const a = line7Tokens[i];
+      const b = line7Tokens[i + 1];
+      expect(a.char + a.length).toBeLessThanOrEqual(b.char);
+    }
+  });
+
+  it('does not return garbage tokens for .st files (regression)', () => {
+    const doc = TextDocument.create('file:///test.st', 'iec-st', 1, 'PROGRAM Main\nEND_PROGRAM');
+    const { data } = handleSemanticTokens(doc);
+    const tokens = decodeTokens(data);
+    const kw = tokens.filter(t => t.tokenType === 'keyword');
+    expect(kw.length).toBeGreaterThanOrEqual(2); // PROGRAM + END_PROGRAM
+  });
+});

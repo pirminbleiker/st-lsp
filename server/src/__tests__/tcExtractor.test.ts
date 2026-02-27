@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import * as path from 'path';
 import * as fs from 'fs';
-import { extractST, ExtractionResult } from '../twincat/tcExtractor';
+import { extractST, getXmlRanges, ExtractionResult } from '../twincat/tcExtractor';
 import { parse } from '../parser/parser';
 import type { FunctionBlockDeclaration } from '../parser/ast';
 
@@ -834,5 +834,93 @@ describe('.TcPOU Action block extraction', () => {
     expect(fb.actions).toHaveLength(2);
     expect(fb.actions[0].name).toBe('Run');
     expect(fb.actions[1].name).toBe('Reset');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 12. getXmlRanges — non-CDATA region detection
+// ---------------------------------------------------------------------------
+
+describe('getXmlRanges', () => {
+  it('returns a single range covering the whole text when there are no CDATAs', () => {
+    const text = '<POU></POU>\n';
+    const ranges = getXmlRanges(text);
+    expect(ranges).toHaveLength(1);
+    expect(ranges[0].start).toEqual({ line: 0, character: 0 });
+    expect(ranges[0].end.line).toBeGreaterThanOrEqual(0);
+  });
+
+  it('returns empty array for empty text', () => {
+    const ranges = getXmlRanges('');
+    expect(ranges).toHaveLength(0);
+  });
+
+  it('splits text around a single CDATA section (inline pattern)', () => {
+    // Line 0: <D><![CDATA[content]]></D>
+    const text = '<D><![CDATA[content]]></D>';
+    const ranges = getXmlRanges(text);
+    // Range 1: '<D><![CDATA[' (before CDATA content)
+    // Range 2: ']]></D>' (after CDATA content)
+    expect(ranges).toHaveLength(2);
+
+    // Range 1 ends where CDATA content begins (char 12 = length of '<D><![CDATA[')
+    expect(ranges[0].start).toEqual({ line: 0, character: 0 });
+    expect(ranges[0].end).toEqual({ line: 0, character: 12 });
+
+    // Range 2 starts at ']]>'
+    expect(ranges[1].start).toEqual({ line: 0, character: 19 }); // 12 + 7 = 19
+    expect(ranges[1].end.line).toBe(0);
+  });
+
+  it('splits text around a CDATA that opens with a newline (Pattern B)', () => {
+    // Line 0: <D><![CDATA[
+    // Line 1: content
+    // Line 2: ]]></D>
+    const text = '<D><![CDATA[\ncontent\n]]></D>\n';
+    const ranges = getXmlRanges(text);
+    expect(ranges).toHaveLength(2);
+
+    // Range 1 ends right after '<![CDATA[' on line 0 (character 12)
+    expect(ranges[0].start).toEqual({ line: 0, character: 0 });
+    expect(ranges[0].end).toEqual({ line: 0, character: 12 });
+
+    // Range 2 starts at ']]>' on line 2
+    expect(ranges[1].start).toEqual({ line: 2, character: 0 });
+  });
+
+  it('returns three ranges for two CDATA sections', () => {
+    const text = [
+      '<P>',                              // line 0
+      '<D><![CDATA[decl',                 // line 1  ← start of CDATA 1 content
+      ']]></D>',                          // line 2
+      '<I><ST><![CDATA[impl]]></ST></I>', // line 3
+      '</P>',                             // line 4
+    ].join('\n');
+    const ranges = getXmlRanges(text);
+    expect(ranges).toHaveLength(3);
+
+    // Range 0: header (lines 0-1 prefix)
+    expect(ranges[0].start.line).toBe(0);
+    // Range 2: footer (after last ]]>)
+    expect(ranges[2].end.line).toBe(4);
+  });
+
+  it('extractST sections have correct startChar for inline CDATA (Pattern A)', () => {
+    // '<D><![CDATA[CONTENT' — CONTENT starts at char 12
+    const xml = '<TcPlcObject><POU Name="X"><Declaration><![CDATA[FUNCTION_BLOCK X\nVAR END_VAR]]></Declaration></POU></TcPlcObject>';
+    const r = extractST(xml, '.tcpou');
+    expect(r.sections[0].startChar).toBeGreaterThan(0);
+  });
+
+  it('extractST sections have startChar=0 for newline CDATA (Pattern B)', () => {
+    const xml = [
+      '<TcPlcObject><POU Name="X">',
+      '<Declaration><![CDATA[',
+      'FUNCTION_BLOCK X',
+      'VAR END_VAR]]></Declaration>',
+      '</POU></TcPlcObject>',
+    ].join('\n');
+    const r = extractST(xml, '.tcpou');
+    expect(r.sections[0].startChar).toBe(0);
   });
 });
