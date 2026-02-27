@@ -380,6 +380,109 @@ describe('handleRename', () => {
     expect(edits.length).toBeLessThan(20); // sanity guard
   });
 
+  // ---- VarDeclaration name renaming ----
+
+  it('renames the variable declaration name in a VAR block (initiated from usage)', () => {
+    const src = [
+      'PROGRAM Main',
+      'VAR',
+      '  counter : INT;',
+      'END_VAR',
+      '  counter := 0;',
+      'END_PROGRAM',
+    ].join('\n');
+    const doc = makeDoc(src);
+    // Rename from body usage at line 4
+    const params = makeRenameParams(doc.uri, 4, 2, 'idx');
+    const result = handleRename(params, doc);
+    expect(result).not.toBeNull();
+    const changes = result!.changes as Record<string, TextEdit[]>;
+    const edits = getEdits(changes, doc.uri);
+    // Must include both the declaration site (line 2) and body usage (line 4)
+    const lines = edits.map(e => e.range.start.line);
+    expect(lines).toContain(2); // declaration line
+    expect(lines).toContain(4); // usage line
+    for (const edit of edits) {
+      expect(edit.newText).toBe('idx');
+    }
+  });
+
+  it('can initiate rename from the declaration site itself', () => {
+    const src = [
+      'PROGRAM Main',
+      'VAR',
+      '  counter : INT;',
+      'END_VAR',
+      '  counter := 0;',
+      'END_PROGRAM',
+    ].join('\n');
+    const doc = makeDoc(src);
+    // Rename initiated from the VAR block declaration (line 2, 'counter' at char 2)
+    const params = makeRenameParams(doc.uri, 2, 2, 'idx');
+    const result = handleRename(params, doc);
+    expect(result).not.toBeNull();
+    const changes = result!.changes as Record<string, TextEdit[]>;
+    const edits = getEdits(changes, doc.uri);
+    // Must rename both the declaration (line 2) and usage (line 4)
+    const lines = edits.map(e => e.range.start.line);
+    expect(lines).toContain(2);
+    expect(lines).toContain(4);
+    for (const edit of edits) {
+      expect(edit.newText).toBe('idx');
+    }
+  });
+
+  it('declaration rename edit covers only the name, not the entire declaration', () => {
+    const src = [
+      'PROGRAM Main',
+      'VAR',
+      '  myVar : INT := 0;',
+      'END_VAR',
+      '  myVar := 1;',
+      'END_PROGRAM',
+    ].join('\n');
+    const doc = makeDoc(src);
+    const params = makeRenameParams(doc.uri, 4, 2, 'renamed');
+    const result = handleRename(params, doc);
+    expect(result).not.toBeNull();
+    const changes = result!.changes as Record<string, TextEdit[]>;
+    const edits = getEdits(changes, doc.uri);
+    const declEdit = edits.find(e => e.range.start.line === 2);
+    expect(declEdit).toBeDefined();
+    // The edit should span only 'myVar' (5 chars), not the whole 'myVar : INT := 0;'
+    const len = declEdit!.range.end.character - declEdit!.range.start.character;
+    expect(len).toBe('myVar'.length);
+  });
+
+  // ---- ForStatement loop variable renaming ----
+
+  it('renames the FOR loop variable', () => {
+    const src = [
+      'PROGRAM Main',
+      'VAR',
+      '  i : INT;',
+      'END_VAR',
+      '  FOR i := 1 TO 10 DO',
+      '    i := i + 1;',
+      '  END_FOR',
+      'END_PROGRAM',
+    ].join('\n');
+    const doc = makeDoc(src);
+    // Rename the loop variable 'i' from a usage in the body (line 5)
+    const params = makeRenameParams(doc.uri, 5, 4, 'idx');
+    const result = handleRename(params, doc);
+    expect(result).not.toBeNull();
+    const changes = result!.changes as Record<string, TextEdit[]>;
+    const edits = getEdits(changes, doc.uri);
+    // Must include the FOR loop variable header at line 4
+    const forVarEdit = edits.find(e => e.range.start.line === 4);
+    expect(forVarEdit).toBeDefined();
+    expect(forVarEdit!.newText).toBe('idx');
+    for (const edit of edits) {
+      expect(edit.newText).toBe('idx');
+    }
+  });
+
 });
 
 // ---------------------------------------------------------------------------

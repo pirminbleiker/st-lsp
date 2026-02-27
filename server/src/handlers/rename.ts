@@ -142,6 +142,9 @@ function collectNameMatches(ast: SourceFile, targetName: string): NameMatch[] {
       }
       case 'ForStatement': {
         const s = node as ForStatement;
+        if (s.variable.toUpperCase() === upper) {
+          results.push({ range: s.variableRange });
+        }
         visitExpr(s.from);
         visitExpr(s.to);
         if (s.by) visitExpr(s.by);
@@ -187,6 +190,9 @@ function collectNameMatches(ast: SourceFile, targetName: string): NameMatch[] {
   }
 
   function visitVarDecl(vd: VarDeclaration): void {
+    if (vd.name.toUpperCase() === upper) {
+      results.push({ range: vd.nameRange });
+    }
     if (vd.initialValue) visitExpr(vd.initialValue);
   }
 
@@ -238,6 +244,14 @@ function collectNameMatches(ast: SourceFile, targetName: string): NameMatch[] {
 // handleRename
 // ---------------------------------------------------------------------------
 
+/** Returns true if `pos` falls within `range` (inclusive start, exclusive end). */
+function positionInRange(pos: { line: number; character: number }, range: Range): boolean {
+  if (pos.line < range.start.line || pos.line > range.end.line) return false;
+  if (pos.line === range.start.line && pos.character < range.start.character) return false;
+  if (pos.line === range.end.line && pos.character >= range.end.character) return false;
+  return true;
+}
+
 export function handleRename(
   params: RenameParams,
   document: TextDocument | undefined,
@@ -250,9 +264,22 @@ export function handleRename(
 
   const { line, character } = params.position;
   const node = findNodeAtPosition(ast, line, character);
-  if (!node || node.kind !== 'NameExpression') return null;
+  if (!node) return null;
 
-  const targetName = (node as NameExpression).name;
+  let targetName: string;
+  if (node.kind === 'NameExpression') {
+    targetName = (node as NameExpression).name;
+  } else if (node.kind === 'ForStatement') {
+    const fs = node as ForStatement;
+    if (!positionInRange({ line, character }, fs.variableRange)) return null;
+    targetName = fs.variable;
+  } else if (node.kind === 'VarDeclaration') {
+    const vd = node as VarDeclaration;
+    if (!positionInRange({ line, character }, vd.nameRange)) return null;
+    targetName = vd.name;
+  } else {
+    return null;
+  }
   if (!targetName) return null;
 
   const newName = params.newName;
@@ -313,10 +340,25 @@ export function handlePrepareRename(
 
   const { line, character } = params.position;
   const node = findNodeAtPosition(ast, line, character);
-  if (!node || node.kind !== 'NameExpression') return null;
+  if (!node) return null;
 
-  const name = (node as NameExpression).name;
-  if (!name) return null;
+  if (node.kind === 'NameExpression') {
+    const name = (node as NameExpression).name;
+    if (!name) return null;
+    return { start: node.range.start, end: node.range.end };
+  }
 
-  return { start: node.range.start, end: node.range.end };
+  if (node.kind === 'ForStatement') {
+    const fs = node as ForStatement;
+    if (!positionInRange({ line, character }, fs.variableRange)) return null;
+    return { start: fs.variableRange.start, end: fs.variableRange.end };
+  }
+
+  if (node.kind === 'VarDeclaration') {
+    const vd = node as VarDeclaration;
+    if (!positionInRange({ line, character }, vd.nameRange)) return null;
+    return { start: vd.nameRange.start, end: vd.nameRange.end };
+  }
+
+  return null;
 }

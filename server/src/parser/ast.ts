@@ -107,6 +107,8 @@ export interface VarBlock extends AstNode {
 export interface VarDeclaration extends AstNode {
   kind: 'VarDeclaration';
   name: string;
+  /** Precise range covering only the declaration name identifier. */
+  nameRange: Range;
   pragmas: Pragma[];
   type: TypeRef;
   initialValue?: Expression;
@@ -163,6 +165,8 @@ export interface ElsifClause {
 export interface ForStatement extends AstNode {
   kind: 'ForStatement';
   variable: string;
+  /** Precise range covering only the loop variable identifier. */
+  variableRange: Range;
   from: Expression;
   to: Expression;
   by?: Expression;

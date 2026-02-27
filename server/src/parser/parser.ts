@@ -384,7 +384,7 @@ class Parser {
 
     this.expect(TokenKind.SEMICOLON, "Expected ';'");
 
-    return { kind: 'VarDeclaration', name, pragmas, type, initialValue, range: this.endRange(start) };
+    return { kind: 'VarDeclaration', name, nameRange: nameTok.range, pragmas, type, initialValue, range: this.endRange(start) };
   }
 
   // ---- Type references --------------------------------------------------
@@ -670,6 +670,7 @@ class Parser {
     return {
       kind: 'ForStatement',
       variable: varTok.text,
+      variableRange: varTok.range,
       from,
       to,
       by,
