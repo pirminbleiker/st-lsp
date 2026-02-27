@@ -48,7 +48,7 @@ import { handleCodeActions } from './handlers/codeActions';
 import { handleInlayHints } from './handlers/inlayHints';
 import { createWorkspaceIndex, WorkspaceIndex } from './twincat/workspaceIndex';
 
-const connection = createConnection(ProposedFeatures.all);
+const connection = createConnection(ProposedFeatures.all) as any;
 const documents = new TextDocuments(TextDocument);
 
 let hasConfigurationCapability = false;
@@ -117,7 +117,7 @@ connection.onInitialized(() => {
 		connection.client.register(DidChangeConfigurationNotification.type, undefined);
 	}
 	if (hasWorkspaceFolderCapability) {
-		connection.workspace.onDidChangeWorkspaceFolders((_event) => {
+		connection.workspace.onDidChangeWorkspaceFolders((_event: any) => {
 			connection.console.log('Workspace folder change event received.');
 		});
 	}

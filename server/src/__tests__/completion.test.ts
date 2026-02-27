@@ -311,7 +311,6 @@ notDeclared.`;
     });
   });
 
-<<<<<<< HEAD
   describe('SUPER^. member completion', () => {
     const parentSrc = `FUNCTION_BLOCK FB_Parent
 VAR_OUTPUT
@@ -589,5 +588,4 @@ END_PROGRAM`;
     const labels = items.map(i => i.label);
     expect(labels).not.toContain('IF');
   });
-});
 });
