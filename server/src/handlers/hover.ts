@@ -128,6 +128,22 @@ export function findNodeAtPosition(ast: SourceFile, line: number, character: num
         break;
       }
 
+      case 'TypeDeclarationBlock': {
+        const tb = node as import('../parser/ast').TypeDeclarationBlock;
+        for (const typeDecl of tb.declarations) {
+          const child = visit(typeDecl); if (child) deepest = child;
+        }
+        break;
+      }
+
+      case 'StructDeclaration': {
+        const sd = node as import('../parser/ast').StructDeclaration;
+        for (const field of sd.fields) {
+          const child = visit(field); if (child) deepest = child;
+        }
+        break;
+      }
+
       // Statements
       case 'AssignmentStatement': {
         const s = node as import('../parser/ast').AssignmentStatement;

@@ -352,4 +352,48 @@ END_PROGRAM`;
     expect(result.length).toBe(2);
     expect(result.every(l => l.uri === currentUri)).toBe(true);
   });
+
+  // ── TypeRef (type annotation) tests ─────────────────────────────────────
+
+  it('finds all usages of a type name when cursor is on a type annotation', () => {
+    const src = `FUNCTION_BLOCK Main
+VAR
+  timer1 : TON;
+  timer2 : TON;
+  counter : CTU;
+END_VAR
+END_FUNCTION_BLOCK`;
+    const doc = makeDoc(src);
+    // Position on 'TON' in the first var declaration type annotation (line 2, col 11)
+    const params = makeParams(doc.uri, 2, 11);
+    const result = handleReferences(params, doc);
+
+    // timer1 type (line 2) + timer2 type (line 3) = 2, NOT CTU on line 4
+    expect(result.length).toBe(2);
+    const lines = result.map(l => l.range.start.line);
+    expect(lines).toContain(2);
+    expect(lines).toContain(3);
+    expect(lines).not.toContain(4);
+  });
+
+  it('finds type annotation usages across a struct declaration', () => {
+    const src = `TYPE
+  MyStruct : STRUCT
+    a : REAL;
+    b : REAL;
+    c : INT;
+  END_STRUCT;
+END_TYPE`;
+    const doc = makeDoc(src);
+    // Position on 'REAL' in field a (line 2, col 8)
+    const params = makeParams(doc.uri, 2, 8);
+    const result = handleReferences(params, doc);
+
+    // field a type (line 2) + field b type (line 3) = 2, NOT INT on line 4
+    expect(result.length).toBe(2);
+    const lines = result.map(l => l.range.start.line);
+    expect(lines).toContain(2);
+    expect(lines).toContain(3);
+    expect(lines).not.toContain(4);
+  });
 });

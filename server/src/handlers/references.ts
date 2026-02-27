@@ -21,6 +21,7 @@ import {
   ProgramDeclaration,
   SourceFile,
   TypeDeclarationBlock,
+  TypeRef,
   VarDeclaration,
 } from '../parser/ast';
 
@@ -32,6 +33,7 @@ import {
  * Recursively walk the AST and collect:
  *   - Every NameExpression node whose name matches `targetName` (case-insensitive)
  *   - Every VarDeclaration whose name matches `targetName` (declaration sites)
+ *   - Every VarDeclaration whose type annotation name matches `targetName` (type usages)
  *
  * Returns a Location[] using the given `uri` for each match.
  */
@@ -61,6 +63,7 @@ export function collectNameExpressions(
     }
 
     // If this is a VarDeclaration whose name matches, collect it as a declaration site.
+    // Also check whether the type annotation references targetName.
     if (node.kind === 'VarDeclaration') {
       const vd = node as VarDeclaration;
       if (vd.name.toUpperCase() === upper) {
@@ -71,6 +74,10 @@ export function collectNameExpressions(
             end: vd.range.end,
           },
         });
+      }
+      // Check type annotation — e.g. `x : TON` when searching for TON
+      if (vd.type.name.toUpperCase() === upper) {
+        results.push({ uri, range: { start: vd.type.range.start, end: vd.type.range.end } });
       }
       // Also visit the initial value expression if present
       if (vd.initialValue) visitNode(vd.initialValue);
@@ -289,10 +296,12 @@ export function handleReferences(
   if (!node) return [];
 
   // Extract the identifier name from either a NameExpression, a VarDeclaration,
-  // or a ForStatement (whose loop variable is a plain string field, not a NameExpression)
+  // a TypeRef (cursor on a type annotation), or a ForStatement (plain string field)
   let name: string | undefined;
   if (node.kind === 'NameExpression') {
     name = (node as NameExpression).name;
+  } else if (node.kind === 'TypeRef') {
+    name = (node as TypeRef).name;
   } else if (node.kind === 'VarDeclaration') {
     name = (node as VarDeclaration).name;
   } else if (node.kind === 'ForStatement') {
