@@ -11,8 +11,6 @@ plugins:
 color_scheme: dark
 search_enabled: true
 
-github_username: pirminbleiker
-
 aux_links:
   "GitHub": "https://github.com/pirminbleiker/st-lsp"
   "Download": "https://github.com/pirminbleiker/st-lsp/releases/tag/canary"
