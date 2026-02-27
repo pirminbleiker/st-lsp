@@ -18,6 +18,8 @@ import {
   StructDeclaration,
   EnumDeclaration,
   UnionDeclaration,
+  InterfaceDeclaration,
+  AliasDeclaration,
 } from '../parser/ast';
 import { BUILTIN_TYPES } from '../twincat/types';
 import { STANDARD_FBS, findStandardFB } from '../twincat/stdlib';
@@ -100,7 +102,7 @@ function getIdentifierBeforeDot(text: string, line: number, character: number): 
   if (character === 0 || lineText[character - 1] !== '.') return null;
 
   let i = character - 2;
-  while (i >= 0 && /[a-zA-Z0-9_]/.test(lineText[i])) i--;
+  while (i >= 0 && /[a-zA-Z0-9_.]/.test(lineText[i])) i--;
   const ident = lineText.slice(i + 1, character - 1);
   return ident.length > 0 ? ident : null;
 }
@@ -332,56 +334,105 @@ function enumValuesToCompletionItems(enumDecl: EnumDeclaration): CompletionItem[
 }
 
 /**
- * Return completion items for the members exposed by `typeName`.
- * Searches `declarations` for a matching FUNCTION_BLOCK or STRUCT.
- *
- * For FBs:     VAR_OUTPUT, VAR_IN_OUT, methods, and properties (not VAR_INPUT).
- * For STRUCTs: all fields.
- *
- * Returns null if the type is not found in `declarations`.
+ * Collect all declarations from the workspace index into an array of declaration sets.
+ * The first entry is always `declarations` (current file).
  */
-function getMembersFromDeclarations(
-  typeName: string,
+function collectAllDeclSets(
   declarations: TopLevelDeclaration[],
-): CompletionItem[] | null {
-  const upperName = typeName.toUpperCase();
-
-  for (const decl of declarations) {
-    if (decl.kind === 'FunctionBlockDeclaration') {
-      const fb = decl as FunctionBlockDeclaration;
-      if (fb.name.toUpperCase() !== upperName) continue;
-
-      const items: CompletionItem[] = [];
-      for (const vb of fb.varBlocks) {
-        if (vb.varKind === 'VAR_OUTPUT' || vb.varKind === 'VAR_IN_OUT') {
-          for (const vd of vb.declarations) {
-            items.push({ label: vd.name, kind: CompletionItemKind.Field, detail: vd.type.name });
-          }
-        }
+  currentUri: string,
+  workspaceIndex?: WorkspaceIndex,
+): TopLevelDeclaration[][] {
+  const sets: TopLevelDeclaration[][] = [declarations];
+  if (!workspaceIndex) return sets;
+  for (const fileUri of workspaceIndex.getProjectFiles()) {
+    if (fileUri === currentUri) continue;
+    const cached = workspaceIndex.getAst(fileUri);
+    if (cached) {
+      sets.push(cached.ast.declarations);
+    } else {
+      try {
+        const filePath = fileUri.startsWith('file://')
+          ? decodeURIComponent(fileUri.replace(/^file:\/\//, ''))
+          : fileUri;
+        const rawText = fs.readFileSync(filePath, 'utf8');
+        const fileText = extractStFromTwinCAT(filePath, rawText).stCode;
+        sets.push(parse(fileText).ast.declarations);
+      } catch {
+        continue;
       }
-      for (const method of fb.methods) {
-        items.push({
-          label: method.name,
-          kind: CompletionItemKind.Method,
-          detail: method.returnType?.name ?? 'void',
-        });
-      }
-      for (const prop of fb.properties) {
-        items.push({ label: prop.name, kind: CompletionItemKind.Property, detail: prop.type.name });
-      }
-      return items;
     }
+  }
+  return sets;
+}
 
-    if (decl.kind === 'TypeDeclarationBlock') {
-      const typeBlock = decl as TypeDeclarationBlock;
-      for (const typeDecl of typeBlock.declarations) {
-        if (typeDecl.kind === 'StructDeclaration' && typeDecl.name.toUpperCase() === upperName) {
-          const struct = typeDecl as StructDeclaration;
-          return struct.fields.map(f => ({
-            label: f.name,
-            kind: CompletionItemKind.Field,
-            detail: f.type.name,
-          }));
+/**
+ * Find the declared type name of member `memberName` within the type `typeName`.
+ * Searches local declarations and workspace index. Walks EXTENDS chains.
+ */
+function findMemberType(
+  typeName: string,
+  memberName: string,
+  declarations: TopLevelDeclaration[],
+  currentUri: string,
+  workspaceIndex?: WorkspaceIndex,
+  visited: Set<string> = new Set(),
+): string | null {
+  const upperTypeName = typeName.toUpperCase();
+  const upperMemberName = memberName.toUpperCase();
+  if (visited.has(upperTypeName)) return null;
+  visited.add(upperTypeName);
+
+  for (const decls of collectAllDeclSets(declarations, currentUri, workspaceIndex)) {
+    for (const decl of decls) {
+      if (decl.kind === 'FunctionBlockDeclaration') {
+        const fb = decl as FunctionBlockDeclaration;
+        if (fb.name.toUpperCase() !== upperTypeName) continue;
+        for (const vb of fb.varBlocks) {
+          const vd = vb.declarations.find(v => v.name.toUpperCase() === upperMemberName);
+          if (vd) return vd.type.name;
+        }
+        for (const method of fb.methods) {
+          if (method.name.toUpperCase() === upperMemberName) return method.returnType?.name ?? null;
+        }
+        for (const prop of fb.properties) {
+          if (prop.name.toUpperCase() === upperMemberName) return prop.type.name;
+        }
+        if (fb.extends) {
+          return findMemberType(fb.extends, memberName, declarations, currentUri, workspaceIndex, visited);
+        }
+        return null;
+      }
+      if (decl.kind === 'InterfaceDeclaration') {
+        const itf = decl as InterfaceDeclaration;
+        if (itf.name.toUpperCase() !== upperTypeName) continue;
+        for (const method of itf.methods) {
+          if (method.name.toUpperCase() === upperMemberName) return method.returnType?.name ?? null;
+        }
+        for (const prop of itf.properties) {
+          if (prop.name.toUpperCase() === upperMemberName) return prop.type.name;
+        }
+        for (const extName of itf.extends) {
+          const t = findMemberType(extName, memberName, declarations, currentUri, workspaceIndex, visited);
+          if (t) return t;
+        }
+        return null;
+      }
+      if (decl.kind === 'TypeDeclarationBlock') {
+        for (const typeDecl of (decl as TypeDeclarationBlock).declarations) {
+          if (typeDecl.kind === 'StructDeclaration' && typeDecl.name.toUpperCase() === upperTypeName) {
+            const struct = typeDecl as StructDeclaration;
+            const field = struct.fields.find(f => f.name.toUpperCase() === upperMemberName);
+            if (field) return field.type.name;
+            if (struct.extends) {
+              return findMemberType(struct.extends, memberName, declarations, currentUri, workspaceIndex, visited);
+            }
+            return null;
+          }
+          if (typeDecl.kind === 'AliasDeclaration' && typeDecl.name.toUpperCase() === upperTypeName) {
+            return findMemberType(
+              (typeDecl as AliasDeclaration).type.name, memberName, declarations, currentUri, workspaceIndex, visited,
+            );
+          }
         }
       }
     }
@@ -390,27 +441,177 @@ function getMembersFromDeclarations(
 }
 
 /**
- * Resolve dot-access members for the variable `varName`:
- *   1. Look up the variable's declared type in `vars`.
- *   2. Check standard FBs (e.g. TON → Q, ET).
- *   3. Search the current file's AST declarations.
- *   4. Search workspace index (other files).
+ * Return completion items for all members exposed by `typeName`.
+ * Handles FUNCTION_BLOCK (all var sections, methods, properties, EXTENDS chain),
+ * STRUCT (fields, EXTENDS chain), INTERFACE (methods, properties, EXTENDS chain),
+ * and ALIAS (dereferenced to target type).
+ * Searches `declarations` (current file) and optionally the workspace index.
+ */
+function getMembersFromDeclarations(
+  typeName: string,
+  declarations: TopLevelDeclaration[],
+  currentUri?: string,
+  workspaceIndex?: WorkspaceIndex,
+  visited: Set<string> = new Set(),
+): CompletionItem[] | null {
+  const upperName = typeName.toUpperCase();
+  if (visited.has(upperName)) return null;
+  visited.add(upperName);
+
+  const uri = currentUri ?? '';
+  for (const decls of collectAllDeclSets(declarations, uri, workspaceIndex)) {
+    for (const decl of decls) {
+      if (decl.kind === 'FunctionBlockDeclaration') {
+        const fb = decl as FunctionBlockDeclaration;
+        if (fb.name.toUpperCase() !== upperName) continue;
+
+        const items: CompletionItem[] = [];
+        for (const vb of fb.varBlocks) {
+          for (const vd of vb.declarations) {
+            items.push({ label: vd.name, kind: CompletionItemKind.Field, detail: vd.type.name });
+          }
+        }
+        for (const method of fb.methods) {
+          items.push({
+            label: method.name,
+            kind: CompletionItemKind.Method,
+            detail: method.returnType?.name ?? 'void',
+          });
+        }
+        for (const prop of fb.properties) {
+          items.push({ label: prop.name, kind: CompletionItemKind.Property, detail: prop.type.name });
+        }
+        if (fb.extends) {
+          const parentItems = getMembersFromDeclarations(
+            fb.extends, declarations, currentUri, workspaceIndex, visited,
+          );
+          if (parentItems) {
+            for (const pi of parentItems) {
+              if (!items.some(i => i.label === pi.label)) items.push(pi);
+            }
+          }
+        }
+        return items;
+      }
+
+      if (decl.kind === 'InterfaceDeclaration') {
+        const itf = decl as InterfaceDeclaration;
+        if (itf.name.toUpperCase() !== upperName) continue;
+
+        const items: CompletionItem[] = [];
+        for (const method of itf.methods) {
+          items.push({
+            label: method.name,
+            kind: CompletionItemKind.Method,
+            detail: method.returnType?.name ?? 'void',
+          });
+        }
+        for (const prop of itf.properties) {
+          items.push({ label: prop.name, kind: CompletionItemKind.Property, detail: prop.type.name });
+        }
+        for (const extName of itf.extends) {
+          const parentItems = getMembersFromDeclarations(
+            extName, declarations, currentUri, workspaceIndex, visited,
+          );
+          if (parentItems) {
+            for (const pi of parentItems) {
+              if (!items.some(i => i.label === pi.label)) items.push(pi);
+            }
+          }
+        }
+        return items;
+      }
+
+      if (decl.kind === 'TypeDeclarationBlock') {
+        const typeBlock = decl as TypeDeclarationBlock;
+        for (const typeDecl of typeBlock.declarations) {
+          if (typeDecl.kind === 'StructDeclaration' && typeDecl.name.toUpperCase() === upperName) {
+            const struct = typeDecl as StructDeclaration;
+            const items: CompletionItem[] = struct.fields.map(f => ({
+              label: f.name,
+              kind: CompletionItemKind.Field,
+              detail: f.type.name,
+            }));
+            if (struct.extends) {
+              const parentItems = getMembersFromDeclarations(
+                struct.extends, declarations, currentUri, workspaceIndex, visited,
+              );
+              if (parentItems) {
+                for (const pi of parentItems) {
+                  if (!items.some(i => i.label === pi.label)) items.push(pi);
+                }
+              }
+            }
+            return items;
+          }
+          if (typeDecl.kind === 'AliasDeclaration' && typeDecl.name.toUpperCase() === upperName) {
+            return getMembersFromDeclarations(
+              (typeDecl as AliasDeclaration).type.name, declarations, currentUri, workspaceIndex, visited,
+            );
+          }
+        }
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Resolve dot-access members for the expression `expression` (may be a dotted
+ * chain like "myFb.inner"):
+ *   1. Resolve the first segment as a local variable.
+ *   2. Walk any remaining chain segments via findMemberType().
+ *   3. Return completion items for the final resolved type.
  *
- * Returns a completion list, or null if the variable is not found.
+ * If the first segment is not a variable, fall back to treating it as a type
+ * name directly (e.g. enum static access: E_Color. → show enum values).
  */
 function getDotAccessMembers(
-  varName: string,
+  expression: string,
   vars: VarDeclaration[],
   declarations: TopLevelDeclaration[],
   currentUri: string,
   workspaceIndex?: WorkspaceIndex,
 ): CompletionItem[] | null {
-  const vd = vars.find(v => v.name.toUpperCase() === varName.toUpperCase());
-  if (!vd) return null;
+  const parts = expression.split('.');
 
-  const typeName = vd.type.name;
+  // Resolve the first part as a variable
+  const vd = vars.find(v => v.name.toUpperCase() === parts[0].toUpperCase());
 
-  // 1. Standard FBs
+  let typeName: string;
+  if (vd) {
+    typeName = vd.type.name;
+  } else {
+    // Not a local variable — treat as a direct type name (e.g. enum static access)
+    if (parts.length === 1) {
+      const enumDecl = findEnumDeclaration(parts[0], declarations, currentUri, workspaceIndex);
+      if (enumDecl) {
+        return enumDecl.values.map(v => ({
+          label: v.name,
+          kind: CompletionItemKind.EnumMember,
+          detail: `${enumDecl.name} enum value`,
+        }));
+      }
+    }
+    return null;
+  }
+
+  // Walk remaining chain segments to resolve the final type
+  for (let i = 1; i < parts.length; i++) {
+    const memberName = parts[i];
+    const stdFb = findStandardFB(typeName);
+    if (stdFb) {
+      const output = stdFb.outputs.find(o => o.name.toUpperCase() === memberName.toUpperCase());
+      if (!output?.type) return null;
+      typeName = output.type;
+      continue;
+    }
+    const memberType = findMemberType(typeName, memberName, declarations, currentUri, workspaceIndex);
+    if (!memberType) return null;
+    typeName = memberType;
+  }
+
+  // Return members of the resolved type
   const stdFb = findStandardFB(typeName);
   if (stdFb) {
     return stdFb.outputs.map(o => ({
@@ -421,38 +622,7 @@ function getDotAccessMembers(
     }));
   }
 
-  // 2. Current file
-  const localMembers = getMembersFromDeclarations(typeName, declarations);
-  if (localMembers) return localMembers;
-
-  // 3. Workspace index
-  if (workspaceIndex) {
-    for (const fileUri of workspaceIndex.getProjectFiles()) {
-      if (fileUri === currentUri) continue;
-
-      let fileDeclarations: TopLevelDeclaration[] | undefined;
-      const cached = workspaceIndex.getAst(fileUri);
-      if (cached) {
-        fileDeclarations = cached.ast.declarations;
-      } else {
-        try {
-          const filePath = fileUri.startsWith('file://')
-            ? decodeURIComponent(fileUri.replace(/^file:\/\//, ''))
-            : fileUri;
-          const rawText = fs.readFileSync(filePath, 'utf8');
-          const fileText = extractStFromTwinCAT(filePath, rawText).stCode;
-          fileDeclarations = parse(fileText).ast.declarations;
-        } catch {
-          continue;
-        }
-      }
-
-      const members = getMembersFromDeclarations(typeName, fileDeclarations);
-      if (members) return members;
-    }
-  }
-
-  return null;
+  return getMembersFromDeclarations(typeName, declarations, currentUri, workspaceIndex);
 }
 
 export function handleCompletion(
