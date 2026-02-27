@@ -56,14 +56,12 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           SHA="${{ steps.meta.outputs.sha }}"
-          gh release delete canary --yes || true
-          git push origin :refs/tags/canary || true
-          git tag -f canary
-          git push origin canary --force
+          gh release delete canary --yes --cleanup-tag || true
           gh release create canary client/*.vsix \
             --title "Canary Build ($SHA)" \
             --notes "Automated canary build from $SHA" \
-            --prerelease
+            --prerelease \
+            --target ${{ github.event.workflow_run.head_sha || github.sha }}
 
       - name: Publish versioned release
         if: startsWith(github.ref, 'refs/tags/v')
