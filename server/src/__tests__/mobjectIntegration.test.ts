@@ -67,7 +67,7 @@ function makeExtractedDoc(
 ): { doc: TextDocument; result: ExtractionResult } {
   const content = fixture(filename);
   const result = extractST(content, ext);
-  const doc = TextDocument.create(`file:///fixtures/${filename}`, 'st', 1, result.source);
+  const doc = TextDocument.create(`file:///fixtures/${filename.replace(/\.[^.]+$/, '.st')}`, 'st', 1, result.source);
   return { doc, result };
 }
 
@@ -267,7 +267,7 @@ describe('Completion Handler: mobject-core POUs', () => {
       expect(labels).toContain('REAL');
     });
 
-    it.skip('includes LinkedList as a class item (self-reference in same file)', () => {
+    it('includes LinkedList as a class item (self-reference in same file)', () => {
       const { doc, result } = makeExtractedDoc('LinkedList.TcPOU', '.TcPOU');
       const pos = findPos(result.source, 'head') ?? { line: 5, character: 1 };
       const items = handleCompletion({ textDocument: { uri: doc.uri }, position: pos }, doc);
@@ -275,7 +275,7 @@ describe('Completion Handler: mobject-core POUs', () => {
       expect(labels).toContain('LinkedList');
     });
 
-    it.skip('includes declared variable names in scope (head, tail, eventEmitter)', () => {
+    it('includes declared variable names in scope (head, tail, eventEmitter)', () => {
       const { doc, result } = makeExtractedDoc('LinkedList.TcPOU', '.TcPOU');
       // Position inside the FB but after VAR block — still within the FB range.
       const pos = findPos(result.source, 'eventEmitter') ?? { line: 7, character: 1 };

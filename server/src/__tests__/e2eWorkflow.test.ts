@@ -364,7 +364,7 @@ describe('Scenario 4: Cross-file navigation', () => {
     expect(loc).toBeNull();
   });
 
-  it.skip('cross-file completion includes type names from all workspace files', () => {
+  it('cross-file completion includes type names from all workspace files', () => {
     const src = 'PROGRAM UseAll\nVAR\n  x : INT;\nEND_VAR\nEND_PROGRAM';
     const doc = TextDocument.create('file:///useall.st', 'iec-st', 1, src);
     const mockIndex = { getProjectFiles: () => extractedUris } as unknown as WorkspaceIndex;

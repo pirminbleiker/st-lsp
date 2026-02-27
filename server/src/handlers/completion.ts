@@ -539,7 +539,7 @@ export function handleCompletion(
 
   // 3. Standard FBs — filtered to libraries referenced by the document's project.
   //    If no project is found (standalone file), fall back to all stdlib symbols.
-  const libRefs = workspaceIndex?.getLibraryRefs(params.textDocument.uri) ?? [];
+  const libRefs = workspaceIndex?.getLibraryRefs?.(params.textDocument.uri) ?? [];
   const fbsToOffer =
     libRefs.length > 0
       ? libRefs.flatMap((ref) => getLibraryFBs(ref.name))
