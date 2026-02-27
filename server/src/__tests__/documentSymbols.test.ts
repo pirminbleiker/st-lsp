@@ -39,11 +39,15 @@ END_PROGRAM`;
       expect(symbols).toHaveLength(1);
       expect(symbols[0].name).toBe('Main');
       expect(symbols[0].kind).toBe(SymbolKind.Module);
-      expect(symbols[0].children).toHaveLength(2);
-      expect(symbols[0].children![0].name).toBe('myVar');
-      expect(symbols[0].children![0].kind).toBe(SymbolKind.Variable);
-      expect(symbols[0].children![1].name).toBe('counter');
-      expect(symbols[0].children![1].kind).toBe(SymbolKind.Variable);
+      // VAR block as child container
+      expect(symbols[0].children).toHaveLength(1);
+      const varBlock = symbols[0].children![0];
+      expect(varBlock.name).toBe('VAR');
+      expect(varBlock.kind).toBe(SymbolKind.Variable);
+      expect(varBlock.children).toHaveLength(2);
+      expect(varBlock.children![0].name).toBe('myVar');
+      expect(varBlock.children![0].kind).toBe(SymbolKind.Variable);
+      expect(varBlock.children![1].name).toBe('counter');
     });
 
     it('returns Module symbol for PROGRAM with no variables', () => {
@@ -95,9 +99,13 @@ END_FUNCTION_BLOCK`;
       const doc = makeDoc(src);
       const symbols = handleDocumentSymbols(makeParams(doc.uri), doc);
 
-      expect(symbols[0].children).toHaveLength(2);
-      expect(symbols[0].children![0].name).toBe('bEnable');
-      expect(symbols[0].children![1].name).toBe('bActive');
+      // Two VAR section groups: VAR_INPUT and VAR_OUTPUT
+      const varSections = symbols[0].children!.filter(c => c.kind === SymbolKind.Variable);
+      expect(varSections).toHaveLength(2);
+      expect(varSections[0].name).toBe('VAR_INPUT');
+      expect(varSections[0].children![0].name).toBe('bEnable');
+      expect(varSections[1].name).toBe('VAR_OUTPUT');
+      expect(varSections[1].children![0].name).toBe('bActive');
     });
 
     it('includes method children for FUNCTION_BLOCK', () => {
@@ -146,9 +154,13 @@ END_FUNCTION`;
       const doc = makeDoc(src);
       const symbols = handleDocumentSymbols(makeParams(doc.uri), doc);
 
-      expect(symbols[0].children).toHaveLength(2);
-      expect(symbols[0].children![0].name).toBe('a');
-      expect(symbols[0].children![1].name).toBe('b');
+      // One VAR_INPUT section containing 2 variables
+      expect(symbols[0].children).toHaveLength(1);
+      const varInput = symbols[0].children![0];
+      expect(varInput.name).toBe('VAR_INPUT');
+      expect(varInput.children).toHaveLength(2);
+      expect(varInput.children![0].name).toBe('a');
+      expect(varInput.children![1].name).toBe('b');
     });
 
     it('returns Function symbol with no detail when no return type', () => {
@@ -320,8 +332,10 @@ END_PROGRAM`;
       const doc = makeDoc(src);
       const symbols = handleDocumentSymbols(makeParams(doc.uri), doc);
 
-      expect(symbols[0].children).toHaveLength(1);
-      expect(symbols[0].children![0].detail).toBe('ARRAY[0..9] OF INT');
+      const varSection = symbols[0].children![0];
+      expect(varSection.name).toBe('VAR');
+      expect(varSection.children).toHaveLength(1);
+      expect(varSection.children![0].detail).toBe('ARRAY[0..9] OF INT');
     });
 
     it('shows pointer type in variable detail', () => {
@@ -333,8 +347,10 @@ END_PROGRAM`;
       const doc = makeDoc(src);
       const symbols = handleDocumentSymbols(makeParams(doc.uri), doc);
 
-      expect(symbols[0].children).toHaveLength(1);
-      expect(symbols[0].children![0].detail).toBe('POINTER TO INT');
+      const varSection = symbols[0].children![0];
+      expect(varSection.name).toBe('VAR');
+      expect(varSection.children).toHaveLength(1);
+      expect(varSection.children![0].detail).toBe('POINTER TO INT');
     });
   });
 
@@ -358,6 +374,88 @@ END_ACTION`;
       expect(methodChildren).toHaveLength(2);
       expect(methodChildren[0].name).toBe('Run');
       expect(methodChildren[1].name).toBe('Reset');
+    });
+  });
+
+  describe('FUNCTION_BLOCK with PROPERTY declarations', () => {
+    it('shows properties as Property symbols under the FB', () => {
+      const src = `FUNCTION_BLOCK FB_WithProp
+PROPERTY Speed : REAL
+END_PROPERTY
+PROPERTY IsRunning : BOOL
+END_PROPERTY
+END_FUNCTION_BLOCK`;
+      const doc = makeDoc(src);
+      const symbols = handleDocumentSymbols(makeParams(doc.uri), doc);
+
+      expect(symbols).toHaveLength(1);
+      expect(symbols[0].kind).toBe(SymbolKind.Class);
+      const props = symbols[0].children?.filter(c => c.kind === SymbolKind.Property);
+      expect(props).toBeDefined();
+      expect(props!.length).toBeGreaterThanOrEqual(1);
+      const speed = props!.find(p => p.name === 'Speed');
+      expect(speed).toBeDefined();
+      expect(speed!.detail).toBe('REAL');
+    });
+  });
+
+  describe('TYPE block with UNION', () => {
+    it('returns Struct symbol with Field children for UNION', () => {
+      const src = `TYPE
+  U_Overlap : UNION
+    asBytes : ARRAY[0..3] OF BYTE;
+    asInt   : DINT;
+  END_UNION
+END_TYPE`;
+      const doc = makeDoc(src);
+      const symbols = handleDocumentSymbols(makeParams(doc.uri), doc);
+
+      expect(symbols).toHaveLength(1);
+      expect(symbols[0].name).toBe('U_Overlap');
+      expect(symbols[0].kind).toBe(SymbolKind.Struct);
+      const fields = symbols[0].children!;
+      expect(fields).toHaveLength(2);
+      expect(fields[0].name).toBe('asBytes');
+      expect(fields[0].kind).toBe(SymbolKind.Field);
+      expect(fields[1].name).toBe('asInt');
+      expect(fields[1].detail).toBe('DINT');
+    });
+  });
+
+  describe('VAR block grouping', () => {
+    it('skips empty VAR blocks (no declarations)', () => {
+      const src = `PROGRAM Main
+END_PROGRAM`;
+      const doc = makeDoc(src);
+      const symbols = handleDocumentSymbols(makeParams(doc.uri), doc);
+
+      expect(symbols[0].children).toBeUndefined();
+    });
+
+    it('groups multiple VAR section kinds as separate children', () => {
+      const src = `FUNCTION_BLOCK FB_Multi
+VAR_INPUT
+  nIn : INT;
+END_VAR
+VAR_OUTPUT
+  nOut : INT;
+END_VAR
+VAR
+  nLocal : INT;
+END_VAR
+VAR_TEMP
+  nTemp : INT;
+END_VAR
+END_FUNCTION_BLOCK`;
+      const doc = makeDoc(src);
+      const symbols = handleDocumentSymbols(makeParams(doc.uri), doc);
+
+      const varSections = symbols[0].children!.filter(c => c.kind === SymbolKind.Variable);
+      expect(varSections).toHaveLength(4);
+      expect(varSections[0].name).toBe('VAR_INPUT');
+      expect(varSections[1].name).toBe('VAR_OUTPUT');
+      expect(varSections[2].name).toBe('VAR');
+      expect(varSections[3].name).toBe('VAR_TEMP');
     });
   });
 });

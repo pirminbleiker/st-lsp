@@ -36,24 +36,33 @@ function astRangeToLsp(range: import('../parser/ast').Range): Range {
   };
 }
 
+function formatTypeName(type: import('../parser/ast').TypeRef): string {
+  if (type.isPointer) return `POINTER TO ${type.name}`;
+  if (type.isArray && type.arrayDims) {
+    const dims = type.arrayDims.map(d => `${d.low}..${d.high}`).join(', ');
+    return `ARRAY[${dims}] OF ${type.name}`;
+  }
+  return type.name;
+}
+
 function varBlocksToSymbols(varBlocks: VarBlock[]): DocumentSymbol[] {
   const symbols: DocumentSymbol[] = [];
   for (const vb of varBlocks) {
-    for (const vd of vb.declarations) {
-      let typeName = vd.type.name;
-      if (vd.type.isPointer) typeName = `POINTER TO ${typeName}`;
-      else if (vd.type.isArray && vd.type.arrayDims) {
-        const dims = vd.type.arrayDims.map(d => `${d.low}..${d.high}`).join(', ');
-        typeName = `ARRAY[${dims}] OF ${typeName}`;
-      }
-      symbols.push({
-        name: vd.name,
-        kind: SymbolKind.Variable,
-        range: astRangeToLsp(vd.range),
-        selectionRange: astRangeToLsp(vd.range),
-        detail: typeName,
-      });
-    }
+    if (vb.declarations.length === 0) continue;
+    const children: DocumentSymbol[] = vb.declarations.map(vd => ({
+      name: vd.name,
+      kind: SymbolKind.Variable,
+      range: astRangeToLsp(vd.range),
+      selectionRange: astRangeToLsp(vd.range),
+      detail: formatTypeName(vd.type),
+    }));
+    symbols.push({
+      name: vb.varKind,
+      kind: SymbolKind.Variable,
+      range: astRangeToLsp(vb.range),
+      selectionRange: astRangeToLsp(vb.range),
+      children,
+    });
   }
   return symbols;
 }
@@ -170,21 +179,13 @@ function buildSymbols(ast: SourceFile): DocumentSymbol[] {
       for (const typeDecl of typeBlock.declarations) {
         if (typeDecl.kind === 'StructDeclaration') {
           const struct = typeDecl as StructDeclaration;
-          const fieldSymbols: DocumentSymbol[] = struct.fields.map(field => {
-            let typeName = field.type.name;
-            if (field.type.isPointer) typeName = `POINTER TO ${typeName}`;
-            else if (field.type.isArray && field.type.arrayDims) {
-              const dims = field.type.arrayDims.map(d => `${d.low}..${d.high}`).join(', ');
-              typeName = `ARRAY[${dims}] OF ${typeName}`;
-            }
-            return {
-              name: field.name,
-              kind: SymbolKind.Field,
-              range: astRangeToLsp(field.range),
-              selectionRange: astRangeToLsp(field.range),
-              detail: typeName,
-            };
-          });
+          const fieldSymbols: DocumentSymbol[] = struct.fields.map(field => ({
+            name: field.name,
+            kind: SymbolKind.Field,
+            range: astRangeToLsp(field.range),
+            selectionRange: astRangeToLsp(field.range),
+            detail: formatTypeName(field.type),
+          }));
           result.push({
             name: struct.name,
             kind: SymbolKind.Struct,
@@ -223,7 +224,7 @@ function buildSymbols(ast: SourceFile): DocumentSymbol[] {
             kind: SymbolKind.Field,
             range: astRangeToLsp(field.range),
             selectionRange: astRangeToLsp(field.range),
-            detail: field.type.name,
+            detail: formatTypeName(field.type),
           }));
           result.push({
             name: union.name,
