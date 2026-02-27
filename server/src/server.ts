@@ -30,6 +30,8 @@ import {
 	CodeActionParams,
 	InlayHint,
 	InlayHintParams,
+	SemanticTokensParams,
+	SemanticTokens,
 } from 'vscode-languageserver/node';
 
 import { TextDocument } from 'vscode-languageserver-textdocument';
@@ -47,6 +49,7 @@ import { handleWorkspaceSymbol } from './handlers/workspaceSymbol';
 import { handleCodeActions } from './handlers/codeActions';
 import { handleInlayHints } from './handlers/inlayHints';
 import { createWorkspaceIndex, WorkspaceIndex } from './twincat/workspaceIndex';
+import { handleSemanticTokens, TOKEN_TYPES, TOKEN_MODIFIERS } from './handlers/semanticTokens';
 
 const connection = createConnection(ProposedFeatures.all) as any;
 const documents = new TextDocuments(TextDocument);
@@ -98,6 +101,13 @@ connection.onInitialize((params: InitializeParams): InitializeResult => {
 				resolveProvider: false,
 			},
 			inlayHintProvider: true,
+			semanticTokensProvider: {
+				legend: {
+					tokenTypes: [...TOKEN_TYPES],
+					tokenModifiers: [...TOKEN_MODIFIERS],
+				},
+				full: true,
+			},
 		},
 	};
 
@@ -221,6 +231,14 @@ connection.onInlayHint(
 	(params: InlayHintParams): InlayHint[] => {
 		const document = documents.get(params.textDocument.uri);
 		return handleInlayHints(document, params.range, workspaceIndex);
+	}
+);
+
+connection.languages.semanticTokens.on(
+	(params: SemanticTokensParams): SemanticTokens => {
+		const document = documents.get(params.textDocument.uri);
+		if (!document) return { data: [] };
+		return handleSemanticTokens(document);
 	}
 );
 

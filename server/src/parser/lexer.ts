@@ -118,6 +118,7 @@ export enum TokenKind {
   // Special
   EOF = 'EOF',
   PRAGMA = 'PRAGMA',
+  COMMENT = 'COMMENT',
 }
 
 const KEYWORDS: ReadonlyMap<string, TokenKind> = new Map([
@@ -248,41 +249,66 @@ export class Lexer {
     return { start, end: this.currentPos() };
   }
 
-  private skipWhitespaceAndComments(): void {
+  private skipWhitespace(): void {
     while (this.pos < this.src.length) {
       const ch = this.peek();
-
-      // Whitespace
       if (ch === ' ' || ch === '\t' || ch === '\r' || ch === '\n') {
         this.advance();
-        continue;
+      } else {
+        break;
       }
-
-      // Line comment: (* ... *) block comment
-      if (ch === '(' && this.peek(1) === '*') {
-        this.advance(); // (
-        this.advance(); // *
-        while (this.pos < this.src.length) {
-          if (this.peek() === '*' && this.peek(1) === ')') {
-            this.advance(); // *
-            this.advance(); // )
-            break;
-          }
-          this.advance();
-        }
-        continue;
-      }
-
-      // Line comment: // ...
-      if (ch === '/' && this.peek(1) === '/') {
-        while (this.pos < this.src.length && this.peek() !== '\n') {
-          this.advance();
-        }
-        continue;
-      }
-
-      break;
     }
+  }
+
+  private tryReadComment(): Token | null {
+    const ch = this.peek();
+    if (ch === '(' && this.peek(1) === '*') {
+      const startPos = this.currentPos();
+      let text = this.advance() + this.advance(); // (*
+      while (this.pos < this.src.length) {
+        if (this.peek() === '*' && this.peek(1) === ')') {
+          text += this.advance() + this.advance(); // *)
+          break;
+        }
+        text += this.advance();
+      }
+      return { kind: TokenKind.COMMENT, text, range: this.makeRange(startPos) };
+    }
+    if (ch === '/' && this.peek(1) === '/') {
+      const startPos = this.currentPos();
+      let text = '';
+      while (this.pos < this.src.length && this.peek() !== '\n') {
+        text += this.advance();
+      }
+      return { kind: TokenKind.COMMENT, text, range: this.makeRange(startPos) };
+    }
+    return null;
+  }
+
+  private skipWhitespaceAndComments(): void {
+    this.skipWhitespace();
+    while (this.pos < this.src.length && this.tryReadComment() !== null) {
+      this.skipWhitespace();
+    }
+  }
+
+  /** Tokenize the source, emitting COMMENT tokens in addition to regular tokens. */
+  tokenizeWithTrivia(): Token[] {
+    const tokens: Token[] = [];
+    while (true) {
+      this.skipWhitespace();
+      let comment: Token | null;
+      while ((comment = this.tryReadComment()) !== null) {
+        tokens.push(comment);
+        this.skipWhitespace();
+      }
+      // nextToken() calls skipWhitespaceAndComments() internally; at this point
+      // there is no whitespace or comments left, so it is a no-op there.
+      const tok = this.nextToken();
+      tokens.push(tok);
+      if (tok.kind === TokenKind.EOF) break;
+    }
+    return tokens;
   }
 
   private nextToken(): Token {
