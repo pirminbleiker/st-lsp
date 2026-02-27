@@ -403,6 +403,7 @@ class Parser {
       return {
         kind: 'TypeRef',
         name: inner.name,
+        nameRange: inner.nameRange,
         isPointer: true,
         range: this.endRange(start),
       };
@@ -416,6 +417,7 @@ class Parser {
       return {
         kind: 'TypeRef',
         name: inner.name,
+        nameRange: inner.nameRange,
         isReference: true,
         range: this.endRange(start),
       };
@@ -432,6 +434,7 @@ class Parser {
       return {
         kind: 'TypeRef',
         name: baseType.name,
+        nameRange: baseType.nameRange,
         isArray: true,
         arrayDims: dims,
         range: this.endRange(start),
@@ -440,10 +443,12 @@ class Parser {
 
     // Simple type name (identifier or keyword used as type)
     const nameTok = this.advance();
+    const nameRange = this.endRange(start);
     return {
       kind: 'TypeRef',
       name: nameTok.text.toUpperCase(),
-      range: this.endRange(start),
+      nameRange,
+      range: nameRange,
     };
   }
 

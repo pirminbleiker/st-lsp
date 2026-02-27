@@ -396,4 +396,65 @@ END_TYPE`;
     expect(lines).toContain(3);
     expect(lines).not.toContain(4);
   });
+
+  // ── Composite TypeRef nameRange tests ────────────────────────────────────
+
+  it('reference range for POINTER TO type covers only the type name, not POINTER TO prefix', () => {
+    const src = `PROGRAM Main
+VAR
+  p1 : POINTER TO MyFB;
+  p2 : POINTER TO MyFB;
+END_VAR
+END_PROGRAM`;
+    const doc = makeDoc(src);
+    // Position on 'MyFB' in line 2 (col 18 = after 'POINTER TO ')
+    const params = makeParams(doc.uri, 2, 18);
+    const result = handleReferences(params, doc);
+
+    // Both type annotations on lines 2 and 3 should match MyFB
+    expect(result.length).toBe(2);
+    for (const loc of result) {
+      // The range should cover only 'MyFB' (4 chars), not 'POINTER TO MyFB' (15 chars)
+      expect(loc.range.end.character - loc.range.start.character).toBe(4);
+    }
+  });
+
+  it('reference range for ARRAY OF type covers only the type name, not ARRAY..OF prefix', () => {
+    const src = `PROGRAM Main
+VAR
+  a1 : ARRAY[1..10] OF MyType;
+  a2 : ARRAY[1..5] OF MyType;
+END_VAR
+END_PROGRAM`;
+    const doc = makeDoc(src);
+    // Position on 'MyType' in the ARRAY type on line 2 (col 21 = after 'ARRAY[1..10] OF ')
+    const params = makeParams(doc.uri, 2, 21);
+    const result = handleReferences(params, doc);
+
+    // Both type annotations on lines 2 and 3 should match MyType
+    expect(result.length).toBe(2);
+    for (const loc of result) {
+      // The range should cover only 'MyType' (6 chars), not the full ARRAY expression
+      expect(loc.range.end.character - loc.range.start.character).toBe(6);
+    }
+  });
+
+  it('reference range for REFERENCE TO type covers only the type name', () => {
+    const src = `PROGRAM Main
+VAR
+  r1 : REFERENCE TO MyFB;
+  r2 : REFERENCE TO MyFB;
+END_VAR
+END_PROGRAM`;
+    const doc = makeDoc(src);
+    // Position on 'MyFB' in line 2 (col 20 = after 'REFERENCE TO ')
+    const params = makeParams(doc.uri, 2, 20);
+    const result = handleReferences(params, doc);
+
+    expect(result.length).toBe(2);
+    for (const loc of result) {
+      // The range should cover only 'MyFB' (4 chars)
+      expect(loc.range.end.character - loc.range.start.character).toBe(4);
+    }
+  });
 });

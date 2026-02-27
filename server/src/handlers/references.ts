@@ -77,7 +77,7 @@ export function collectNameExpressions(
       }
       // Check type annotation — e.g. `x : TON` when searching for TON
       if (vd.type.name.toUpperCase() === upper) {
-        results.push({ uri, range: { start: vd.type.range.start, end: vd.type.range.end } });
+        results.push({ uri, range: { start: vd.type.nameRange.start, end: vd.type.nameRange.end } });
       }
       // Also visit the initial value expression if present
       if (vd.initialValue) visitNode(vd.initialValue);

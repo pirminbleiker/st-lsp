@@ -27,6 +27,7 @@ export interface ArrayDim {
 export interface TypeRef extends AstNode {
   kind: 'TypeRef';
   name: string;          // base type name, e.g. 'INT', 'BOOL', 'STRING'
+  nameRange: Range;      // range of just the base type name token (not modifiers like POINTER TO)
   isPointer?: boolean;   // POINTER TO <name>
   isReference?: boolean; // REFERENCE TO <name>
   isArray?: boolean;     // ARRAY[dims] OF <name>
