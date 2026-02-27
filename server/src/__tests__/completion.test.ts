@@ -198,11 +198,11 @@ myInst.`;
         expect(labels).toContain('Error');
       });
 
-      it('does not return VAR_INPUT Enable on instance access', () => {
+      it('returns VAR_INPUT Enable on instance access', () => {
         const doc = makeDoc(fbSrc);
         const items = handleCompletion(makeParams(doc.uri, 14, 7), doc);
         const labels = items.map(i => i.label);
-        expect(labels).not.toContain('Enable');
+        expect(labels).toContain('Enable');
       });
     });
 
