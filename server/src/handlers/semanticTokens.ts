@@ -397,12 +397,9 @@ export function handleSemanticTokens(document: TextDocument): SemanticTokens {
 
   for (const tok of tokens) {
     const { line, character } = tok.range.start;
-    const length = tok.range.end.character - tok.range.start.character;
-    if (length <= 0) continue;
-
-    // Multi-line tokens (e.g. block comments) need per-line splitting.
-    // For now handle the common case: single-line tokens.
     const spanLines = tok.range.end.line - tok.range.start.line;
+    const length = tok.range.end.character - tok.range.start.character;
+    if (spanLines === 0 && length <= 0) continue;
 
     switch (tok.kind) {
       // ── Structural literals ──────────────────────────────────────────────
@@ -540,7 +537,7 @@ function collectStSectionTokens(
     const { line: ll, character: lc } = tok.range.start;
     const spanLines = tok.range.end.line - ll;
     const length = tok.range.end.character - tok.range.start.character;
-    if (length <= 0) continue;
+    if (spanLines === 0 && length <= 0) continue;
 
     const isDecl  = localDeclSites.has(`${ll}:${lc}`);
     const declMod = isDecl ? MOD_DECLARATION : 0;
