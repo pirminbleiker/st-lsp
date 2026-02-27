@@ -40,9 +40,10 @@
   },
   "scripts": {
     "compile": "tsc -p tsconfig.json",
+    "bundle": "esbuild src/extension.ts --bundle --outfile=out/extension.js --platform=node --format=cjs --external:vscode",
     "watch": "tsc -p tsconfig.json --watch",
-    "vscode:prepublish": "npm run compile",
-    "package": "npm run compile && node scripts/copy-server.js && npx vsce package --no-dependencies"
+    "vscode:prepublish": "npm run bundle",
+    "package": "npm run bundle && node scripts/copy-server.js && npx vsce package --no-dependencies"
   },
   "dependencies": {
     "vscode-languageclient": "^9.0.1"
@@ -51,6 +52,7 @@
     "@types/node": "^20.0.0",
     "@types/vscode": "^1.85.0",
     "@vscode/vsce": "^3.0.0",
+    "esbuild": "^0.20.0",
     "typescript": "^5.3.0"
   }
 }

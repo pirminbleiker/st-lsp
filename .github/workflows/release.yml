@@ -36,6 +36,9 @@ jobs:
       - name: Bundle server
         run: npm run bundle --workspace=server
 
+      - name: Bundle client
+        run: npm run bundle --workspace=client
+
       - name: Package VSIX
         run: cd client && node scripts/copy-server.js && npx vsce package --no-dependencies
 
