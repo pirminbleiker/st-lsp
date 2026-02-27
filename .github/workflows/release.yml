@@ -50,10 +50,10 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release delete canary-build --yes --cleanup-tag 2>/dev/null || true
-          gh release create canary-build client/*.vsix \
-            --title "Canary Build (latest main)" \
-            --notes "Automated canary build from $(git rev-parse --short HEAD)" \
+          TAG="canary-${{ steps.meta.outputs.sha }}"
+          gh release create "$TAG" client/*.vsix \
+            --title "Canary Build (${{ steps.meta.outputs.sha }})" \
+            --notes "Automated canary build from ${{ steps.meta.outputs.sha }}" \
             --prerelease
 
       - name: Publish versioned release
