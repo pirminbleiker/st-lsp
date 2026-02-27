@@ -1,3 +1,10 @@
+# [1.1.0](https://github.com/pirminbleiker/st-lsp/compare/v1.0.0...v1.1.0) (2026-02-27)
+
+
+### Features
+
+* **plans:** add TcPOU XML folding/dimming implementation plan ([f004984](https://github.com/pirminbleiker/st-lsp/commit/f0049841a817e658e19f8bcb511b31a52a750c0d))
+
 # 1.0.0 (2026-02-27)
 
 
