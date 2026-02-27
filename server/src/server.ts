@@ -32,6 +32,8 @@ import {
 	InlayHintParams,
 	SemanticTokensParams,
 	SemanticTokens,
+	FoldingRange,
+	FoldingRangeParams,
 } from 'vscode-languageserver/node';
 
 import { TextDocument } from 'vscode-languageserver-textdocument';
@@ -48,6 +50,7 @@ import { handleFormatting, handleRangeFormatting } from './handlers/formatting';
 import { handleWorkspaceSymbol } from './handlers/workspaceSymbol';
 import { handleCodeActions } from './handlers/codeActions';
 import { handleInlayHints } from './handlers/inlayHints';
+import { handleFoldingRanges } from './handlers/foldingRange';
 import { createWorkspaceIndex, WorkspaceIndex } from './twincat/workspaceIndex';
 import { handleSemanticTokens, TOKEN_TYPES, TOKEN_MODIFIERS } from './handlers/semanticTokens';
 
@@ -101,6 +104,7 @@ connection.onInitialize((params: InitializeParams): InitializeResult => {
 				resolveProvider: false,
 			},
 			inlayHintProvider: true,
+			foldingRangeProvider: true,
 			semanticTokensProvider: {
 				legend: {
 					tokenTypes: [...TOKEN_TYPES],
@@ -231,6 +235,13 @@ connection.onInlayHint(
 	(params: InlayHintParams): InlayHint[] => {
 		const document = documents.get(params.textDocument.uri);
 		return handleInlayHints(document, params.range, workspaceIndex);
+	}
+);
+
+connection.onFoldingRanges(
+	(params: FoldingRangeParams): FoldingRange[] => {
+		const document = documents.get(params.textDocument.uri);
+		return handleFoldingRanges(document);
 	}
 );
 
