@@ -108,6 +108,9 @@ export type VarKind =
 export interface VarBlock extends AstNode {
   kind: 'VarBlock';
   varKind: VarKind;
+  constant?: boolean;
+  retain?: boolean;
+  persistent?: boolean;
   declarations: VarDeclaration[];
 }
 

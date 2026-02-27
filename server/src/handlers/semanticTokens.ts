@@ -100,6 +100,7 @@ const KEYWORD_KINDS = new Set<TokenKind>([
   TokenKind.UNION, TokenKind.END_UNION,
   TokenKind.SUPER,
   TokenKind.PUBLIC, TokenKind.PRIVATE, TokenKind.PROTECTED, TokenKind.INTERNAL,
+  TokenKind.CONSTANT, TokenKind.RETAIN, TokenKind.PERSISTENT,
 ]);
 
 // ---------------------------------------------------------------------------

@@ -80,6 +80,9 @@ export enum TokenKind {
   INTERNAL = 'INTERNAL',
   ACTION = 'ACTION',
   END_ACTION = 'END_ACTION',
+  CONSTANT = 'CONSTANT',
+  RETAIN = 'RETAIN',
+  PERSISTENT = 'PERSISTENT',
 
   // Literals
   INTEGER = 'INTEGER',
@@ -194,6 +197,9 @@ const KEYWORDS: ReadonlyMap<string, TokenKind> = new Map([
   ['INTERNAL', TokenKind.INTERNAL],
   ['ACTION', TokenKind.ACTION],
   ['END_ACTION', TokenKind.END_ACTION],
+  ['CONSTANT', TokenKind.CONSTANT],
+  ['RETAIN', TokenKind.RETAIN],
+  ['PERSISTENT', TokenKind.PERSISTENT],
 ]);
 
 export interface Token {

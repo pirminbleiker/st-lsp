@@ -251,7 +251,7 @@ export function findNodeAtPosition(ast: SourceFile, line: number, character: num
 function collectVarDeclarations(
   ast: SourceFile,
   pos: Position,
-): Array<{ vd: VarDeclaration; varKind: VarKind }> {
+): Array<{ vd: VarDeclaration; varKind: VarKind; qualifier?: string }> {
   for (const decl of ast.declarations) {
     if (!positionContains(decl.range.start, decl.range.end, pos)) continue;
     if (
@@ -259,11 +259,12 @@ function collectVarDeclarations(
       decl.kind !== 'FunctionBlockDeclaration' &&
       decl.kind !== 'FunctionDeclaration'
     ) continue;
-    const vars: Array<{ vd: VarDeclaration; varKind: VarKind }> = [];
+    const vars: Array<{ vd: VarDeclaration; varKind: VarKind; qualifier?: string }> = [];
     const pou = decl as ProgramDeclaration | FunctionBlockDeclaration | FunctionDeclaration;
     for (const vb of pou.varBlocks) {
+      const qualifier = vb.constant ? 'CONSTANT' : vb.retain ? 'RETAIN' : vb.persistent ? 'PERSISTENT' : undefined;
       for (const vd of vb.declarations) {
-        vars.push({ vd, varKind: vb.varKind });
+        vars.push({ vd, varKind: vb.varKind, qualifier });
       }
     }
     return vars;
@@ -275,7 +276,7 @@ function collectVarDeclarations(
 // Hover markdown builders
 // ---------------------------------------------------------------------------
 
-function varDeclHover(vd: VarDeclaration, varKind: VarKind): string {
+function varDeclHover(vd: VarDeclaration, varKind: VarKind, qualifier?: string): string {
   const typeRef = vd.type;
   let typeName = typeRef.name;
   if (typeRef.isPointer) typeName = `POINTER TO ${typeName}`;
@@ -286,7 +287,7 @@ function varDeclHover(vd: VarDeclaration, varKind: VarKind): string {
   }
   let result = `\`${vd.name} : ${typeName}\``;
 
-  result += `\n\n*Block:* \`${varKind}\``;
+  result += `\n\n*Block:* \`${varKind}${qualifier ? ` ${qualifier}` : ''}\``;
 
   // Show value range for simple (non-compound) builtin types
   if (!typeRef.isPointer && !typeRef.isReference && !typeRef.isArray) {
@@ -415,7 +416,7 @@ export function handleHover(
   const varMatch = vars.find(v => v.vd.name.toUpperCase() === name.toUpperCase());
   if (varMatch) {
     return {
-      contents: { kind: MarkupKind.Markdown, value: varDeclHover(varMatch.vd, varMatch.varKind) },
+      contents: { kind: MarkupKind.Markdown, value: varDeclHover(varMatch.vd, varMatch.varKind, varMatch.qualifier) },
       range: { start: node.range.start, end: node.range.end },
     };
   }

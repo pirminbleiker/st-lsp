@@ -357,6 +357,14 @@ class Parser {
     const kindTok = this.advance();
     const varKind = kindTok.kind as VarKind;
 
+    // Consume optional qualifier: CONSTANT, RETAIN, or PERSISTENT
+    let constant: boolean | undefined;
+    let retain: boolean | undefined;
+    let persistent: boolean | undefined;
+    if (this.check(TokenKind.CONSTANT)) { this.advance(); constant = true; }
+    else if (this.check(TokenKind.RETAIN)) { this.advance(); retain = true; }
+    else if (this.check(TokenKind.PERSISTENT)) { this.advance(); persistent = true; }
+
     const declarations: VarDeclaration[] = [];
     while (!this.check(TokenKind.END_VAR) && !this.check(TokenKind.EOF)) {
       try {
@@ -368,7 +376,7 @@ class Parser {
     }
     this.expect(TokenKind.END_VAR, "Expected 'END_VAR'");
 
-    return { kind: 'VarBlock', varKind, declarations, range: this.endRange(start) };
+    return { kind: 'VarBlock', varKind, constant, retain, persistent, declarations, range: this.endRange(start) };
   }
 
   private parseVarDeclaration(): VarDeclaration {

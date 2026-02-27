@@ -330,6 +330,72 @@ END_PROGRAM`;
     });
   });
 
+  describe('VAR CONSTANT / VAR RETAIN / VAR PERSISTENT qualifiers', () => {
+    it('VAR CONSTANT sets constant flag', () => {
+      const src = `PROGRAM Main
+VAR CONSTANT
+  MaxSpeed : INT := 100;
+END_VAR
+END_PROGRAM`;
+      const { ast, errors } = parse(src);
+      expect(errors).toHaveLength(0);
+      const prog = ast.declarations[0] as ProgramDeclaration;
+      expect(prog.varBlocks[0].varKind).toBe('VAR');
+      expect(prog.varBlocks[0].constant).toBe(true);
+      expect(prog.varBlocks[0].retain).toBeUndefined();
+    });
+
+    it('VAR RETAIN sets retain flag', () => {
+      const src = `PROGRAM Main
+VAR RETAIN
+  Counter : INT;
+END_VAR
+END_PROGRAM`;
+      const { ast, errors } = parse(src);
+      expect(errors).toHaveLength(0);
+      const prog = ast.declarations[0] as ProgramDeclaration;
+      expect(prog.varBlocks[0].retain).toBe(true);
+      expect(prog.varBlocks[0].constant).toBeUndefined();
+    });
+
+    it('VAR PERSISTENT sets persistent flag', () => {
+      const src = `PROGRAM Main
+VAR PERSISTENT
+  SavedValue : REAL;
+END_VAR
+END_PROGRAM`;
+      const { ast, errors } = parse(src);
+      expect(errors).toHaveLength(0);
+      const prog = ast.declarations[0] as ProgramDeclaration;
+      expect(prog.varBlocks[0].persistent).toBe(true);
+    });
+
+    it('VAR_GLOBAL CONSTANT sets varKind and constant flag', () => {
+      const src = `VAR_GLOBAL CONSTANT
+  Pi : LREAL := 3.14159;
+END_VAR`;
+      const { ast, errors } = parse(src);
+      expect(errors).toHaveLength(0);
+      const gvl = ast.declarations[0] as import('../parser/ast').GvlDeclaration;
+      expect(gvl.varBlocks[0].varKind).toBe('VAR_GLOBAL');
+      expect(gvl.varBlocks[0].constant).toBe(true);
+    });
+
+    it('variables in VAR CONSTANT block are recognized (no false diagnostics)', () => {
+      const src = `PROGRAM Main
+VAR CONSTANT
+  MaxItems : INT := 10;
+END_VAR
+VAR
+  x : INT;
+END_VAR
+x := MaxItems;
+END_PROGRAM`;
+      const { errors } = parse(src);
+      expect(errors).toHaveLength(0);
+    });
+  });
+
   describe('NAMESPACE block (Phase 2)', () => {
     it('skips NAMESPACE...END_NAMESPACE without errors', () => {
       const src = `NAMESPACE MyNS
