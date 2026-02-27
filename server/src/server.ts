@@ -231,7 +231,7 @@ connection.onCodeAction(
 	}
 );
 
-connection.onInlayHint(
+connection.languages.inlayHint.on(
 	(params: InlayHintParams): InlayHint[] => {
 		const document = documents.get(params.textDocument.uri);
 		return handleInlayHints(document, params.range, workspaceIndex);

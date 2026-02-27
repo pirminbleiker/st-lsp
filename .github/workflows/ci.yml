@@ -17,5 +17,10 @@ jobs:
           cache: 'npm'
       - run: npm ci
       - run: npm run typecheck
+      - run: npm run bundle --workspace=server
       - run: npm run test
       - run: npm run lint
+      - name: Compile client for integration tests
+        run: npm run compile --workspace=client
+      - name: Run VS Code integration tests
+        run: xvfb-run -a npm run test:integration --workspace=client

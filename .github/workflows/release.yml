@@ -36,6 +36,8 @@ jobs:
       - name: Bundle server
         run: npm run bundle --workspace=server
 
+      - run: npm run test
+
       - name: Bundle client
         run: npm run bundle --workspace=client
 
