@@ -211,6 +211,136 @@ describe('handleHover', () => {
       }
     });
   });
+
+  describe('hover shows var block kind', () => {
+    const src = [
+      'FUNCTION_BLOCK MyFB',
+      'VAR_INPUT',
+      '  inVal : INT;',
+      'END_VAR',
+      'VAR_OUTPUT',
+      '  outVal : BOOL;',
+      'END_VAR',
+      'VAR',
+      '  localVar : REAL;',
+      'END_VAR',
+      '  outVal := inVal > 0;',
+      'END_FUNCTION_BLOCK',
+    ].join('\n');
+
+    it('shows VAR_INPUT for input variable', () => {
+      const doc = makeDoc(src);
+      // Line 10: "  outVal := inVal > 0;" — "inVal" starts at character 14
+      const result = handleHover(makeParams(doc.uri, 10, 14), doc);
+      expect(result).not.toBeNull();
+      if (result) {
+        const contents = result.contents as { kind: string; value: string };
+        expect(contents.value).toContain('inVal');
+        expect(contents.value).toContain('VAR_INPUT');
+      }
+    });
+
+    it('shows VAR_OUTPUT for output variable', () => {
+      const doc = makeDoc(src);
+      // Line 10: "  outVal := inVal > 0;" — "outVal" starts at character 2
+      const result = handleHover(makeParams(doc.uri, 10, 2), doc);
+      expect(result).not.toBeNull();
+      if (result) {
+        const contents = result.contents as { kind: string; value: string };
+        expect(contents.value).toContain('outVal');
+        expect(contents.value).toContain('VAR_OUTPUT');
+      }
+    });
+
+    it('shows VAR for local variable', () => {
+      const doc = makeDoc(src);
+      // Need to use localVar in the body; it isn't used in line 10.
+      // Add a simpler doc for this case.
+      const src2 = [
+        'PROGRAM P',
+        'VAR',
+        '  localVar : REAL;',
+        'END_VAR',
+        '  localVar := 1.0;',
+        'END_PROGRAM',
+      ].join('\n');
+      const doc2 = makeDoc(src2);
+      // Line 4: "  localVar := 1.0;" — "localVar" starts at character 2
+      const result2 = handleHover(makeParams(doc2.uri, 4, 2), doc2);
+      expect(result2).not.toBeNull();
+      if (result2) {
+        const contents = result2.contents as { kind: string; value: string };
+        expect(contents.value).toContain('localVar');
+        expect(contents.value).toContain('VAR');
+      }
+    });
+  });
+
+  describe('hover shows value range for numeric builtin types', () => {
+    it('shows range for INT variable', () => {
+      const src = [
+        'PROGRAM P',
+        'VAR',
+        '  counter : INT;',
+        'END_VAR',
+        '  counter := 0;',
+        'END_PROGRAM',
+      ].join('\n');
+      const doc = makeDoc(src);
+      // Line 4: "  counter := 0;" — "counter" starts at character 2
+      const result = handleHover(makeParams(doc.uri, 4, 2), doc);
+      expect(result).not.toBeNull();
+      if (result) {
+        const contents = result.contents as { kind: string; value: string };
+        expect(contents.value).toContain('counter');
+        expect(contents.value).toContain('INT');
+        expect(contents.value).toContain('-32 768');
+      }
+    });
+
+    it('shows range for REAL variable', () => {
+      const src = [
+        'PROGRAM P',
+        'VAR',
+        '  speed : REAL;',
+        'END_VAR',
+        '  speed := 1.5;',
+        'END_PROGRAM',
+      ].join('\n');
+      const doc = makeDoc(src);
+      // Line 4: "  speed := 1.5;" — "speed" starts at character 2
+      const result = handleHover(makeParams(doc.uri, 4, 2), doc);
+      expect(result).not.toBeNull();
+      if (result) {
+        const contents = result.contents as { kind: string; value: string };
+        expect(contents.value).toContain('speed');
+        expect(contents.value).toContain('REAL');
+        expect(contents.value).toContain('IEEE 754');
+      }
+    });
+
+    it('does not show range for ARRAY type', () => {
+      const src = [
+        'PROGRAM P',
+        'VAR',
+        '  buf : ARRAY[0..9] OF INT;',
+        'END_VAR',
+        '  buf[0] := 1;',
+        'END_PROGRAM',
+      ].join('\n');
+      const doc = makeDoc(src);
+      // Line 4: "  buf[0] := 1;" — hover over "buf" at character 2
+      const result = handleHover(makeParams(doc.uri, 4, 2), doc);
+      expect(result).not.toBeNull();
+      if (result) {
+        const contents = result.contents as { kind: string; value: string };
+        expect(contents.value).toContain('buf');
+        expect(contents.value).toContain('ARRAY');
+        // No range for array types
+        expect(contents.value).not.toContain('-32 768');
+      }
+    });
+  });
 });
 
 // ---------------------------------------------------------------------------

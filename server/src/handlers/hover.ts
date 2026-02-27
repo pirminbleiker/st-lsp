@@ -26,6 +26,7 @@ import {
   TopLevelDeclaration,
   TypeDeclarationBlock,
   VarDeclaration,
+  VarKind,
 } from '../parser/ast';
 import { parse } from '../parser/parser';
 import { builtinTypeHover, findBuiltinType } from '../twincat/types';
@@ -227,20 +228,26 @@ export function findNodeAtPosition(ast: SourceFile, line: number, character: num
 // ---------------------------------------------------------------------------
 
 /**
- * Collect all VarDeclaration nodes from the enclosing POU's var blocks.
+ * Collect all VarDeclaration nodes from the enclosing POU's var blocks,
+ * together with the VarKind of the block they belong to.
  * We walk top-level declarations to find the POU that contains `pos`.
  */
 function collectVarDeclarations(
   ast: SourceFile,
   pos: Position,
-): VarDeclaration[] {
+): Array<{ vd: VarDeclaration; varKind: VarKind }> {
   for (const decl of ast.declarations) {
     if (!positionContains(decl.range.start, decl.range.end, pos)) continue;
-    const vars: VarDeclaration[] = [];
+    if (
+      decl.kind !== 'ProgramDeclaration' &&
+      decl.kind !== 'FunctionBlockDeclaration' &&
+      decl.kind !== 'FunctionDeclaration'
+    ) continue;
+    const vars: Array<{ vd: VarDeclaration; varKind: VarKind }> = [];
     const pou = decl as ProgramDeclaration | FunctionBlockDeclaration | FunctionDeclaration;
     for (const vb of pou.varBlocks) {
       for (const vd of vb.declarations) {
-        vars.push(vd);
+        vars.push({ vd, varKind: vb.varKind });
       }
     }
     return vars;
@@ -252,7 +259,7 @@ function collectVarDeclarations(
 // Hover markdown builders
 // ---------------------------------------------------------------------------
 
-function varDeclHover(vd: VarDeclaration): string {
+function varDeclHover(vd: VarDeclaration, varKind: VarKind): string {
   const typeRef = vd.type;
   let typeName = typeRef.name;
   if (typeRef.isPointer) typeName = `POINTER TO ${typeName}`;
@@ -262,6 +269,17 @@ function varDeclHover(vd: VarDeclaration): string {
     typeName = `ARRAY[${dims}] OF ${typeName}`;
   }
   let result = `\`${vd.name} : ${typeName}\``;
+
+  result += `\n\n*Block:* \`${varKind}\``;
+
+  // Show value range for simple (non-compound) builtin types
+  if (!typeRef.isPointer && !typeRef.isReference && !typeRef.isArray) {
+    const builtinType = findBuiltinType(typeRef.name);
+    if (builtinType) {
+      result += `  \n*Range:* ${builtinType.range}`;
+    }
+  }
+
   if (vd.pragmas.length > 0) {
     const pragmaSummary = vd.pragmas.map(p => p.raw).join(' ');
     result += `\n\n*Pragmas:* \`${pragmaSummary}\``;
@@ -377,10 +395,10 @@ export function handleHover(
 
   // 3. VarDeclaration in scope?
   const vars = collectVarDeclarations(ast, { line, character });
-  const varDecl = vars.find(v => v.name.toUpperCase() === name.toUpperCase());
-  if (varDecl) {
+  const varMatch = vars.find(v => v.vd.name.toUpperCase() === name.toUpperCase());
+  if (varMatch) {
     return {
-      contents: { kind: MarkupKind.Markdown, value: varDeclHover(varDecl) },
+      contents: { kind: MarkupKind.Markdown, value: varDeclHover(varMatch.vd, varMatch.varKind) },
       range: { start: node.range.start, end: node.range.end },
     };
   }
