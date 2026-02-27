@@ -280,6 +280,30 @@ describe('handleFoldingRanges — TcPOU XML/CDATA files', () => {
     expect(headerFold!.endLine).toBeGreaterThanOrEqual(2);
   });
 
+  it('folds XML preamble (lines 0–2) as a Region', () => {
+    const ranges = handleFoldingRanges(makeTcPouDoc(xmlPou));
+    // Preamble XML region: <?xml…> + <TcPlcObject> + <POU …>  (lines 0–2)
+    const preamble = ranges.find(r => r.startLine === 0 && r.endLine === 2);
+    expect(preamble).toBeDefined();
+    expect(preamble!.kind).toBe(FoldingRangeKind.Region);
+  });
+
+  it('folds XML inter-section (lines 8–9) between Declaration and Implementation', () => {
+    const ranges = handleFoldingRanges(makeTcPouDoc(xmlPou));
+    // Inter-section: ]]></Declaration> through <Implementation>  (lines 8–9)
+    const interSection = ranges.find(r => r.startLine === 8 && r.endLine === 9);
+    expect(interSection).toBeDefined();
+    expect(interSection!.kind).toBe(FoldingRangeKind.Region);
+  });
+
+  it('folds XML postamble (lines 10–12) after the last CDATA', () => {
+    const ranges = handleFoldingRanges(makeTcPouDoc(xmlPou));
+    // Postamble: from ]]></ST> to </TcPlcObject>  (lines 10–12)
+    const postamble = ranges.find(r => r.startLine === 10 && r.endLine === 12);
+    expect(postamble).toBeDefined();
+    expect(postamble!.kind).toBe(FoldingRangeKind.Region);
+  });
+
   it('produces a folding range for the VAR block at correct original-file lines', () => {
     const ranges = handleFoldingRanges(makeTcPouDoc(xmlPou));
     // VAR starts at line 5, END_VAR at line 7 in the original file
@@ -306,5 +330,69 @@ describe('handleFoldingRanges — TcPOU XML/CDATA files', () => {
       'PROGRAM Main\nVAR x : INT; END_VAR\nEND_PROGRAM');
     const ranges = handleFoldingRanges(doc);
     expect(ranges.length).toBeGreaterThan(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// TcPOU: translated ST control-flow folds (IF / FOR / VAR)
+// ---------------------------------------------------------------------------
+
+describe('handleFoldingRanges — TcPOU translated ST folds', () => {
+  // TcPOU with IF and FOR in the implementation body.
+  // The implementation CDATA opens on its own line (line 10) so the ST content
+  // begins on line 11 in the original file.
+  const xmlWithControlFlow = [
+    '<?xml version="1.0" encoding="utf-8"?>',  // line 0
+    '<TcPlcObject>',                            // line 1
+    '  <POU Name="Bar">',                       // line 2
+    '    <Declaration><![CDATA[',               // line 3
+    'FUNCTION_BLOCK Bar',                       // line 4
+    'VAR',                                      // line 5
+    '  x : INT;',                               // line 6
+    'END_VAR',                                  // line 7
+    ']]></Declaration>',                        // line 8
+    '    <Implementation>',                     // line 9
+    '      <ST><![CDATA[',                      // line 10
+    'IF x > 0 THEN',                            // line 11
+    '  x := x - 1;',                           // line 12
+    'END_IF',                                   // line 13
+    'FOR x := 0 TO 10 DO',                     // line 14
+    '  ;',                                      // line 15
+    'END_FOR',                                  // line 16
+    ']]></ST>',                                 // line 17
+    '    </Implementation>',                    // line 18
+    '  </POU>',                                 // line 19
+    '</TcPlcObject>',                           // line 20
+  ].join('\n');
+
+  it('folds IF...END_IF at translated original-file lines', () => {
+    const ranges = handleFoldingRanges(makeTcPouDoc(xmlWithControlFlow));
+    // IF at line 11, END_IF at line 13 in the original file
+    const ifFold = ranges.find(r => r.startLine === 11 && r.endLine === 13);
+    expect(ifFold).toBeDefined();
+    expect(ifFold!.kind).toBe(FoldingRangeKind.Region);
+  });
+
+  it('folds FOR...END_FOR at translated original-file lines', () => {
+    const ranges = handleFoldingRanges(makeTcPouDoc(xmlWithControlFlow));
+    // FOR at line 14, END_FOR at line 16 in the original file
+    const forFold = ranges.find(r => r.startLine === 14 && r.endLine === 16);
+    expect(forFold).toBeDefined();
+    expect(forFold!.kind).toBe(FoldingRangeKind.Region);
+  });
+
+  it('folds VAR block at translated original-file lines', () => {
+    const ranges = handleFoldingRanges(makeTcPouDoc(xmlWithControlFlow));
+    // VAR at line 5, END_VAR at line 7 in the original file
+    const varFold = ranges.find(r => r.startLine === 5 && r.endLine === 7);
+    expect(varFold).toBeDefined();
+    expect(varFold!.kind).toBe(FoldingRangeKind.Region);
+  });
+
+  it('does not produce negative-range folds', () => {
+    const ranges = handleFoldingRanges(makeTcPouDoc(xmlWithControlFlow));
+    for (const r of ranges) {
+      expect(r.endLine).toBeGreaterThan(r.startLine);
+    }
   });
 });
