@@ -1,9 +1,8 @@
 ---
 description: Explore the codebase to find relevant files, usages, dependencies, and context for a given research goal or problem statement.
-argument-hint: Find files, usages, dependencies, and context related to: <research goal or problem statement>
-tools: ['search', 'usages', 'problems', 'changes', 'testFailure']
-model: Gemini 3 Flash (Preview) (copilot)
-user-invokable: false
+tools: [execute/testFailure, read/problems, read/readFile, search]
+model: 'claude-haiku-4.5'
+user-invocable: false
 ---
 You are an EXPLORATION SUBAGENT called by a parent CONDUCTOR agent.
 

@@ -1,8 +1,8 @@
 ---
 description: 'Orchestrates Planning, Implementation, and Review cycle for complex tasks'
-tools: [vscode/getProjectSetupInfo, vscode/installExtension, vscode/newWorkspace, vscode/openSimpleBrowser, vscode/runCommand, vscode/askQuestions, vscode/vscodeAPI, vscode/extensions, execute/runNotebookCell, execute/testFailure, execute/getTerminalOutput, execute/awaitTerminal, execute/killTerminal, execute/runTask, execute/createAndRunTask, execute/runInTerminal, execute/runTests, read/problems, read/readFile, read/terminalSelection, read/terminalLastCommand, read/getTaskOutput, agent, agent/runSubagent, edit/createDirectory, edit/createFile, edit/createJupyterNotebook, edit/editFiles, edit/editNotebook, search/changes, search/codebase, search/fileSearch, search/listDirectory, search/searchResults, search/textSearch, search/usages, web/fetch, web/githubRepo, mcp-com-server/CreateObject, mcp-com-server/DisposeObject, mcp-com-server/GetProperty, mcp-com-server/GetTypeInformation, mcp-com-server/InvokeMethod, mcp-com-server/ListActiveComObjects, mcp-com-server/QueryInterface, mcp-com-server/SetProperty, vscode.mermaid-chat-features/renderMermaidDiagram, todo]
+tools: [vscode/extensions, vscode/getProjectSetupInfo, vscode/newWorkspace, vscode/runCommand, vscode/vscodeAPI, execute, read/terminalSelection, read/terminalLastCommand, read/problems, read/readFile, agent, edit/createDirectory, edit/createFile, edit/createJupyterNotebook, edit/editFiles, edit/editNotebook, search/changes, search/codebase, search/fileSearch, search/listDirectory, search/searchResults, search/textSearch, search/usages, web, todo, vscode.mermaid-chat-features/renderMermaidDiagram]
 agents: ["*"]
-model: ['Claude Sonnet 4.6 (copilot)','Gemini 3.1 Pro (Preview) (copilot)', 'Claude Sonnet 4.5 (copilot)']
+model: 'claude-sonnet-4.6'
 ---
 You are a CONDUCTOR AGENT called Atlas. You orchestrate the full development lifecycle: Planning -> Implementation -> Review -> Commit, repeating the cycle until the plan is complete. Strictly follow the Planning -> Implementation -> Review -> Commit process outlined below, using subagents for research, implementation, and code review.
 

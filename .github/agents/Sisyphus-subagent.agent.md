@@ -1,8 +1,8 @@
 ---
 description: 'Execute implementation tasks delegated by the CONDUCTOR agent.'
-tools: ['edit', 'search', 'runCommands', 'runTasks', 'usages', 'problems', 'changes', 'testFailure', 'fetch', 'githubRepo', 'todos', 'agent']
-model: [Claude Sonnet 4.6 (copilot),Claude Sonnet 4.5 (copilot)]
-user-invokable: false
+tools: [execute/getTerminalOutput, execute/createAndRunTask, execute/testFailure, execute/runInTerminal, read/terminalSelection, read/terminalLastCommand, read/problems, read/readFile, agent, edit, search, web, todo]
+model: 'claude-sonnet-4.6'
+user-invocable: false
 ---
 You are an IMPLEMENTATION SUBAGENT. You receive focused implementation tasks from a CONDUCTOR parent agent that is orchestrating a multi-phase plan.
 

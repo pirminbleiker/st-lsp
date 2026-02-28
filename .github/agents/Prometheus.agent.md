@@ -1,7 +1,7 @@
 ---
 description: 'Autonomous planner that writes comprehensive implementation plans and feeds them to Atlas'
 tools: [execute/testFailure, read/problems, read/readFile, agent/runSubagent, edit/createDirectory, edit/createFile, edit/createJupyterNotebook, edit/editFiles, edit/editNotebook, search/changes, search/codebase, search/fileSearch, search/listDirectory, search/searchResults, search/textSearch, search/usages, web/fetch, web/githubRepo]
-model: ['Claude Opus 4.6 (copilot)','Gemini 3.1 Pro (Preview) (copilot)','GPT-5.2 (copilot)', 'GPT-5.3-Codex (copilot)','Claude Opus 4.5 (copilot)',Claude Sonnet 4.6 (copilot),'Claude Sonnet 4.5 (copilot)','Gemini 3 Pro (Preview) (copilot)']
+model: 'claude-opus-4.6'
 handoffs:
   - label: Start implementation with Atlas
     agent: Atlas
