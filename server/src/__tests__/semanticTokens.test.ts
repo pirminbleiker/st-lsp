@@ -140,6 +140,25 @@ describe('handleSemanticTokens', () => {
       const tokens = decodeTokens(data);
       expect(tokens.some(t => t.tokenType === 'comment' && t.line === 0)).toBe(true);
     });
+
+    it('emits comment tokens for multiline block comment where end col < start col', () => {
+      // The closing *) is at col 0, the opening (* is at col 4 — length would be negative
+      // without spanLines-aware guard, causing the token to be silently skipped.
+      const src = [
+        'PROGRAM P',
+        '    (* this is a',
+        '       long comment',
+        '*)',
+        'END_PROGRAM',
+      ].join('\n');
+      const doc = makeDoc(src);
+      const { data } = handleSemanticTokens(doc);
+      const tokens = decodeTokens(data);
+      const commentTokens = tokens.filter(t => t.tokenType === 'comment');
+      expect(commentTokens.some(t => t.line === 1)).toBe(true); // opening line
+      expect(commentTokens.some(t => t.line === 2)).toBe(true); // middle line
+      expect(commentTokens.some(t => t.line === 3)).toBe(true); // closing line
+    });
   });
 
   describe('user-defined types', () => {

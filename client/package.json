@@ -1,7 +1,7 @@
 {
   "name": "st-lsp-client",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.1.1",
   "description": "VS Code extension for IEC 61131-3 Structured Text",
   "publisher": "pirminbleiker",
   "repository": {
