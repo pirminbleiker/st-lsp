@@ -1,3 +1,10 @@
+## [1.1.4](https://github.com/pirminbleiker/st-lsp/compare/v1.1.3...v1.1.4) (2026-02-28)
+
+
+### Bug Fixes
+
+* **test:** wrap serverStartup proc in try/finally and increase timeout (sl-7pf8) ([f0b9255](https://github.com/pirminbleiker/st-lsp/commit/f0b92552b48aefc32d2d0707c5ada39335eaeaec))
+
 ## [1.1.3](https://github.com/pirminbleiker/st-lsp/compare/v1.1.2...v1.1.3) (2026-02-28)
 
 
