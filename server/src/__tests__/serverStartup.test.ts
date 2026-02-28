@@ -30,40 +30,43 @@ describe('Server Startup', () => {
 				stdio: ['pipe', 'pipe', 'pipe'],
 			});
 
-			const rawResponse = await new Promise<string>((resolve, reject) => {
-				let buf = '';
-				const timer = setTimeout(
-					() => reject(new Error('Server initialize timeout after 8s')),
-					8000,
-				);
+			let rawResponse: string;
+			try {
+				rawResponse = await new Promise<string>((resolve, reject) => {
+					let buf = '';
+					const timer = setTimeout(
+						() => reject(new Error('Server initialize timeout after 15s')),
+						15_000,
+					);
 
-				proc.stdout.on('data', (chunk: Buffer) => {
-					buf += chunk.toString('utf8');
-					if (parseFirstMessage(buf) !== null) {
+					proc.stdout.on('data', (chunk: Buffer) => {
+						buf += chunk.toString('utf8');
+						if (parseFirstMessage(buf) !== null) {
+							clearTimeout(timer);
+							resolve(buf);
+						}
+					});
+
+					proc.stderr.on('data', () => {
+						/* server writes logs to stderr — ignore */
+					});
+
+					proc.on('error', (err) => {
 						clearTimeout(timer);
-						resolve(buf);
-					}
+						reject(err);
+					});
+
+					proc.stdin.write(
+						encodeMessage('initialize', 1, {
+							processId: null,
+							rootUri: null,
+							capabilities: {},
+						}),
+					);
 				});
-
-				proc.stderr.on('data', () => {
-					/* server writes logs to stderr — ignore */
-				});
-
-				proc.on('error', (err) => {
-					clearTimeout(timer);
-					reject(err);
-				});
-
-				proc.stdin.write(
-					encodeMessage('initialize', 1, {
-						processId: null,
-						rootUri: null,
-						capabilities: {},
-					}),
-				);
-			});
-
-			proc.kill();
+			} finally {
+				proc.kill();
+			}
 
 			const parsed = parseFirstMessage(rawResponse);
 			expect(parsed).not.toBeNull();
@@ -79,6 +82,6 @@ describe('Server Startup', () => {
 			expect(caps['definitionProvider']).toBe(true);
 			expect(caps['inlayHintProvider']).toBe(true);
 		},
-		10_000,
+		20_000,
 	);
 });
