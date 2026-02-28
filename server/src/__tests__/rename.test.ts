@@ -586,7 +586,7 @@ describe('handleRename + handlePrepareRename — TcPOU XML extraction', () => {
     const result = handleRename(params, doc);
 
     expect(result).not.toBeNull();
-    const edits = result!.changes[doc.uri];
+    const edits = result!.changes?.[doc.uri];
     expect(edits).toBeDefined();
     expect(edits!.length).toBeGreaterThan(0);
     // All edits must be at original-file line 6, not extracted line 2
