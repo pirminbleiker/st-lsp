@@ -1090,7 +1090,7 @@ class Parser {
         // Consume SUPER and the optional '^' that follows it so that
         // the postfix loop can then handle the trailing '.member' access.
         this.advance(); // SUPER
-        if (this.peek().kind === TokenKind.IDENTIFIER && this.peek().text === '^') {
+        if (this.peek().kind === TokenKind.CARET) {
           this.advance(); // ^
         }
         return { kind: 'NameExpression', name: 'SUPER', range: tok.range } as NameExpression;

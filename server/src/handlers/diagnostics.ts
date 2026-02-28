@@ -16,6 +16,7 @@ import {
 	ForStatement,
 	FunctionBlockDeclaration,
 	FunctionDeclaration,
+	GvlDeclaration,
 	IfStatement,
 	MemberExpression,
 	NameExpression,
@@ -82,7 +83,7 @@ function collectPouVarNames(
  * Returns a map from uppercase name → array of VarDeclaration nodes with that name.
  */
 function findDuplicateVarDeclarations(
-	pou: ProgramDeclaration | FunctionBlockDeclaration | FunctionDeclaration,
+	pou: { varBlocks: VarBlock[] },
 ): Map<string, VarDeclaration[]> {
 	// Group all declarations by uppercase name
 	const groups = new Map<string, VarDeclaration[]>();
@@ -414,6 +415,13 @@ function runSemanticAnalysis(ast: SourceFile, libraryRefs?: LibraryRef[]): Diagn
 			for (const td of tdb.declarations) {
 				globalNames.add(td.name.toUpperCase());
 			}
+		} else if (decl.kind === 'GvlDeclaration') {
+			const gvl = decl as GvlDeclaration;
+			for (const vb of gvl.varBlocks) {
+				for (const vd of vb.declarations) {
+					globalNames.add(vd.name.toUpperCase());
+				}
+			}
 		}
 	}
 
@@ -625,29 +633,19 @@ function runSemanticAnalysis(ast: SourceFile, libraryRefs?: LibraryRef[]): Diagn
 				methodScope.add(method.name.toUpperCase());
 
 				// Duplicate declarations in method
-				const methodDupes = new Map<string, VarDeclaration[]>();
-				for (const vb of method.varBlocks) {
-					for (const vd of vb.declarations) {
-						const key = vd.name.toUpperCase();
-						let arr = methodDupes.get(key);
-						if (!arr) { arr = []; methodDupes.set(key, arr); }
-						arr.push(vd);
-					}
-				}
+				const methodDupes = findDuplicateVarDeclarations(method);
 				for (const [, dupeDecls] of methodDupes) {
-					if (dupeDecls.length > 1) {
-						for (let i = 1; i < dupeDecls.length; i++) {
-							const vd = dupeDecls[i];
-							diagnostics.push({
-								severity: DiagnosticSeverity.Error,
-								range: {
-									start: { line: vd.range.start.line, character: vd.range.start.character },
-									end:   { line: vd.range.end.line,   character: vd.range.end.character },
-								},
-								message: `Duplicate variable declaration '${vd.name}'`,
-								source: 'st-lsp',
-							});
-						}
+					for (let i = 1; i < dupeDecls.length; i++) {
+						const vd = dupeDecls[i];
+						diagnostics.push({
+							severity: DiagnosticSeverity.Error,
+							range: {
+								start: { line: vd.range.start.line, character: vd.range.start.character },
+								end:   { line: vd.range.end.line,   character: vd.range.end.character },
+							},
+							message: `Duplicate variable declaration '${vd.name}'`,
+							source: 'st-lsp',
+						});
 					}
 				}
 
