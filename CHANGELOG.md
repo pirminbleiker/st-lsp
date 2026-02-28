@@ -1,3 +1,11 @@
+## [1.1.3](https://github.com/pirminbleiker/st-lsp/compare/v1.1.2...v1.1.3) (2026-02-28)
+
+
+### Bug Fixes
+
+* **lsp:** add TcPOU extraction + position translation to references/rename/signatureHelp (sl-lsp-bugs) ([5f28d7b](https://github.com/pirminbleiker/st-lsp/commit/5f28d7b749359f105cc61b41946f43354a75e82f))
+* **types:** use optional chaining for WorkspaceEdit.changes access in rename test ([5a410e4](https://github.com/pirminbleiker/st-lsp/commit/5a410e42b7af351134f8e497b2bc2f49141e3665))
+
 ## [1.1.2](https://github.com/pirminbleiker/st-lsp/compare/v1.1.1...v1.1.2) (2026-02-28)
 
 
