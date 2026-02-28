@@ -6,6 +6,7 @@ import {
 } from 'vscode-languageserver/node';
 import { TextDocument } from 'vscode-languageserver-textdocument';
 import { parse } from '../parser/parser';
+import { extractStFromTwinCAT } from '../twincat/tcExtractor';
 import { STANDARD_FBS } from '../twincat/stdlib';
 import {
   FunctionDeclaration,
@@ -238,12 +239,26 @@ export function handleSignatureHelp(
   if (!document) return null;
 
   const text = document.getText();
-  const offset = document.offsetAt(params.position);
+  const extraction = extractStFromTwinCAT(document.uri, text);
+  const stCode = extraction.stCode;
 
-  const activeCall = findActiveCall(text, offset);
+  // Translate the cursor position from original-file coordinates to extracted-ST coordinates.
+  const inv: Record<number, number> = {};
+  for (const key of Object.keys(extraction.offsets)) {
+    const extractedLine = Number(key);
+    inv[extraction.offsets[extractedLine]] = extractedLine;
+  }
+  const { line: origLine, character } = params.position;
+  const extractedLine = inv[origLine] ?? origLine;
+
+  // Compute the character offset within the extracted ST code.
+  const stDoc = TextDocument.create(document.uri, 'iec-st', 0, stCode);
+  const offset = stDoc.offsetAt({ line: extractedLine, character });
+
+  const activeCall = findActiveCall(stCode, offset);
   if (!activeCall) return null;
 
-  const sig = lookupCallable(activeCall.callee, text);
+  const sig = lookupCallable(activeCall.callee, stCode);
   if (!sig) return null;
 
   const sigInfo = buildSignatureInformation(sig);

@@ -556,3 +556,59 @@ describe('handlePrepareRename', () => {
   });
 
 });
+
+// ---------------------------------------------------------------------------
+// TwinCAT XML (.TcPOU) extraction tests
+// ---------------------------------------------------------------------------
+
+describe('handleRename + handlePrepareRename — TcPOU XML extraction', () => {
+  // Same XML structure as references test: 'counter' is on original line 6 (extracted line 2).
+  const xmlPou = [
+    '<?xml version="1.0" encoding="utf-8"?>',  // line 0
+    '<TcPlcObject Version="1.1.0.1">',           // line 1
+    '  <POU Name="TestFB">',                     // line 2
+    '    <Declaration><![CDATA[',                // line 3
+    'FUNCTION_BLOCK TestFB',                     // line 4  (extracted line 0)
+    'VAR',                                       // line 5  (extracted line 1)
+    '  counter : INT := 0;',                     // line 6  (extracted line 2)
+    'END_VAR]]></Declaration>',                  // line 7  (extracted line 3)
+    '  </POU>',                                  // line 8
+    '</TcPlcObject>',                            // line 9
+  ].join('\n');
+
+  it('handleRename returns TextEdits with ranges in original-file coordinates', () => {
+    const doc = TextDocument.create('file:///test.TcPOU', 'iec-st', 1, xmlPou);
+    const params = {
+      textDocument: { uri: doc.uri },
+      position: { line: 6, character: 2 },
+      newName: 'renamed',
+    };
+    const result = handleRename(params, doc);
+
+    expect(result).not.toBeNull();
+    const edits = result!.changes[doc.uri];
+    expect(edits).toBeDefined();
+    expect(edits!.length).toBeGreaterThan(0);
+    // All edits must be at original-file line 6, not extracted line 2
+    for (const edit of edits!) {
+      expect(edit.range.start.line).toBe(6);
+    }
+  });
+
+  it('handlePrepareRename returns range in original-file coordinates', () => {
+    const doc = TextDocument.create('file:///test.TcPOU', 'iec-st', 1, xmlPou);
+    const params = {
+      textDocument: { uri: doc.uri },
+      position: { line: 6, character: 2 },
+    };
+    const result = handlePrepareRename(params, doc);
+
+    expect(result).not.toBeNull();
+    // Range must be at original line 6, not extracted line 2
+    expect(result!.start.line).toBe(6);
+    expect(result!.end.line).toBe(6);
+    // 'counter' spans characters 2–9
+    expect(result!.start.character).toBe(2);
+    expect(result!.end.character).toBe(2 + 'counter'.length);
+  });
+});

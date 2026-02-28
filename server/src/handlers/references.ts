@@ -11,6 +11,7 @@ import { ReferenceParams, Location } from 'vscode-languageserver/node';
 import { TextDocument } from 'vscode-languageserver-textdocument';
 import { WorkspaceIndex } from '../twincat/workspaceIndex';
 import { parse } from '../parser/parser';
+import { extractStFromTwinCAT, OffsetMap } from '../twincat/tcExtractor';
 import { findNodeAtPosition } from './hover';
 import {
   AstNode,
@@ -271,6 +272,27 @@ export function collectNameExpressions(
 // Main handler
 // ---------------------------------------------------------------------------
 
+/** Build an inverse offsets map: original file line → extracted ST line. */
+function invertOffsets(offsets: OffsetMap): Record<number, number> {
+  const inv: Record<number, number> = {};
+  for (const key of Object.keys(offsets)) {
+    const extractedLine = Number(key);
+    inv[offsets[extractedLine]] = extractedLine;
+  }
+  return inv;
+}
+
+/** Translate an AST range from extracted-file coordinates to original-file coordinates. */
+function translateRange(
+  range: { start: { line: number; character: number }; end: { line: number; character: number } },
+  offsets: OffsetMap,
+) {
+  return {
+    start: { line: offsets[range.start.line] ?? range.start.line, character: range.start.character },
+    end:   { line: offsets[range.end.line]   ?? range.end.line,   character: range.end.character   },
+  };
+}
+
 export function handleReferences(
   params: ReferenceParams,
   document: TextDocument | undefined,
@@ -279,9 +301,12 @@ export function handleReferences(
   if (!document) return [];
 
   const text = document.getText();
-  const { ast } = parse(text);
+  const extraction = extractStFromTwinCAT(document.uri, text);
+  const { ast } = parse(extraction.stCode);
 
-  const { line, character } = params.position;
+  const { line: origLine, character } = params.position;
+  const inv = invertOffsets(extraction.offsets);
+  const line = inv[origLine] ?? origLine;
   const node = findNodeAtPosition(ast, line, character);
   if (!node) return [];
 
@@ -303,7 +328,11 @@ export function handleReferences(
   const uri = params.textDocument.uri;
 
   // Collect all matching occurrences in the current document
-  const locations: Location[] = collectNameExpressions(ast, name, uri);
+  const rawLocations = collectNameExpressions(ast, name, uri);
+  const locations: Location[] = rawLocations.map(loc => ({
+    ...loc,
+    range: translateRange(loc.range, extraction.offsets),
+  }));
 
   // Optionally search other workspace files via WorkspaceIndex
   if (workspaceIndex) {
@@ -323,9 +352,13 @@ export function handleReferences(
         continue;
       }
 
-      const { ast: otherAst } = parse(fileText);
+      const otherExtraction = extractStFromTwinCAT(fileUri, fileText);
+      const { ast: otherAst } = parse(otherExtraction.stCode);
       const otherLocations = collectNameExpressions(otherAst, name, fileUri);
-      locations.push(...otherLocations);
+      locations.push(...otherLocations.map(loc => ({
+        ...loc,
+        range: translateRange(loc.range, otherExtraction.offsets),
+      })));
     }
   }
 

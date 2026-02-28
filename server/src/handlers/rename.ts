@@ -25,6 +25,7 @@ import {
 import { TextDocument } from 'vscode-languageserver-textdocument';
 import { WorkspaceIndex } from '../twincat/workspaceIndex';
 import { parse } from '../parser/parser';
+import { extractStFromTwinCAT, OffsetMap } from '../twincat/tcExtractor';
 import { findNodeAtPosition } from './hover';
 import {
   AstNode,
@@ -241,6 +242,25 @@ function collectNameMatches(ast: SourceFile, targetName: string): NameMatch[] {
 }
 
 // ---------------------------------------------------------------------------
+/** Build an inverse offsets map: original file line → extracted ST line. */
+function invertOffsets(offsets: OffsetMap): Record<number, number> {
+  const inv: Record<number, number> = {};
+  for (const key of Object.keys(offsets)) {
+    const extractedLine = Number(key);
+    inv[offsets[extractedLine]] = extractedLine;
+  }
+  return inv;
+}
+
+/** Translate a range from extracted-file coordinates to original-file coordinates. */
+function translateRange(range: Range, offsets: OffsetMap): Range {
+  return {
+    start: { line: offsets[range.start.line] ?? range.start.line, character: range.start.character },
+    end:   { line: offsets[range.end.line]   ?? range.end.line,   character: range.end.character   },
+  };
+}
+
+// ---------------------------------------------------------------------------
 // handleRename
 // ---------------------------------------------------------------------------
 
@@ -260,9 +280,12 @@ export function handleRename(
   if (!document) return null;
 
   const text = document.getText();
-  const { ast } = parse(text);
+  const extraction = extractStFromTwinCAT(document.uri, text);
+  const { ast } = parse(extraction.stCode);
 
-  const { line, character } = params.position;
+  const { line: origLine, character } = params.position;
+  const inv = invertOffsets(extraction.offsets);
+  const line = inv[origLine] ?? origLine;
   const node = findNodeAtPosition(ast, line, character);
   if (!node) return null;
 
@@ -290,7 +313,9 @@ export function handleRename(
   // --- Current document ---
   const currentMatches = collectNameMatches(ast, targetName);
   if (currentMatches.length > 0) {
-    changes[currentUri] = currentMatches.map(m => TextEdit.replace(m.range, newName));
+    changes[currentUri] = currentMatches.map(m =>
+      TextEdit.replace(translateRange(m.range, extraction.offsets), newName),
+    );
   }
 
   // --- Other workspace files ---
@@ -309,10 +334,13 @@ export function handleRename(
         continue;
       }
 
-      const { ast: otherAst } = parse(fileText);
+      const otherExtraction = extractStFromTwinCAT(fileUri, fileText);
+      const { ast: otherAst } = parse(otherExtraction.stCode);
       const otherMatches = collectNameMatches(otherAst, targetName);
       if (otherMatches.length > 0) {
-        changes[fileUri] = otherMatches.map(m => TextEdit.replace(m.range, newName));
+        changes[fileUri] = otherMatches.map(m =>
+          TextEdit.replace(translateRange(m.range, otherExtraction.offsets), newName),
+        );
       }
     }
   }
@@ -336,28 +364,31 @@ export function handlePrepareRename(
   if (!document) return null;
 
   const text = document.getText();
-  const { ast } = parse(text);
+  const extraction = extractStFromTwinCAT(document.uri, text);
+  const { ast } = parse(extraction.stCode);
 
-  const { line, character } = params.position;
+  const { line: origLine, character } = params.position;
+  const inv = invertOffsets(extraction.offsets);
+  const line = inv[origLine] ?? origLine;
   const node = findNodeAtPosition(ast, line, character);
   if (!node) return null;
 
   if (node.kind === 'NameExpression') {
     const name = (node as NameExpression).name;
     if (!name) return null;
-    return { start: node.range.start, end: node.range.end };
+    return translateRange({ start: node.range.start, end: node.range.end }, extraction.offsets);
   }
 
   if (node.kind === 'ForStatement') {
     const fs = node as ForStatement;
     if (!positionInRange({ line, character }, fs.variableRange)) return null;
-    return { start: fs.variableRange.start, end: fs.variableRange.end };
+    return translateRange({ start: fs.variableRange.start, end: fs.variableRange.end }, extraction.offsets);
   }
 
   if (node.kind === 'VarDeclaration') {
     const vd = node as VarDeclaration;
     if (!positionInRange({ line, character }, vd.nameRange)) return null;
-    return { start: vd.nameRange.start, end: vd.nameRange.end };
+    return translateRange({ start: vd.nameRange.start, end: vd.nameRange.end }, extraction.offsets);
   }
 
   return null;
