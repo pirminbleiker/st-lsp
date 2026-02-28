@@ -1,3 +1,10 @@
+## [1.1.2](https://github.com/pirminbleiker/st-lsp/compare/v1.1.1...v1.1.2) (2026-02-28)
+
+
+### Bug Fixes
+
+* agent config warnings + LSP bug fixes (sl-lsp-bugs) ([b63e07c](https://github.com/pirminbleiker/st-lsp/commit/b63e07c1649dda84fad7dd1fbcc0ec04dab4d9f5)), closes [16#FF](https://github.com/16/issues/FF) [INT#16](https://github.com/INT/issues/16) [TIME#1s](https://github.com/TIME/issues/1s)
+
 ## [1.1.1](https://github.com/pirminbleiker/st-lsp/compare/v1.1.0...v1.1.1) (2026-02-27)
 
 
