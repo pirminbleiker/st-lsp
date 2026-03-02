@@ -552,6 +552,48 @@ describe('TcPOU position mapping', () => {
     }
   });
 
+  describe('hover on variable inside method body returns type info', () => {
+    const src = [
+      'FUNCTION_BLOCK MyFB',
+      'VAR',
+      '  counter : INT := 0;',
+      'END_VAR',
+      'METHOD Increment',
+      'VAR_INPUT',
+      '  amount : INT;',
+      'END_VAR',
+      '  counter := counter + amount;',
+      'END_METHOD',
+      'END_FUNCTION_BLOCK',
+    ].join('\n');
+
+    it('hover on method VAR_INPUT variable in method body returns type info', () => {
+      const doc = makeDoc(src);
+      // Line 8: "  counter := counter + amount;"
+      // "amount" starts at character 23
+      const result = handleHover(makeParams(doc.uri, 8, 23), doc);
+      expect(result).not.toBeNull();
+      if (result) {
+        const contents = result.contents as { kind: string; value: string };
+        expect(contents.value).toContain('amount');
+        expect(contents.value).toContain('INT');
+      }
+    });
+
+    it('hover on FB-level variable used inside method body returns type info', () => {
+      const doc = makeDoc(src);
+      // Line 8: "  counter := counter + amount;"
+      // "counter" (first occurrence after leading spaces) starts at character 2
+      const result = handleHover(makeParams(doc.uri, 8, 2), doc);
+      expect(result).not.toBeNull();
+      if (result) {
+        const contents = result.contents as { kind: string; value: string };
+        expect(contents.value).toContain('counter');
+        expect(contents.value).toContain('INT');
+      }
+    });
+  });
+
   it('returns null when hovering over XML-only line (line 0)', () => {
     const doc = makeTcPouDoc(tcpouContent);
     // Line 0: "<?xml version=\"1.0\" encoding=\"utf-8\"?>"

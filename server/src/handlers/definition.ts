@@ -18,11 +18,13 @@ import { TextDocument } from 'vscode-languageserver-textdocument';
 import {
   FunctionBlockDeclaration,
   FunctionDeclaration,
+  InterfaceDeclaration,
   MemberExpression,
   NameExpression,
   Position,
   ProgramDeclaration,
   SourceFile,
+  StructDeclaration,
   TopLevelDeclaration,
   TypeDeclaration,
   TypeDeclarationBlock,
@@ -60,6 +62,19 @@ function collectLocalVars(ast: SourceFile, pos: Position): VarDeclaration[] {
     for (const vb of pou.varBlocks) {
       for (const vd of vb.declarations) {
         vars.push(vd);
+      }
+    }
+    // When cursor is inside a method, also collect that method's var blocks
+    if (decl.kind === 'FunctionBlockDeclaration') {
+      const fb = decl as FunctionBlockDeclaration;
+      for (const method of fb.methods) {
+        if (!positionContains(method.range.start, method.range.end, pos)) continue;
+        for (const vb of method.varBlocks) {
+          for (const vd of vb.declarations) {
+            vars.push(vd);
+          }
+        }
+        break;
       }
     }
     return vars;
@@ -167,9 +182,9 @@ function findSuperMemberDeclaration(
       if (prop) return { uri, node: prop };
 
       // Recurse into parent chain
-      if (fb.extends) {
+      if (fb.extendsRef) {
         return findSuperMemberDeclaration(
-          fb.extends, memberName, localDeclarations, workspaceFiles, currentUri, depth - 1,
+          fb.extendsRef.name, memberName, localDeclarations, workspaceFiles, currentUri, depth - 1,
         );
       }
 
@@ -188,7 +203,7 @@ function getEnclosingFbExtends(ast: SourceFile, pos: Position): string | null {
     if (decl.kind !== 'FunctionBlockDeclaration') continue;
     const fb = decl as FunctionBlockDeclaration;
     if (!positionContains(fb.range.start, fb.range.end, pos)) continue;
-    return fb.extends ?? null;
+    return fb.extendsRef?.name ?? null;
   }
   return null;
 }
@@ -207,6 +222,84 @@ function findTypeDeclaration(
     const block = decl as TypeDeclarationBlock;
     const match = block.declarations.find(d => d.name.toUpperCase() === upper);
     if (match) return match;
+  }
+  return undefined;
+}
+
+/**
+ * Locate a named type/POU/interface declaration: first in the current file,
+ * then across workspace files.
+ */
+function findTypeLocation(
+  name: string,
+  ast: SourceFile,
+  uri: string,
+  workspaceIndex: WorkspaceIndex | undefined,
+  mapper: PositionMapper,
+): Location | null {
+  const upper = name.toUpperCase();
+  const pouMatch = findPouDeclaration(ast, name);
+  if (pouMatch) return toLocation(uri, pouMatch, mapper);
+  const typeMatch = findTypeDeclaration(ast, name);
+  if (typeMatch) return toLocation(uri, typeMatch, mapper);
+  const wsFiles = loadWorkspaceDeclarations(uri, workspaceIndex);
+  for (const { uri: fileUri, declarations } of wsFiles) {
+    const wsMatch = declarations.find(
+      d => 'name' in d && (d as { name: string }).name.toUpperCase() === upper,
+    );
+    if (wsMatch) return toLocation(fileUri, wsMatch, mapperForUri(fileUri, workspaceIndex));
+    for (const decl of declarations) {
+      if (decl.kind !== 'TypeDeclarationBlock') continue;
+      const block = decl as TypeDeclarationBlock;
+      const tdMatch = block.declarations.find(d => d.name.toUpperCase() === upper);
+      if (tdMatch) return toLocation(fileUri, tdMatch, mapperForUri(fileUri, workspaceIndex));
+    }
+  }
+  return null;
+}
+
+/**
+ * Check if the cursor position falls within any EXTENDS or IMPLEMENTS named
+ * reference across all top-level declarations (FunctionBlock, Struct, Interface).
+ * Returns a Location if a match is found, null if the ref is found but the
+ * target is unresolvable, or undefined if the cursor is not on any such ref.
+ */
+function checkExtendsOrImplementsRefs(
+  ast: SourceFile,
+  pos: Position,
+  uri: string,
+  workspaceIndex: WorkspaceIndex | undefined,
+  mapper: PositionMapper,
+): Location | null | undefined {
+  for (const decl of ast.declarations) {
+    if (decl.kind === 'FunctionBlockDeclaration') {
+      const fb = decl as FunctionBlockDeclaration;
+      if (fb.extendsRef && positionContains(fb.extendsRef.range.start, fb.extendsRef.range.end, pos)) {
+        return findTypeLocation(fb.extendsRef.name, ast, uri, workspaceIndex, mapper);
+      }
+      for (const ref of fb.implementsRefs) {
+        if (positionContains(ref.range.start, ref.range.end, pos)) {
+          return findTypeLocation(ref.name, ast, uri, workspaceIndex, mapper);
+        }
+      }
+    } else if (decl.kind === 'TypeDeclarationBlock') {
+      const block = decl as TypeDeclarationBlock;
+      for (const td of block.declarations) {
+        if (td.kind === 'StructDeclaration') {
+          const struct = td as StructDeclaration;
+          if (struct.extendsRef && positionContains(struct.extendsRef.range.start, struct.extendsRef.range.end, pos)) {
+            return findTypeLocation(struct.extendsRef.name, ast, uri, workspaceIndex, mapper);
+          }
+        }
+      }
+    } else if (decl.kind === 'InterfaceDeclaration') {
+      const iface = decl as InterfaceDeclaration;
+      for (const ref of iface.extendsRefs) {
+        if (positionContains(ref.range.start, ref.range.end, pos)) {
+          return findTypeLocation(ref.name, ast, uri, workspaceIndex, mapper);
+        }
+      }
+    }
   }
   return undefined;
 }
@@ -247,11 +340,17 @@ export function handleDefinition(
   const { line, character } = params.position;
   const extractedPos = mapper.originalToExtracted(line, character);
   if (!extractedPos) return null; // cursor on XML-only line
-  const node = findNodeAtPosition(ast, extractedPos.line, extractedPos.character);
-  if (!node) return null;
 
   const pos: Position = { line: extractedPos.line, character: extractedPos.character };
   const uri = params.textDocument.uri;
+
+  // EXTENDS / IMPLEMENTS / interface EXTENDS go-to-definition:
+  // Check if cursor lies within a named reference in a declaration header.
+  const extendsResult = checkExtendsOrImplementsRefs(ast, pos, uri, workspaceIndex, mapper);
+  if (extendsResult !== undefined) return extendsResult;
+
+  const node = findNodeAtPosition(ast, extractedPos.line, extractedPos.character);
+  if (!node) return null;
 
   // SUPER^.Member go-to-definition: navigate to the parent FB's member declaration.
   if (

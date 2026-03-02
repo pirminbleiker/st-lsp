@@ -94,8 +94,8 @@ describe('validateDocument', () => {
   // Semantic diagnostics: undefined identifier warnings
   // -------------------------------------------------------------------------
 
-  describe('semantic: undefined identifier warnings', () => {
-    it('warns for an undefined variable used in assignment RHS', () => {
+  describe('semantic: undefined identifier errors', () => {
+    it('produces Error for an undefined variable used in assignment RHS', () => {
       const src = `PROGRAM P
 VAR
   x : INT;
@@ -103,8 +103,21 @@ END_VAR
 x := undeclaredVar;
 END_PROGRAM`;
       const diags = getDiagnostics(src);
-      const warnings = diags.filter(d => d.severity === 2); // Warning = 2
-      expect(warnings.some(d => d.message.includes('undeclaredVar'))).toBe(true);
+      const errors = diags.filter(d => d.severity === 1); // Error = 1
+      expect(errors.some(d => d.message.includes('undeclaredVar'))).toBe(true);
+    });
+
+    it('undeclared identifier produces Error severity (not Warning)', () => {
+      const src = `FUNCTION_BLOCK TestFB
+VAR x : INT; END_VAR
+  undeclaredVar := 42;
+END_FUNCTION_BLOCK`;
+      const diags = getDiagnostics(src);
+      const errors = diags.filter(d => d.severity === 1); // Error = 1
+      expect(errors.some(d => d.message.includes('Undefined') || d.message.includes('ndeclared'))).toBe(true);
+      // Confirm it is NOT emitted as a Warning
+      const warnings = diags.filter(d => d.severity === 2 && (d.message.includes('Undefined') || d.message.includes('ndeclared')));
+      expect(warnings).toHaveLength(0);
     });
 
     it('does not warn for a declared variable used in assignment', () => {
@@ -208,15 +221,15 @@ END_PROGRAM`;
       expect(warnings).toHaveLength(0);
     });
 
-    it('warns for undefined base of a MemberExpression', () => {
+    it('produces Error for undefined base of a MemberExpression', () => {
       const src = `PROGRAM P
 VAR
 END_VAR
 unknownVar.field := 1;
 END_PROGRAM`;
       const diags = getDiagnostics(src);
-      const warnings = diags.filter(d => d.severity === 2);
-      expect(warnings.some(d => d.message.includes('unknownVar'))).toBe(true);
+      const errors = diags.filter(d => d.severity === 1);
+      expect(errors.some(d => d.message.includes('unknownVar'))).toBe(true);
     });
 
     it('does not warn when identifier is a VAR_INPUT variable', () => {
@@ -350,9 +363,8 @@ y := 1;
 END_PROGRAM`;
       const diags = getDiagnostics(src);
       const errors = diags.filter(d => d.severity === 1);
-      const warnings = diags.filter(d => d.severity === 2);
       expect(errors.some(d => d.message.includes('Duplicate'))).toBe(true);
-      expect(warnings.some(d => d.message.includes('y'))).toBe(true);
+      expect(errors.some(d => d.message.includes('y'))).toBe(true);
     });
 
     it('a valid program with vars, assignments, and IF produces no diagnostics', () => {
@@ -966,5 +978,60 @@ END_FUNCTION_BLOCK
 `;
     const diags = getDiagnostics(code);
     expect(diags.filter(d => d.message.includes("'MyValue'"))).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// EXTENDS/IMPLEMENTS validation diagnostics
+// ---------------------------------------------------------------------------
+
+function makeEmptyWorkspaceIndex(): WorkspaceIndex {
+  return {
+    getProjectFiles: () => [],
+    getAst: () => undefined,
+    getLibraryRefs: () => [],
+  } as unknown as WorkspaceIndex;
+}
+
+describe('EXTENDS/IMPLEMENTS validation', () => {
+  it('EXTENDS with unknown type produces Error diagnostic', () => {
+    const src = `FUNCTION_BLOCK MyFB EXTENDS GhostBase
+VAR END_VAR
+END_FUNCTION_BLOCK`;
+    const diags = getDiagnosticsWithIndex(src, makeEmptyWorkspaceIndex());
+    const errors = diags.filter(d => d.severity === 1);
+    expect(errors.some(d => d.message.includes('GhostBase'))).toBe(true);
+  });
+
+  it('IMPLEMENTS with unknown interface produces Error diagnostic', () => {
+    const src = `FUNCTION_BLOCK MyFB IMPLEMENTS I_Ghost
+VAR END_VAR
+END_FUNCTION_BLOCK`;
+    const diags = getDiagnosticsWithIndex(src, makeEmptyWorkspaceIndex());
+    const errors = diags.filter(d => d.severity === 1);
+    expect(errors.some(d => d.message.includes('I_Ghost'))).toBe(true);
+  });
+
+  it('EXTENDS with locally defined parent: no Error', () => {
+    const src = `FUNCTION_BLOCK ParentFB
+VAR END_VAR
+END_FUNCTION_BLOCK
+
+FUNCTION_BLOCK ChildFB EXTENDS ParentFB
+VAR END_VAR
+END_FUNCTION_BLOCK`;
+    const diags = getDiagnosticsWithIndex(src, makeEmptyWorkspaceIndex());
+    const errors = diags.filter(d => d.severity === 1 && d.message.includes('ParentFB'));
+    expect(errors).toHaveLength(0);
+  });
+
+  it('EXTENDS validation skipped when no workspaceIndex provided', () => {
+    const src = `FUNCTION_BLOCK MyFB EXTENDS GhostBase
+VAR END_VAR
+END_FUNCTION_BLOCK`;
+    // getDiagnostics uses no workspace index → validation skipped
+    const diags = getDiagnostics(src);
+    const errors = diags.filter(d => d.severity === 1 && d.message.includes('GhostBase'));
+    expect(errors).toHaveLength(0);
   });
 });

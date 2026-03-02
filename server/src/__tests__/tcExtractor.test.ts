@@ -1769,13 +1769,13 @@ describe('Dictionary.TcPOU integration', () => {
   it('parsed FB extends Disposable', () => {
     const { ast } = parse(result.source);
     const fb = ast.declarations[0] as FunctionBlockDeclaration;
-    expect(fb.extends).toBe('Disposable');
+    expect(fb.extendsRef?.name).toBe('Disposable');
   });
 
   it('parsed FB implements I_Dictionary', () => {
     const { ast } = parse(result.source);
     const fb = ast.declarations[0] as FunctionBlockDeclaration;
-    expect(fb.implements).toContain('I_Dictionary');
+    expect(fb.implementsRefs.map(r => r.name)).toContain('I_Dictionary');
   });
 
   // ── 6. lineMap accuracy ───────────────────────────────────────────────
@@ -2122,7 +2122,83 @@ describe('PositionMapper', () => {
   });
 
   // ---------------------------------------------------------------------------
-  // 5. Round-trip: originalToExtracted → extractedToOriginal
+  // 5. Method with INLINE implementation CDATA (regression: startLine off-by-one)
+  // ---------------------------------------------------------------------------
+  describe('TcPOU with method implementation inline CDATA (no leading newline)', () => {
+    // This is the real-world TwinCAT format where <ST><![CDATA[first line of code
+    // appears without a newline after <![CDATA[. Previously, extractImplementationCData
+    // passed implOffsetInXml (position of <Implementation> tag) as bodyOffsetInXml
+    // when calling extractFirstChildCData, making startLine land on the
+    // <Implementation> XML line instead of the <ST><![CDATA[...> line.
+    const xml = [
+      '<?xml version="1.0" encoding="utf-8"?>',           //  0
+      '<TcPlcObject Version="1.1.0.1">',                   //  1
+      '  <POU Name="FB_Clear" Id="{abc}">',                //  2
+      '    <Declaration><![CDATA[FUNCTION_BLOCK FB_Clear', //  3 (inline CDATA)
+      'VAR',                                               //  4
+      '  rootNode : INT;',                                 //  5
+      'END_VAR',                                           //  6
+      ']]></Declaration>',                                 //  7
+      '    <Method Name="Clear" Id="{def}">',              //  8
+      '      <Declaration><![CDATA[METHOD PUBLIC Clear',   //  9 (inline CDATA)
+      'VAR_INPUT',                                         // 10
+      'END_VAR',                                           // 11
+      ']]></Declaration>',                                 // 12
+      '      <Implementation>',                            // 13
+      '        <ST><![CDATA[IF rootNode = 0 THEN',         // 14 (inline CDATA — the broken case)
+      '  RETURN;',                                         // 15
+      'END_IF',                                            // 16
+      'rootNode := 0;',                                    // 17
+      ']]></ST>',                                          // 18
+      '      </Implementation>',                           // 19
+      '    </Method>',                                     // 20
+      '  </POU>',                                          // 21
+      '</TcPlcObject>',                                    // 22
+    ].join('\n');
+
+    it('implementation section startLine points to the <ST><![CDATA[ line, not <Implementation>', () => {
+      const r = extractST(xml, '.TcPOU');
+      const implSection = r.sections.find(s => s.kind === 'implementation' && s.startChar > 0);
+      expect(implSection).toBeDefined();
+      // startLine must be line 14 (<ST><![CDATA[IF rootNode = 0 THEN>), not 13 (<Implementation>)
+      expect(implSection!.startLine).toBe(14);
+    });
+
+    it('originalToExtracted on the inline CDATA line subtracts startChar correctly', () => {
+      const r = extractST(xml, '.TcPOU');
+      const mapper = new PositionMapper(r);
+      // Line 14: "        <ST><![CDATA[IF rootNode = 0 THEN"
+      // "        <ST><![CDATA[" = 21 chars, "rootNode" starts at char 24 (after "IF ")
+      const stCdataPrefix = '        <ST><![CDATA[IF '; // 24 chars
+      const originalChar = stCdataPrefix.length; // char index of 'r' in rootNode
+      const pos = mapper.originalToExtracted(14, originalChar);
+      expect(pos).not.toBeNull();
+      const extractedLines = r.source.split('\n');
+      const line = extractedLines[pos!.line];
+      // The extracted line should be "IF rootNode = 0 THEN", and char should point to 'r'
+      expect(line).toContain('IF rootNode = 0 THEN');
+      expect(line[pos!.character]).toBe('r');
+    });
+
+    it('originalToExtracted on subsequent lines in inline CDATA section maps correctly', () => {
+      const r = extractST(xml, '.TcPOU');
+      const mapper = new PositionMapper(r);
+      // Line 17: "rootNode := 0;" — no inline offset, straightforward
+      const pos = mapper.originalToExtracted(17, 0);
+      expect(pos).not.toBeNull();
+      const extractedLines = r.source.split('\n');
+      expect(extractedLines[pos!.line]).toContain('rootNode := 0;');
+    });
+
+    it('extracted source contains method implementation content', () => {
+      const r = extractST(xml, '.TcPOU');
+      expect(r.source).toContain('IF rootNode = 0 THEN');
+      expect(r.source).toContain('rootNode := 0;');
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // 6. Round-trip: originalToExtracted → extractedToOriginal
   // ---------------------------------------------------------------------------
   describe('round-trip correctness', () => {
     const xml = [

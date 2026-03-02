@@ -15,6 +15,12 @@ export interface AstNode {
   range: Range;
 }
 
+/** A named identifier with its source range (used for EXTENDS/IMPLEMENTS references). */
+export interface NamedRef {
+  name: string;
+  range: Range;
+}
+
 // ---------------------------------------------------------------------------
 // Type references
 // ---------------------------------------------------------------------------
@@ -67,8 +73,8 @@ export interface FunctionBlockDeclaration extends AstNode {
   kind: 'FunctionBlockDeclaration';
   name: string;
   pragmas: Pragma[];
-  extends?: string;
-  implements: string[];
+  extendsRef?: NamedRef;
+  implementsRefs: NamedRef[];
   varBlocks: VarBlock[];
   body: Statement[];
   methods: MethodDeclaration[];
@@ -309,7 +315,7 @@ export interface BoolLiteral extends AstNode {
 export interface StructDeclaration extends AstNode {
   kind: 'StructDeclaration';
   name: string;
-  extends?: string;
+  extendsRef?: NamedRef;
   fields: VarDeclaration[];
 }
 
@@ -374,7 +380,7 @@ export interface PropertyDeclaration extends AstNode {
 export interface InterfaceDeclaration extends AstNode {
   kind: 'InterfaceDeclaration';
   name: string;
-  extends: string[];
+  extendsRefs: NamedRef[];
   methods: MethodDeclaration[];
   properties: PropertyDeclaration[];
 }

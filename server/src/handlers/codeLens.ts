@@ -102,16 +102,16 @@ function buildWorkspaceStats(
 
   // Count implementors per interface
   for (const fb of allFBs) {
-    for (const iface of fb.implements) {
-      const key = iface.toUpperCase();
+    for (const iface of fb.implementsRefs) {
+      const key = iface.name.toUpperCase();
       implementors.set(key, (implementors.get(key) ?? 0) + 1);
     }
   }
 
   // Count children per parent FB
   for (const fb of allFBs) {
-    if (fb.extends) {
-      const key = fb.extends.toUpperCase();
+    if (fb.extendsRef) {
+      const key = fb.extendsRef.name.toUpperCase();
       children.set(key, (children.get(key) ?? 0) + 1);
     }
   }
@@ -129,8 +129,8 @@ function buildWorkspaceStats(
   }
 
   for (const fb of allFBs) {
-    if (!fb.extends) continue;
-    const parentKey = fb.extends.toUpperCase();
+    if (!fb.extendsRef) continue;
+    const parentKey = fb.extendsRef.name.toUpperCase();
     const childMethods = fbMethodNames.get(fb.name.toUpperCase()) ?? new Set();
     for (const childMethodName of childMethods) {
       const mapKey = `${parentKey}.${childMethodName}`;

@@ -29,6 +29,7 @@ import {
   InterfaceDeclaration,
   MemberExpression,
   MethodDeclaration,
+  NamedRef,
   NameExpression,
   ParseError,
   Position,
@@ -238,20 +239,20 @@ class Parser {
     const name = nameTok.text;
 
     // Optional EXTENDS <name>
-    let extendsName: string | undefined;
+    let extendsRef: NamedRef | undefined;
     if (this.check(TokenKind.EXTENDS)) {
       this.advance();
       const extTok = this.expect(TokenKind.IDENTIFIER, 'Expected base function block name after EXTENDS');
-      extendsName = extTok.text;
+      extendsRef = { name: extTok.text, range: extTok.range };
     }
 
     // Optional IMPLEMENTS <name>, <name>, ...
-    const implementsList: string[] = [];
+    const implementsRefs: NamedRef[] = [];
     if (this.check(TokenKind.IMPLEMENTS)) {
       this.advance();
       do {
         const implTok = this.expect(TokenKind.IDENTIFIER, 'Expected interface name after IMPLEMENTS');
-        implementsList.push(implTok.text);
+        implementsRefs.push({ name: implTok.text, range: implTok.range });
       } while (this.match(TokenKind.COMMA));
     }
 
@@ -294,8 +295,8 @@ class Parser {
       kind: 'FunctionBlockDeclaration',
       name,
       pragmas,
-      extends: extendsName,
-      implements: implementsList,
+      extendsRef,
+      implementsRefs,
       varBlocks,
       body,
       methods,
@@ -317,6 +318,7 @@ class Parser {
     let returnType: TypeRef | null = null;
     if (this.match(TokenKind.COLON)) {
       returnType = this.parseTypeRef();
+      this.match(TokenKind.SEMICOLON); // optional semicolon after return type
     }
 
     const varBlocks = this.parseVarBlocks();
@@ -1187,11 +1189,11 @@ class Parser {
     this.advance(); // STRUCT
 
     // Optional EXTENDS
-    let extendsName: string | undefined;
+    let extendsRef: NamedRef | undefined;
     if (this.check(TokenKind.EXTENDS)) {
       this.advance();
       const extTok = this.expect(TokenKind.IDENTIFIER, 'Expected base struct name after EXTENDS');
-      extendsName = extTok.text;
+      extendsRef = { name: extTok.text, range: extTok.range };
     }
 
     const fields: VarDeclaration[] = [];
@@ -1208,7 +1210,7 @@ class Parser {
     return {
       kind: 'StructDeclaration',
       name,
-      extends: extendsName,
+      extendsRef,
       fields,
       range: this.endRange(start),
     };
@@ -1350,12 +1352,12 @@ class Parser {
     const name = nameTok.text;
 
     // Optional EXTENDS <name>, <name>, ...
-    const extendsList: string[] = [];
+    const extendsRefs: NamedRef[] = [];
     if (this.check(TokenKind.EXTENDS)) {
       this.advance();
       do {
         const extTok = this.expect(TokenKind.IDENTIFIER, 'Expected interface name after EXTENDS');
-        extendsList.push(extTok.text);
+        extendsRefs.push({ name: extTok.text, range: extTok.range });
       } while (this.match(TokenKind.COMMA));
     }
 
@@ -1379,7 +1381,7 @@ class Parser {
     return {
       kind: 'InterfaceDeclaration',
       name,
-      extends: extendsList,
+      extendsRefs,
       methods,
       properties,
       range: this.endRange(start),
@@ -1424,6 +1426,7 @@ class Parser {
     let returnType: TypeRef | undefined;
     if (this.match(TokenKind.COLON)) {
       returnType = this.parseTypeRef();
+      this.match(TokenKind.SEMICOLON); // optional semicolon after return type
     }
 
     const varBlocks = this.parseVarBlocks();

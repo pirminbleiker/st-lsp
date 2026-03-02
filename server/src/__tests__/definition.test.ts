@@ -354,6 +354,128 @@ END_PROGRAM
       expect(result).toBeNull();
     });
   });
+
+  // ---------------------------------------------------------------------------
+  // EXTENDS / IMPLEMENTS go-to-definition
+  // ---------------------------------------------------------------------------
+  describe('EXTENDS / IMPLEMENTS go-to-definition', () => {
+    it('navigates to FB declaration when cursor is on EXTENDS name', () => {
+      const src = [
+        'FUNCTION_BLOCK Base',
+        'VAR',
+        '  x : INT;',
+        'END_VAR',
+        'END_FUNCTION_BLOCK',
+        '',
+        'FUNCTION_BLOCK Child EXTENDS Base',
+        'VAR',
+        'END_VAR',
+        'END_FUNCTION_BLOCK',
+      ].join('\n');
+      const doc = makeDoc(src);
+      const extPos = findPos(src, 'EXTENDS Base');
+      const pos = { line: extPos.line, character: extPos.character + 'EXTENDS '.length };
+      const result = handleDefinition(makeParams(doc.uri, pos.line, pos.character), doc, undefined);
+      expect(result).not.toBeNull();
+      const declPos = findPos(src, 'FUNCTION_BLOCK Base');
+      expect(result?.range.start.line).toBe(declPos.line);
+    });
+
+    it('navigates to INTERFACE declaration when cursor is on IMPLEMENTS name', () => {
+      const src = [
+        'INTERFACE I_Foo',
+        'END_INTERFACE',
+        '',
+        'FUNCTION_BLOCK MyFB IMPLEMENTS I_Foo',
+        'VAR',
+        'END_VAR',
+        'END_FUNCTION_BLOCK',
+      ].join('\n');
+      const doc = makeDoc(src);
+      const implPos = findPos(src, 'IMPLEMENTS I_Foo');
+      const pos = { line: implPos.line, character: implPos.character + 'IMPLEMENTS '.length };
+      const result = handleDefinition(makeParams(doc.uri, pos.line, pos.character), doc, undefined);
+      expect(result).not.toBeNull();
+      const declPos = findPos(src, 'INTERFACE I_Foo');
+      expect(result?.range.start.line).toBe(declPos.line);
+    });
+
+    it('navigates to correct INTERFACE when cursor is on second IMPLEMENTS name', () => {
+      const src = [
+        'INTERFACE I_Alpha',
+        'END_INTERFACE',
+        '',
+        'INTERFACE I_Beta',
+        'END_INTERFACE',
+        '',
+        'FUNCTION_BLOCK MyFB IMPLEMENTS I_Alpha, I_Beta',
+        'VAR',
+        'END_VAR',
+        'END_FUNCTION_BLOCK',
+      ].join('\n');
+      const doc = makeDoc(src);
+      // Navigate to second implements interface I_Beta
+      const implPos = findPos(src, ', I_Beta');
+      const pos = { line: implPos.line, character: implPos.character + 2 }; // skip ', '
+      const result = handleDefinition(makeParams(doc.uri, pos.line, pos.character), doc, undefined);
+      expect(result).not.toBeNull();
+      const declPos = findPos(src, 'INTERFACE I_Beta');
+      expect(result?.range.start.line).toBe(declPos.line);
+    });
+
+    it('navigates to STRUCT when cursor is on STRUCT EXTENDS name', () => {
+      const src = [
+        'TYPE',
+        '  BaseStruct : STRUCT',
+        '    x : INT;',
+        '  END_STRUCT',
+        '',
+        '  ChildStruct : STRUCT EXTENDS BaseStruct',
+        '    y : INT;',
+        '  END_STRUCT',
+        'END_TYPE',
+      ].join('\n');
+      const doc = makeDoc(src);
+      const extPos = findPos(src, 'EXTENDS BaseStruct');
+      const pos = { line: extPos.line, character: extPos.character + 'EXTENDS '.length };
+      const result = handleDefinition(makeParams(doc.uri, pos.line, pos.character), doc, undefined);
+      expect(result).not.toBeNull();
+      expect(result?.uri).toBe(doc.uri);
+      // StructDeclaration range anchored to TYPE block start (line 0)
+      expect(result?.range.start.line).toBe(0);
+    });
+
+    it('navigates to INTERFACE when cursor is on interface EXTENDS name', () => {
+      const src = [
+        'INTERFACE I_Base',
+        'END_INTERFACE',
+        '',
+        'INTERFACE I_Child EXTENDS I_Base',
+        'END_INTERFACE',
+      ].join('\n');
+      const doc = makeDoc(src);
+      const extPos = findPos(src, 'EXTENDS I_Base');
+      const pos = { line: extPos.line, character: extPos.character + 'EXTENDS '.length };
+      const result = handleDefinition(makeParams(doc.uri, pos.line, pos.character), doc, undefined);
+      expect(result).not.toBeNull();
+      const declPos = findPos(src, 'INTERFACE I_Base');
+      expect(result?.range.start.line).toBe(declPos.line);
+    });
+
+    it('returns null when EXTENDS target is not defined anywhere', () => {
+      const src = [
+        'FUNCTION_BLOCK Child EXTENDS NonexistentParent',
+        'VAR',
+        'END_VAR',
+        'END_FUNCTION_BLOCK',
+      ].join('\n');
+      const doc = makeDoc(src);
+      const extPos = findPos(src, 'EXTENDS NonexistentParent');
+      const pos = { line: extPos.line, character: extPos.character + 'EXTENDS '.length };
+      const result = handleDefinition(makeParams(doc.uri, pos.line, pos.character), doc, undefined);
+      expect(result).toBeNull();
+    });
+  });
 });
 
 describe('TcPOU position mapping', () => {
@@ -415,5 +537,45 @@ describe('TcPOU position mapping', () => {
     const doc = makeTcPouDoc(tcpouContent);
     const result = handleDefinition(makeParams(doc.uri, 0, 5), doc, undefined);
     expect(result).toBeNull();
+  });
+});
+
+describe('go-to-definition inside method body', () => {
+  const src = [
+    'FUNCTION_BLOCK MyFB',
+    'VAR',
+    '  counter : INT := 0;',
+    'END_VAR',
+    'METHOD Increment',
+    'VAR_INPUT',
+    '  amount : INT;',
+    'END_VAR',
+    '  counter := counter + amount;',
+    'END_METHOD',
+    'END_FUNCTION_BLOCK',
+  ].join('\n');
+
+  it('go-to-definition of VAR_INPUT variable inside method body finds its declaration', () => {
+    const doc = makeDoc(src);
+    // Line 8: "  counter := counter + amount;"
+    // "amount" starts at character 23
+    const result = handleDefinition(makeParams(doc.uri, 8, 23), doc, undefined);
+    expect(result).not.toBeNull();
+    if (result) {
+      // amount is declared on line 6: "  amount : INT;"
+      expect(result.range.start.line).toBe(6);
+    }
+  });
+
+  it('go-to-definition of FB-level variable used inside method body finds its declaration', () => {
+    const doc = makeDoc(src);
+    // Line 8: "  counter := counter + amount;"
+    // first "counter" starts at character 2
+    const result = handleDefinition(makeParams(doc.uri, 8, 2), doc, undefined);
+    expect(result).not.toBeNull();
+    if (result) {
+      // counter is declared on line 2: "  counter : INT := 0;"
+      expect(result.range.start.line).toBe(2);
+    }
   });
 });

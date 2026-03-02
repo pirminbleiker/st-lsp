@@ -17,12 +17,14 @@ import {
 	FunctionDeclaration,
 	GvlDeclaration,
 	IfStatement,
+	InterfaceDeclaration,
 	MemberExpression,
 	NameExpression,
 	ProgramDeclaration,
 	RepeatStatement,
 	SourceFile,
 	Statement,
+	StructDeclaration,
 	SubscriptExpression,
 	TypeDeclarationBlock,
 	UnaryExpression,
@@ -416,8 +418,8 @@ function addInheritedMembers(
 	scope: Set<string>,
 	depth = 0,
 ): void {
-	if (!fb.extends || depth > 10) return;
-	const parentName = fb.extends.toUpperCase();
+	if (!fb.extendsRef || depth > 10) return;
+	const parentName = fb.extendsRef.name.toUpperCase();
 
 	// Search local file first
 	let parentFb: FunctionBlockDeclaration | undefined;
@@ -681,7 +683,7 @@ function runSemanticAnalysis(
 			if (scope.has(upper)) return;
 
 			diagnostics.push({
-				severity: DiagnosticSeverity.Warning,
+				severity: DiagnosticSeverity.Error,
 				range: {
 					start: { line: nameExpr.range.start.line, character: nameExpr.range.start.character },
 					end:   { line: nameExpr.range.end.line,   character: nameExpr.range.end.character },
@@ -772,7 +774,7 @@ function runSemanticAnalysis(
 					if (isAllowedName(nameExpr.name)) return;
 					if (methodScope.has(upper)) return;
 					diagnostics.push({
-						severity: DiagnosticSeverity.Warning,
+						severity: DiagnosticSeverity.Error,
 						range: {
 							start: { line: nameExpr.range.start.line, character: nameExpr.range.start.character },
 							end:   { line: nameExpr.range.end.line,   character: nameExpr.range.end.character },
@@ -840,6 +842,72 @@ function runSemanticAnalysis(
 						});
 					}
 				});
+			}
+		}
+	}
+
+	// --- EXTENDS/IMPLEMENTS validation (only when workspace index is available) ---
+	if (workspaceIndex) {
+		for (const decl of ast.declarations) {
+			if (decl.kind === 'FunctionBlockDeclaration') {
+				const fb = decl as FunctionBlockDeclaration;
+				if (fb.extendsRef && !globalNames.has(fb.extendsRef.name.toUpperCase())) {
+					diagnostics.push({
+						severity: DiagnosticSeverity.Error,
+						range: {
+							start: { line: fb.extendsRef.range.start.line, character: fb.extendsRef.range.start.character },
+							end:   { line: fb.extendsRef.range.end.line,   character: fb.extendsRef.range.end.character },
+						},
+						message: `Cannot resolve type '${fb.extendsRef.name}'`,
+						source: 'st-lsp',
+					});
+				}
+				for (const ref of fb.implementsRefs) {
+					if (!globalNames.has(ref.name.toUpperCase())) {
+						diagnostics.push({
+							severity: DiagnosticSeverity.Error,
+							range: {
+								start: { line: ref.range.start.line, character: ref.range.start.character },
+								end:   { line: ref.range.end.line,   character: ref.range.end.character },
+							},
+							message: `Cannot resolve type '${ref.name}'`,
+							source: 'st-lsp',
+						});
+					}
+				}
+			} else if (decl.kind === 'InterfaceDeclaration') {
+				const intf = decl as InterfaceDeclaration;
+				for (const ref of intf.extendsRefs) {
+					if (!globalNames.has(ref.name.toUpperCase())) {
+						diagnostics.push({
+							severity: DiagnosticSeverity.Error,
+							range: {
+								start: { line: ref.range.start.line, character: ref.range.start.character },
+								end:   { line: ref.range.end.line,   character: ref.range.end.character },
+							},
+							message: `Cannot resolve type '${ref.name}'`,
+							source: 'st-lsp',
+						});
+					}
+				}
+			} else if (decl.kind === 'TypeDeclarationBlock') {
+				const tdb = decl as TypeDeclarationBlock;
+				for (const td of tdb.declarations) {
+					if (td.kind === 'StructDeclaration') {
+						const s = td as StructDeclaration;
+						if (s.extendsRef && !globalNames.has(s.extendsRef.name.toUpperCase())) {
+							diagnostics.push({
+								severity: DiagnosticSeverity.Error,
+								range: {
+									start: { line: s.extendsRef.range.start.line, character: s.extendsRef.range.start.character },
+									end:   { line: s.extendsRef.range.end.line,   character: s.extendsRef.range.end.character },
+								},
+								message: `Cannot resolve type '${s.extendsRef.name}'`,
+								source: 'st-lsp',
+							});
+						}
+					}
+				}
 			}
 		}
 	}

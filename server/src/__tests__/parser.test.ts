@@ -3,6 +3,7 @@ import { parse } from '../parser/parser';
 import {
   ActionDeclaration,
   FunctionBlockDeclaration,
+  InterfaceDeclaration,
   GvlDeclaration,
   ProgramDeclaration,
   FunctionDeclaration,
@@ -482,6 +483,49 @@ END_ACTION`;
       const fb = ast.declarations[0] as FunctionBlockDeclaration;
       expect(fb.actions).toHaveLength(1);
       expect(fb.actions[0].name).toBe('Bar');
+    });
+  });
+
+  describe('Phase 1 — optional semicolon after return type and EXTENDS/IMPLEMENTS ranges', () => {
+    it('METHOD with semicolon after return type parses without error', () => {
+      const src = `FUNCTION_BLOCK Foo
+METHOD Bar : BOOL;
+VAR_INPUT x : INT; END_VAR
+RETURN;
+END_METHOD
+END_FUNCTION_BLOCK`;
+      const { ast, errors } = parse(src);
+      expect(errors).toHaveLength(0);
+      const fb = ast.declarations[0] as FunctionBlockDeclaration;
+      expect(fb.methods[0].returnType?.name).toBe('BOOL');
+    });
+
+    it('FUNCTION_BLOCK EXTENDS captures name and range', () => {
+      const src = `FUNCTION_BLOCK Foo EXTENDS Bar
+VAR END_VAR
+END_FUNCTION_BLOCK`;
+      const { ast, errors } = parse(src);
+      expect(errors).toHaveLength(0);
+      const fb = ast.declarations[0] as FunctionBlockDeclaration;
+      expect(fb.extendsRef?.name).toBe('Bar');
+      expect(fb.extendsRef?.range.start).toBeDefined();
+      expect(fb.extendsRef?.range.end).toBeDefined();
+      expect(typeof fb.extendsRef?.range.start.line).toBe('number');
+      expect(typeof fb.extendsRef?.range.start.character).toBe('number');
+    });
+
+    it('FUNCTION_BLOCK IMPLEMENTS captures names and ranges', () => {
+      const src = `FUNCTION_BLOCK Foo IMPLEMENTS I_A, I_B
+VAR END_VAR
+END_FUNCTION_BLOCK`;
+      const { ast, errors } = parse(src);
+      expect(errors).toHaveLength(0);
+      const fb = ast.declarations[0] as FunctionBlockDeclaration;
+      expect(fb.implementsRefs).toHaveLength(2);
+      expect(fb.implementsRefs[0].name).toBe('I_A');
+      expect(fb.implementsRefs[1].name).toBe('I_B');
+      expect(fb.implementsRefs[0].range.start).toBeDefined();
+      expect(typeof fb.implementsRefs[0].range.start.line).toBe('number');
     });
   });
 

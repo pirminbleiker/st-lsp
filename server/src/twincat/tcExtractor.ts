@@ -262,9 +262,14 @@ function extractImplementationCData(
 
   const implInner = implMatch[1];
   const implOffsetInXml = bodyOffsetInXml + implMatch.index;
+  // bodyOffsetInXml for implInner must point to implInner[0] in xml, i.e. the character
+  // immediately after the <Implementation...> closing '>'.  Without this correction,
+  // startLine lands on the <Implementation> XML line instead of the <ST><![CDATA[...> line
+  // when the CDATA content begins on the same line as <![CDATA[ (no leading newline).
+  const implTagLen = implMatch[0].indexOf('>') + 1;
 
   // Within Implementation, find <ST>…</ST>
-  return extractFirstChildCData(xml, implInner, implOffsetInXml, 'ST', 'implementation');
+  return extractFirstChildCData(xml, implInner, implOffsetInXml + implTagLen, 'ST', 'implementation');
 }
 
 /**

@@ -651,8 +651,8 @@ END_FUNCTION_BLOCK`;
     const fb = ast.declarations[0] as FunctionBlockDeclaration;
     expect(fb.kind).toBe('FunctionBlockDeclaration');
     expect(fb.name).toBe('MyFB');
-    expect(fb.extends).toBeUndefined();
-    expect(fb.implements).toHaveLength(0);
+    expect(fb.extendsRef).toBeUndefined();
+    expect(fb.implementsRefs).toHaveLength(0);
   });
 
   it('parses FUNCTION_BLOCK EXTENDS BaseClass', () => {
@@ -664,7 +664,7 @@ END_FUNCTION_BLOCK`;
     const { errors, ast } = parse(src);
     expect(errors).toHaveLength(0);
     const fb = ast.declarations[0] as FunctionBlockDeclaration;
-    expect(fb.extends).toBe('Parent');
+    expect(fb.extendsRef?.name).toBe('Parent');
   });
 
   it('parses FUNCTION_BLOCK IMPLEMENTS single interface', () => {
@@ -674,7 +674,7 @@ END_FUNCTION_BLOCK`;
     const { errors, ast } = parse(src);
     expect(errors).toHaveLength(0);
     const fb = ast.declarations[0] as FunctionBlockDeclaration;
-    expect(fb.implements).toContain('I_Base');
+    expect(fb.implementsRefs.map(r => r.name)).toContain('I_Base');
   });
 
   it('parses FUNCTION_BLOCK IMPLEMENTS multiple interfaces', () => {
@@ -684,10 +684,10 @@ END_FUNCTION_BLOCK`;
     const { errors, ast } = parse(src);
     expect(errors).toHaveLength(0);
     const fb = ast.declarations[0] as FunctionBlockDeclaration;
-    expect(fb.implements).toHaveLength(3);
-    expect(fb.implements).toContain('I_First');
-    expect(fb.implements).toContain('I_Second');
-    expect(fb.implements).toContain('I_Third');
+    expect(fb.implementsRefs).toHaveLength(3);
+    expect(fb.implementsRefs.map(r => r.name)).toContain('I_First');
+    expect(fb.implementsRefs.map(r => r.name)).toContain('I_Second');
+    expect(fb.implementsRefs.map(r => r.name)).toContain('I_Third');
   });
 
   it('parses ABSTRACT FUNCTION_BLOCK', () => {
@@ -717,8 +717,8 @@ END_FUNCTION_BLOCK`;
     const { errors, ast } = parse(src);
     expect(errors).toHaveLength(0);
     const fb = ast.declarations[0] as FunctionBlockDeclaration;
-    expect(fb.extends).toBe('Base');
-    expect(fb.implements).toHaveLength(2);
+    expect(fb.extendsRef?.name).toBe('Base');
+    expect(fb.implementsRefs).toHaveLength(2);
   });
 
   it('parses FUNCTION_BLOCK with all VAR block kinds', () => {

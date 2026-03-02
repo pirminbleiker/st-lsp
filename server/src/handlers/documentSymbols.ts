@@ -84,7 +84,7 @@ function buildSymbols(ast: SourceFile, mapper: PositionMapper): DocumentSymbol[]
       });
     } else if (decl.kind === 'FunctionBlockDeclaration') {
       const fb = decl as FunctionBlockDeclaration;
-      const detail = fb.extends ? `EXTENDS ${fb.extends}` : undefined;
+      const detail = fb.extendsRef ? `EXTENDS ${fb.extendsRef.name}` : undefined;
       const children: DocumentSymbol[] = [];
 
       // Var declarations

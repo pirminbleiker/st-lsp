@@ -13,10 +13,12 @@
 import { Hover, MarkupKind, TextDocumentPositionParams } from 'vscode-languageserver/node';
 import { TextDocument } from 'vscode-languageserver-textdocument';
 import {
+  ActionDeclaration,
   AstNode,
   EnumDeclaration,
   FunctionBlockDeclaration,
   FunctionDeclaration,
+  MethodDeclaration,
   NameExpression,
   Position,
   Pragma,
@@ -73,9 +75,8 @@ export function findNodeAtPosition(ast: SourceFile, line: number, character: num
         break;
       }
 
-      case 'ProgramDeclaration':
-      case 'FunctionBlockDeclaration': {
-        const pou = node as ProgramDeclaration | FunctionBlockDeclaration;
+      case 'ProgramDeclaration': {
+        const pou = node as ProgramDeclaration;
         for (const p of pou.pragmas) {
           const child = visit(p); if (child) deepest = child;
         }
@@ -84,6 +85,52 @@ export function findNodeAtPosition(ast: SourceFile, line: number, character: num
           if (child) deepest = child;
         }
         for (const stmt of pou.body) {
+          const child = visit(stmt);
+          if (child) deepest = child;
+        }
+        break;
+      }
+
+      case 'FunctionBlockDeclaration': {
+        const pou = node as FunctionBlockDeclaration;
+        for (const p of pou.pragmas) {
+          const child = visit(p); if (child) deepest = child;
+        }
+        for (const vb of pou.varBlocks) {
+          const child = visit(vb);
+          if (child) deepest = child;
+        }
+        for (const stmt of pou.body) {
+          const child = visit(stmt);
+          if (child) deepest = child;
+        }
+        for (const method of pou.methods) {
+          const child = visit(method);
+          if (child) deepest = child;
+        }
+        for (const action of pou.actions) {
+          const child = visit(action);
+          if (child) deepest = child;
+        }
+        break;
+      }
+
+      case 'MethodDeclaration': {
+        const m = node as MethodDeclaration;
+        for (const vb of m.varBlocks) {
+          const child = visit(vb);
+          if (child) deepest = child;
+        }
+        for (const stmt of m.body) {
+          const child = visit(stmt);
+          if (child) deepest = child;
+        }
+        break;
+      }
+
+      case 'ActionDeclaration': {
+        const a = node as ActionDeclaration;
+        for (const stmt of a.body) {
           const child = visit(stmt);
           if (child) deepest = child;
         }
@@ -266,6 +313,20 @@ function collectVarDeclarations(
       const qualifier = vb.constant ? 'CONSTANT' : vb.retain ? 'RETAIN' : vb.persistent ? 'PERSISTENT' : undefined;
       for (const vd of vb.declarations) {
         vars.push({ vd, varKind: vb.varKind, qualifier });
+      }
+    }
+    // When cursor is inside a method, also collect that method's var blocks
+    if (decl.kind === 'FunctionBlockDeclaration') {
+      const fb = decl as FunctionBlockDeclaration;
+      for (const method of fb.methods) {
+        if (!positionContains(method.range.start, method.range.end, pos)) continue;
+        for (const vb of method.varBlocks) {
+          const qualifier = vb.constant ? 'CONSTANT' : undefined;
+          for (const vd of vb.declarations) {
+            vars.push({ vd, varKind: vb.varKind, qualifier });
+          }
+        }
+        break;
       }
     }
     return vars;

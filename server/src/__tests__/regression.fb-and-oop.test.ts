@@ -245,7 +245,7 @@ END_INTERFACE`;
     const iface = ast.declarations[0] as InterfaceDeclaration;
     expect(iface.kind).toBe('InterfaceDeclaration');
     expect(iface.name).toBe('I_Simple');
-    expect(iface.extends).toHaveLength(0);
+    expect(iface.extendsRefs).toHaveLength(0);
   });
 
   it('parses INTERFACE EXTENDS single interface', () => {
@@ -254,7 +254,7 @@ END_INTERFACE`;
     const { errors, ast } = parse(src);
     expect(errors).toHaveLength(0);
     const iface = ast.declarations[0] as InterfaceDeclaration;
-    expect(iface.extends).toContain('I_Parent');
+    expect(iface.extendsRefs.map(r => r.name)).toContain('I_Parent');
   });
 
   it('parses INTERFACE EXTENDS multiple interfaces', () => {
@@ -263,7 +263,7 @@ END_INTERFACE`;
     const { errors, ast } = parse(src);
     expect(errors).toHaveLength(0);
     const iface = ast.declarations[0] as InterfaceDeclaration;
-    expect(iface.extends).toHaveLength(3);
+    expect(iface.extendsRefs).toHaveLength(3);
   });
 
   it('parses INTERFACE with METHOD stubs', () => {
@@ -335,8 +335,8 @@ END_FUNCTION_BLOCK`;
     const { errors, ast } = parse(src);
     expect(errors).toHaveLength(0);
     const fb = ast.declarations[0] as FunctionBlockDeclaration;
-    expect(fb.extends).toBe('Child');
-    expect(fb.implements).toContain('I_GrandChild');
+    expect(fb.extendsRef?.name).toBe('Child');
+    expect(fb.implementsRefs.map(r => r.name)).toContain('I_GrandChild');
   });
 
   it('parses polymorphic call through interface variable', () => {

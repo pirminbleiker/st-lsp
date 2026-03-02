@@ -133,7 +133,7 @@ function getEnclosingFbExtends(
     if (decl.kind !== 'FunctionBlockDeclaration') continue;
     const fb = decl as FunctionBlockDeclaration;
     if (!positionContains(fb.range.start, fb.range.end, pos)) continue;
-    return fb.extends ?? null;
+    return fb.extendsRef?.name ?? null;
   }
   return null;
 }
@@ -299,9 +299,9 @@ function getSuperMembers(
       }
 
       // Recurse into grandparent chain
-      if (fb.extends) {
+      if (fb.extendsRef) {
         const parentItems = getSuperMembers(
-          fb.extends, declarations, currentUri, workspaceIndex, depth - 1,
+          fb.extendsRef.name, declarations, currentUri, workspaceIndex, depth - 1,
         );
         for (const pi of parentItems) {
           if (!items.some(i => i.label === pi.label)) items.push(pi);
@@ -448,8 +448,8 @@ function findMemberType(
         for (const prop of fb.properties) {
           if (prop.name.toUpperCase() === upperMemberName) return prop.type.name;
         }
-        if (fb.extends) {
-          return findMemberType(fb.extends, memberName, declarations, currentUri, workspaceIndex, visited);
+        if (fb.extendsRef) {
+          return findMemberType(fb.extendsRef.name, memberName, declarations, currentUri, workspaceIndex, visited);
         }
         return null;
       }
@@ -462,8 +462,8 @@ function findMemberType(
         for (const prop of itf.properties) {
           if (prop.name.toUpperCase() === upperMemberName) return prop.type.name;
         }
-        for (const extName of itf.extends) {
-          const t = findMemberType(extName, memberName, declarations, currentUri, workspaceIndex, visited);
+        for (const extRef of itf.extendsRefs) {
+          const t = findMemberType(extRef.name, memberName, declarations, currentUri, workspaceIndex, visited);
           if (t) return t;
         }
         return null;
@@ -474,8 +474,8 @@ function findMemberType(
             const struct = typeDecl as StructDeclaration;
             const field = struct.fields.find(f => f.name.toUpperCase() === upperMemberName);
             if (field) return field.type.name;
-            if (struct.extends) {
-              return findMemberType(struct.extends, memberName, declarations, currentUri, workspaceIndex, visited);
+            if (struct.extendsRef) {
+              return findMemberType(struct.extendsRef.name, memberName, declarations, currentUri, workspaceIndex, visited);
             }
             return null;
           }
@@ -532,9 +532,9 @@ function getMembersFromDeclarations(
         for (const prop of fb.properties) {
           items.push({ label: prop.name, kind: CompletionItemKind.Property, detail: prop.type.name });
         }
-        if (fb.extends) {
+        if (fb.extendsRef) {
           const parentItems = getMembersFromDeclarations(
-            fb.extends, declarations, currentUri, workspaceIndex, visited,
+            fb.extendsRef.name, declarations, currentUri, workspaceIndex, visited,
           );
           if (parentItems) {
             for (const pi of parentItems) {
@@ -560,9 +560,9 @@ function getMembersFromDeclarations(
         for (const prop of itf.properties) {
           items.push({ label: prop.name, kind: CompletionItemKind.Property, detail: prop.type.name });
         }
-        for (const extName of itf.extends) {
+        for (const extRef of itf.extendsRefs) {
           const parentItems = getMembersFromDeclarations(
-            extName, declarations, currentUri, workspaceIndex, visited,
+            extRef.name, declarations, currentUri, workspaceIndex, visited,
           );
           if (parentItems) {
             for (const pi of parentItems) {
@@ -583,9 +583,9 @@ function getMembersFromDeclarations(
               kind: CompletionItemKind.Field,
               detail: f.type.name,
             }));
-            if (struct.extends) {
+            if (struct.extendsRef) {
               const parentItems = getMembersFromDeclarations(
-                struct.extends, declarations, currentUri, workspaceIndex, visited,
+                struct.extendsRef.name, declarations, currentUri, workspaceIndex, visited,
               );
               if (parentItems) {
                 for (const pi of parentItems) {
