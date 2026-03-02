@@ -1158,3 +1158,52 @@ END_FUNCTION_BLOCK`;
     expect(errors).toHaveLength(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Phase 4: Unknown type suppressions — DCTIME, FILETIME, cross-file types
+// ---------------------------------------------------------------------------
+
+describe('Phase 4: unknown type suppressions', () => {
+  it('dctime_recognized: DCTIME type variable produces no Unknown type warning', () => {
+    const src = `PROGRAM Main
+VAR
+  ts : DCTIME;
+END_VAR
+END_PROGRAM`;
+    const diags = getDiagnostics(src);
+    const warnings = diags.filter(d => d.message.includes('DCTIME'));
+    expect(warnings).toHaveLength(0);
+  });
+
+  it('filetime_recognized: FILETIME type variable produces no Unknown type warning', () => {
+    const src = `PROGRAM Main
+VAR
+  ft : FILETIME;
+END_VAR
+END_PROGRAM`;
+    const diags = getDiagnostics(src);
+    const warnings = diags.filter(d => d.message.includes('FILETIME'));
+    expect(warnings).toHaveLength(0);
+  });
+
+  it('crossFile_type_resolved: POU name from workspace index used as type produces no Unknown type warning', () => {
+    const src = `PROGRAM Main
+VAR
+  fb : MyLibraryFB;
+END_VAR
+END_PROGRAM`;
+    // Build a workspace index that contains MyLibraryFB
+    const libSrc = `FUNCTION_BLOCK MyLibraryFB
+VAR END_VAR
+END_FUNCTION_BLOCK`;
+    const { ast: libAst } = parse(libSrc);
+    const mockIndex = {
+      getProjectFiles: () => ['file:///lib.st'],
+      getAst: (uri: string) => uri === 'file:///lib.st' ? { ast: libAst } : undefined,
+      getLibraryRefs: () => [],
+    } as unknown as WorkspaceIndex;
+    const diags = getDiagnosticsWithIndex(src, mockIndex);
+    const warnings = diags.filter(d => d.message.includes('MyLibraryFB'));
+    expect(warnings).toHaveLength(0);
+  });
+});

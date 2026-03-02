@@ -45,7 +45,9 @@ export const SYSTEM_TYPES: readonly SystemType[] = [
   // TwinCAT time types
   { name: 'TIMESTRUCT', description: 'TwinCAT local time structure (year, month, day, hour, minute, second, ms).' },
   { name: 'T_DCTIME64', description: 'TwinCAT distributed clock 64-bit timestamp.' },
+  { name: 'DCTIME', description: 'TwinCAT distributed clock timestamp type.' },
   { name: 'T_FILETIME', description: 'Windows FILETIME — 64-bit value (100ns intervals since 1601-01-01).' },
+  { name: 'FILETIME', description: 'Windows FILETIME structure — 64-bit timestamp (100ns intervals since 1601-01-01).' },
   // TwinCAT motion types
   { name: 'AXIS_REF', description: 'TwinCAT NC axis reference structure.' },
   { name: 'NCTOPLC_AXIS_REF', description: 'NC-to-PLC axis cyclic data structure.' },

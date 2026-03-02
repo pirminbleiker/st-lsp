@@ -2,7 +2,10 @@ import { describe, it, expect } from 'vitest';
 import { parse } from '../parser/parser';
 import {
   ActionDeclaration,
+  ArrayLiteral,
   FunctionBlockDeclaration,
+  IntegerLiteral,
+  BoolLiteral,
   InterfaceDeclaration,
   GvlDeclaration,
   ProgramDeclaration,
@@ -1040,6 +1043,150 @@ END_FUNCTION_BLOCK`;
       expect(fb.name).toBe('FB_Child');
       expect(fb.extendsRef).toBeDefined();
       expect(fb.extendsRef!.name).toBe('NS.FB_Parent');
+    });
+  });
+
+  describe('Array literal expressions', () => {
+    it('arrayLiteral_1D: parses 1D integer array initializer', () => {
+      const src = `PROGRAM P
+VAR
+  x : ARRAY[0..2] OF INT := [1, 2, 3];
+END_VAR
+END_PROGRAM`;
+      const { errors, ast } = parse(src);
+      expect(errors).toHaveLength(0);
+      const prog = ast.declarations[0] as ProgramDeclaration;
+      const varDecl = prog.varBlocks[0].declarations[0];
+      const init = varDecl.initialValue as ArrayLiteral;
+      expect(init.kind).toBe('ArrayLiteral');
+      expect(init.elements).toHaveLength(3);
+      expect((init.elements[0] as IntegerLiteral).value).toBe(1);
+      expect((init.elements[2] as IntegerLiteral).value).toBe(3);
+    });
+
+    it('arrayLiteral_2D: parses nested array literal', () => {
+      const src = `PROGRAM P
+VAR
+  x : ARRAY[0..1, 0..1] OF INT := [[1, 2], [3, 4]];
+END_VAR
+END_PROGRAM`;
+      const { errors, ast } = parse(src);
+      expect(errors).toHaveLength(0);
+      const prog = ast.declarations[0] as ProgramDeclaration;
+      const init = prog.varBlocks[0].declarations[0].initialValue as ArrayLiteral;
+      expect(init.kind).toBe('ArrayLiteral');
+      expect(init.elements).toHaveLength(2);
+      expect((init.elements[0] as ArrayLiteral).kind).toBe('ArrayLiteral');
+      expect((init.elements[0] as ArrayLiteral).elements).toHaveLength(2);
+    });
+
+    it('arrayLiteral_3D: parses three-dimensional nested array literal', () => {
+      const src = `PROGRAM P
+VAR
+  x : ARRAY[0..1, 0..1, 0..1] OF INT := [[[1, 2], [3, 4]], [[5, 6], [7, 8]]];
+END_VAR
+END_PROGRAM`;
+      const { errors } = parse(src);
+      expect(errors).toHaveLength(0);
+    });
+
+    it('arrayLiteral_booleans: parses array of boolean literals', () => {
+      const src = `PROGRAM P
+VAR
+  flags : ARRAY[0..3] OF BOOL := [FALSE, FALSE, TRUE, FALSE];
+END_VAR
+END_PROGRAM`;
+      const { errors, ast } = parse(src);
+      expect(errors).toHaveLength(0);
+      const prog = ast.declarations[0] as ProgramDeclaration;
+      const init = prog.varBlocks[0].declarations[0].initialValue as ArrayLiteral;
+      expect(init.kind).toBe('ArrayLiteral');
+      expect(init.elements).toHaveLength(4);
+      expect((init.elements[0] as BoolLiteral).kind).toBe('BoolLiteral');
+      expect((init.elements[0] as BoolLiteral).value).toBe(false);
+      expect((init.elements[2] as BoolLiteral).value).toBe(true);
+    });
+
+    it('arrayLiteral_empty_regression: arr[5] still parses as SubscriptExpression', () => {
+      const src = `PROGRAM P
+VAR
+  arr : ARRAY[0..9] OF INT;
+  val : INT;
+END_VAR
+val := arr[5];
+END_PROGRAM`;
+      const { errors, ast } = parse(src);
+      expect(errors).toHaveLength(0);
+      const prog = ast.declarations[0] as ProgramDeclaration;
+      const stmt = prog.body[0] as import('../parser/ast').AssignmentStatement;
+      expect(stmt.right.kind).toBe('SubscriptExpression');
+    });
+
+    it('arrayLiteral_multiline: parses array with trailing comma', () => {
+      const src = `PROGRAM P
+VAR
+  x : ARRAY[0..4] OF INT := [
+    0,
+    0,
+    0,
+    0,
+    0,
+  ];
+END_VAR
+END_PROGRAM`;
+      const { errors, ast } = parse(src);
+      expect(errors).toHaveLength(0);
+      const prog = ast.declarations[0] as ProgramDeclaration;
+      const init = prog.varBlocks[0].declarations[0].initialValue as ArrayLiteral;
+      expect(init.kind).toBe('ArrayLiteral');
+      expect(init.elements).toHaveLength(5);
+    });
+  });
+
+  describe('Phase 5 — diagnostic cascade hardening', () => {
+    it('errorRecovery_endVarStops: malformed VAR declaration recovers at END_VAR without cascading', () => {
+      // Missing colon after variable name — should error on that var but recover at END_VAR
+      const src = `FUNCTION_BLOCK FB_Test
+VAR
+  badVar INT;
+  goodVar : BOOL;
+END_VAR
+END_FUNCTION_BLOCK`;
+      const { errors } = parse(src);
+      // Should have exactly 1 error (for badVar), NOT cascade into goodVar or beyond
+      expect(errors.length).toBeLessThanOrEqual(2);
+      // The error should be about the bad declaration, not about END_VAR or END_FUNCTION_BLOCK
+      const unexpectedEndErrors = errors.filter(
+        e => e.message.includes('END_VAR') || e.message.includes('END_FUNCTION_BLOCK'),
+      );
+      expect(unexpectedEndErrors).toHaveLength(0);
+    });
+
+    it('errorRecovery_endMethodStops: malformed statement in method recovers without cascading into next method', () => {
+      const src = `FUNCTION_BLOCK FB_Test
+VAR END_VAR
+METHOD GoodMethod : BOOL
+VAR END_VAR
+GoodMethod := TRUE;
+END_METHOD
+END_FUNCTION_BLOCK`;
+      const { ast, errors } = parse(src);
+      expect(errors).toHaveLength(0);
+      const fb = ast.declarations[0] as FunctionBlockDeclaration;
+      expect(fb.methods).toHaveLength(1);
+      expect(fb.methods[0].name).toBe('GoodMethod');
+    });
+
+    it('cascadeCount_fixtureFile: array literal initializer produces zero errors (previously cascaded)', () => {
+      // This was one of the main cascade sources before Phase 1 fix
+      const src = `FUNCTION_BLOCK FB_ArrayTest
+VAR
+  arr1 : ARRAY[0..9] OF BOOL := [FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE, FALSE];
+  arr2 : ARRAY[0..2] OF INT := [1, 2, 3];
+END_VAR
+END_FUNCTION_BLOCK`;
+      const { errors } = parse(src);
+      expect(errors).toHaveLength(0);
     });
   });
 });
