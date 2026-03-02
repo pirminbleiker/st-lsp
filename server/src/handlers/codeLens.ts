@@ -13,6 +13,7 @@ import { CodeLens, CodeLensParams, Range } from 'vscode-languageserver/node';
 import { TextDocument } from 'vscode-languageserver-textdocument';
 import { WorkspaceIndex } from '../twincat/workspaceIndex';
 import { extractST, PositionMapper } from '../twincat/tcExtractor';
+import { getOrParse } from './shared';
 import { parse } from '../parser/parser';
 import {
   SourceFile,
@@ -38,7 +39,7 @@ function toRange(node: { range: { start: { line: number; character: number }; en
  */
 function getAst(uri: string, workspaceIndex?: WorkspaceIndex): SourceFile | undefined {
   if (workspaceIndex) {
-    const cached = workspaceIndex.getAst(uri);
+    const cached = workspaceIndex.getAst?.(uri);
     if (cached) return cached.ast;
   }
   try {
@@ -151,11 +152,7 @@ export function handleCodeLens(
 ): CodeLens[] {
   if (!document) return [];
 
-  const text = document.getText();
-  const ext = path.extname(document.uri);
-  const extraction = extractST(text, ext);
-  const mapper = new PositionMapper(extraction);
-  const { ast } = parse(extraction.source);
+  const { extraction, mapper, ast } = getOrParse(document!);
   const uri = params.textDocument.uri;
 
   const stats = buildWorkspaceStats(uri, ast, workspaceIndex);

@@ -112,8 +112,6 @@ Source text (.st)
   handlers/*.ts           → LSP responses (CompletionItem[], Hover, Location, Diagnostic[])
 ```
 
-Each LSP handler call **re-parses the document from scratch**. There is no AST cache — this keeps the code simple and correct. Optimization via caching is a future concern.
-
 ### WorkspaceIndex
 
 `workspaceIndex.ts` scans the workspace for TwinCAT project files (`.tsproj`, `.plcproj`) and builds an index of all ST source file URIs. This index enables cross-file go-to-definition. It uses Node.js `fs.watch` with a recursive fallback.

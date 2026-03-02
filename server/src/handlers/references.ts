@@ -13,6 +13,7 @@ import { TextDocument } from 'vscode-languageserver-textdocument';
 import { WorkspaceIndex } from '../twincat/workspaceIndex';
 import { extractST, PositionMapper } from '../twincat/tcExtractor';
 import { parse } from '../parser/parser';
+import { mapperForUri, getOrParse } from './shared';
 import { findNodeAtPosition } from './hover';
 import {
   AstNode,
@@ -291,16 +292,7 @@ function mapLocation(loc: Location, mapper: PositionMapper): Location {
  * Build a PositionMapper for an arbitrary workspace file URI by reading the
  * file from disk.
  */
-function mapperForUri(fileUri: string): PositionMapper {
-  const filePath = fileUri.startsWith('file://')
-    ? decodeURIComponent(fileUri.replace(/^file:\/\//, ''))
-    : fileUri;
-  const ext = path.extname(filePath);
-  let content = '';
-  try { content = fs.readFileSync(filePath, 'utf8'); } catch { /* ignore */ }
-  const extraction = extractST(content, ext);
-  return new PositionMapper(extraction);
-}
+
 export function handleReferences(
   params: ReferenceParams,
   document: TextDocument | undefined,
@@ -308,11 +300,7 @@ export function handleReferences(
 ): Location[] {
   if (!document) return [];
 
-  const text = document.getText();
-  const ext = path.extname(document.uri);
-  const extraction = extractST(text, ext);
-  const mapper = new PositionMapper(extraction);
-  const { ast } = parse(extraction.source);
+  const { extraction, mapper, ast } = getOrParse(document!);
 
   const { line, character } = params.position;
   const extractedPos = mapper.originalToExtracted(line, character) ?? { line, character };
@@ -347,20 +335,25 @@ export function handleReferences(
       // Skip the current document (already searched above)
       if (fileUri === uri) continue;
 
-      let fileText: string;
-      try {
-        const filePath = fileUri.startsWith('file://')
-          ? decodeURIComponent(fileUri.replace(/^file:\/\//, ''))
-          : fileUri;
-        fileText = fs.readFileSync(filePath, 'utf8');
-      } catch {
-        continue;
+      let otherAst: SourceFile;
+      const cachedEntry = workspaceIndex.getAst?.(fileUri);
+      if (cachedEntry) {
+        otherAst = cachedEntry.ast;
+      } else {
+        let fileText: string;
+        try {
+          const filePath = fileUri.startsWith('file://')
+            ? decodeURIComponent(fileUri.replace(/^file:\/\//, ''))
+            : fileUri;
+          fileText = fs.readFileSync(filePath, 'utf8');
+        } catch {
+          continue;
+        }
+        const otherExt = path.extname(fileUri);
+        otherAst = parse(extractST(fileText, otherExt).source).ast;
       }
 
-      const otherExt = path.extname(fileUri);
-      const otherExtraction = extractST(fileText, otherExt);
-      const otherMapper = new PositionMapper(otherExtraction);
-      const { ast: otherAst } = parse(otherExtraction.source);
+      const otherMapper = mapperForUri(fileUri, workspaceIndex);
       const otherLocations = collectNameExpressions(otherAst, name, fileUri);
       locations.push(...otherLocations.map(loc => mapLocation(loc, otherMapper)));
     }

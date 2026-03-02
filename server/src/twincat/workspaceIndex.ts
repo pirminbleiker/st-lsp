@@ -23,13 +23,23 @@ import {
 } from './projectReader';
 import { parse } from '../parser/parser';
 import { SourceFile, ParseError } from '../parser/ast';
-import { extractStFromTwinCAT } from './tcExtractor';
+import { extractST, ExtractionResult } from './tcExtractor';
 import { findFilesSync } from './fsUtils';
 export { findFilesSync } from './fsUtils';
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
+
+/**
+ * A fully cached entry for a source file: parsed AST, parse errors, and the
+ * extraction result (needed to reconstruct a PositionMapper for TcPOU files).
+ */
+export interface CachedParseResult {
+  ast: SourceFile;
+  errors: ParseError[];
+  extraction: ExtractionResult;
+}
 
 export interface WorkspaceIndexOptions {
   /**
@@ -51,15 +61,17 @@ export interface WorkspaceIndexEvents {
 // ---------------------------------------------------------------------------
 
 function uriToPath(uri: string): string {
-  if (uri.startsWith('file:///')) {
-    // Windows: file:///C:/… → C:/…
-    return decodeURIComponent(uri.slice('file:///'.length));
+  if (!uri.startsWith('file://')) return uri;
+
+  // Strip the 'file://' scheme prefix → gives '/home/foo' on POSIX or '/C:/foo' on Windows
+  const raw = decodeURIComponent(uri.slice('file://'.length));
+
+  // On Windows, a file URI path looks like '/C:/...' — strip the leading slash.
+  if (raw.length >= 3 && raw[0] === '/' && /[A-Za-z]/.test(raw[1]) && raw[2] === ':') {
+    return raw.slice(1);
   }
-  if (uri.startsWith('file://')) {
-    // POSIX: file:///home/… → /home/…
-    return decodeURIComponent(uri.slice('file://'.length));
-  }
-  return uri;
+
+  return raw;
 }
 
 function pathToUri(absPath: string): string {
@@ -110,7 +122,7 @@ export class WorkspaceIndex extends EventEmitter {
   private allSourceUris = new Set<string>();
 
   /** Cached parse results keyed by source file URI. */
-  private readonly astCache = new Map<string, { ast: SourceFile; errors: ParseError[] }>();
+  private readonly astCache = new Map<string, CachedParseResult>();
 
   /** FSWatcher instances keyed by watched path. */
   private readonly watchers = new Map<string, fs.FSWatcher>();
@@ -168,10 +180,32 @@ export class WorkspaceIndex extends EventEmitter {
    * yet cached.  The cache is populated on file discovery and invalidated on
    * file change.
    */
-  getAst(uri: string): { ast: SourceFile; errors: ParseError[] } | undefined {
+  getAst(uri: string): CachedParseResult | undefined {
     if (!this.initialised) this.initialize();
     const normalised = uri.startsWith('file://') ? uri : pathToUri(uri);
     return this.astCache.get(normalised);
+  }
+
+  /**
+   * Return the cached ExtractionResult for a source file URI, or undefined if
+   * not yet cached.  Used by handlers to build a PositionMapper without disk I/O.
+   */
+  getExtraction(uri: string): ExtractionResult | undefined {
+    if (!this.initialised) this.initialize();
+    const normalised = uri.startsWith('file://') ? uri : pathToUri(uri);
+    return this.astCache.get(normalised)?.extraction;
+  }
+
+  /**
+   * Update the cached entry for a source file (e.g. when the active document
+   * changes and has been re-parsed from the in-memory TextDocument).
+   * Only caches if the URI is known to the index (prevents cache pollution).
+   */
+  updateAst(uri: string, ast: SourceFile, errors: ParseError[], extraction: ExtractionResult): void {
+    const normalised = uri.startsWith('file://') ? uri : pathToUri(uri);
+    if (this.allSourceUris.has(normalised)) {
+      this.astCache.set(normalised, { ast, errors, extraction });
+    }
   }
 
   /**
@@ -290,9 +324,10 @@ export class WorkspaceIndex extends EventEmitter {
     try {
       const filePath = uriToPath(uri);
       const text = fs.readFileSync(filePath, 'utf-8');
-      const { stCode } = extractStFromTwinCAT(filePath, text);
-      const result = parse(stCode);
-      this.astCache.set(uri, { ast: result.ast, errors: result.errors });
+      const ext = path.extname(filePath);
+      const extraction = extractST(text, ext);
+      const result = parse(extraction.source);
+      this.astCache.set(uri, { ast: result.ast, errors: result.errors, extraction });
     } catch {
       // File may not exist or may not be readable yet — skip silently.
     }

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { TextDocument } from 'vscode-languageserver-textdocument';
 import { validateDocument } from '../handlers/diagnostics';
+import { parse } from '../parser/parser';
 import { WorkspaceIndex } from '../twincat/workspaceIndex';
 import type { LibraryRef } from '../twincat/projectReader';
 
@@ -675,5 +676,295 @@ END_PROGRAM`;
       d => d.severity === 2 && d.message.includes('requires library'),
     );
     expect(libWarnings).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Cross-file type and identifier resolution
+// ---------------------------------------------------------------------------
+
+describe('cross-file type and identifier resolution', () => {
+  // Helper: create a minimal WorkspaceIndex mock that returns cached ASTs
+  function makeWorkspaceIndexWithFB(fbName: string): import('../twincat/workspaceIndex').WorkspaceIndex {
+    const otherAst = parse(`FUNCTION_BLOCK ${fbName}\nVAR_INPUT\n  x : INT;\nEND_VAR\nEND_FUNCTION_BLOCK`).ast;
+    const mock = {
+      getProjectFiles: () => ['file:///other.tcpou'],
+      getAst: (uri: string) => uri === 'file:///other.tcpou' ? { ast: otherAst, errors: [] } : undefined,
+      getLibraryRefs: () => [],
+      initialize: () => {},
+      isProjectFile: () => false,
+      invalidateAst: () => {},
+      on: () => mock,
+      dispose: () => {},
+    } as unknown as import('../twincat/workspaceIndex').WorkspaceIndex;
+    return mock;
+  }
+
+  it('cross-file FB used as type: no "Unknown type" warning', () => {
+    const workspaceIndex = makeWorkspaceIndexWithFB('MyOtherFB');
+    const { connection, sentParams } = makeMockConnection();
+    const doc = TextDocument.create('file:///test.st', 'iec-st', 1,
+      'PROGRAM Main\nVAR\n  inst : MyOtherFB;\nEND_VAR\nEND_PROGRAM'
+    );
+    validateDocument(
+      connection as unknown as import('vscode-languageserver/node').Connection,
+      doc,
+      workspaceIndex
+    );
+    const diags = sentParams[0]?.diagnostics as Array<{ message: string }> ?? [];
+    expect(diags.filter(d => d.message.toLowerCase().includes('myotherfb'))).toHaveLength(0);
+  });
+
+  it('cross-file interface used as type: no "Unknown type" warning', () => {
+    const otherAst = parse('INTERFACE I_MyInterface\nEND_INTERFACE').ast;
+    const mock = {
+      getProjectFiles: () => ['file:///interfaces.tcpou'],
+      getAst: (uri: string) => uri === 'file:///interfaces.tcpou' ? { ast: otherAst, errors: [] } : undefined,
+      getLibraryRefs: () => [],
+      initialize: () => {},
+      isProjectFile: () => false,
+      invalidateAst: () => {},
+      on: () => mock,
+      dispose: () => {},
+    } as unknown as import('../twincat/workspaceIndex').WorkspaceIndex;
+
+    const { connection, sentParams } = makeMockConnection();
+    const doc = TextDocument.create('file:///test.st', 'iec-st', 1,
+      'PROGRAM Main\nVAR\n  ref : I_MyInterface;\nEND_VAR\nEND_PROGRAM'
+    );
+    validateDocument(
+      connection as unknown as import('vscode-languageserver/node').Connection,
+      doc,
+      mock
+    );
+    const diags = sentParams[0]?.diagnostics as Array<{ message: string }> ?? [];
+    expect(diags.filter(d => d.message.toLowerCase().includes('i_myinterface'))).toHaveLength(0);
+  });
+
+  it('cross-file type declaration: no "Unknown type" warning', () => {
+    const otherAst = parse('TYPE\n  MyStruct : STRUCT\n    x : INT;\n  END_STRUCT\nEND_TYPE').ast;
+    const mock = {
+      getProjectFiles: () => ['file:///types.tcdut'],
+      getAst: (uri: string) => uri === 'file:///types.tcdut' ? { ast: otherAst, errors: [] } : undefined,
+      getLibraryRefs: () => [],
+      initialize: () => {},
+      isProjectFile: () => false,
+      invalidateAst: () => {},
+      on: () => mock,
+      dispose: () => {},
+    } as unknown as import('../twincat/workspaceIndex').WorkspaceIndex;
+
+    const { connection, sentParams } = makeMockConnection();
+    const doc = TextDocument.create('file:///test.st', 'iec-st', 1,
+      'PROGRAM Main\nVAR\n  s : MyStruct;\nEND_VAR\nEND_PROGRAM'
+    );
+    validateDocument(
+      connection as unknown as import('vscode-languageserver/node').Connection,
+      doc,
+      mock
+    );
+    const diags = sentParams[0]?.diagnostics as Array<{ message: string }> ?? [];
+    expect(diags.filter(d => d.message.toLowerCase().includes('mystruct'))).toHaveLength(0);
+  });
+
+  it('current file is not double-counted (uses its own declarations)', () => {
+    // If the current file is in the workspace index, it should still resolve correctly
+    // This test verifies no crash and correct behavior
+    const { connection, sentParams } = makeMockConnection();
+    const doc = TextDocument.create('file:///test.st', 'iec-st', 1,
+      'PROGRAM Main\nVAR\n  x : INT;\nEND_VAR\nEND_PROGRAM'
+    );
+    const ownAst = parse('PROGRAM Main\nVAR\n  x : INT;\nEND_VAR\nEND_PROGRAM').ast;
+    const mock = {
+      getProjectFiles: () => ['file:///test.st'],
+      getAst: (uri: string) => uri === 'file:///test.st' ? { ast: ownAst, errors: [] } : undefined,
+      getLibraryRefs: () => [],
+      initialize: () => {},
+      isProjectFile: () => false,
+      invalidateAst: () => {},
+      on: () => mock,
+      dispose: () => {},
+    } as unknown as import('../twincat/workspaceIndex').WorkspaceIndex;
+    validateDocument(
+      connection as unknown as import('vscode-languageserver/node').Connection,
+      doc,
+      mock
+    );
+    const diags = sentParams[0]?.diagnostics as Array<{ message: string }> ?? [];
+    expect(diags).toHaveLength(0);
+  });
+});
+
+describe('system types and intrinsics in diagnostics', () => {
+  it('T_MAXSTRING as type: no "Unknown type" warning', () => {
+    const diags = getDiagnostics('PROGRAM P\nVAR\n  s : T_MAXSTRING;\nEND_VAR\nEND_PROGRAM');
+    expect(diags.filter(d => d.message.includes('T_MAXSTRING'))).toHaveLength(0);
+  });
+
+  it('PVOID as type: no "Unknown type" warning', () => {
+    const diags = getDiagnostics('PROGRAM P\nVAR\n  p : PVOID;\nEND_VAR\nEND_PROGRAM');
+    expect(diags.filter(d => d.message.includes('PVOID'))).toHaveLength(0);
+  });
+
+  it('ANY as type: no "Unknown type" warning', () => {
+    const diags = getDiagnostics('PROGRAM P\nVAR\n  v : ANY;\nEND_VAR\nEND_PROGRAM');
+    expect(diags.filter(d => d.message.includes('ANY'))).toHaveLength(0);
+  });
+
+  it('TIMESTRUCT as type: no "Unknown type" warning', () => {
+    const diags = getDiagnostics('PROGRAM P\nVAR\n  t : TIMESTRUCT;\nEND_VAR\nEND_PROGRAM');
+    expect(diags.filter(d => d.message.includes('TIMESTRUCT'))).toHaveLength(0);
+  });
+
+  it('AXIS_REF as type: no "Unknown type" warning', () => {
+    const diags = getDiagnostics('PROGRAM P\nVAR\n  ax : AXIS_REF;\nEND_VAR\nEND_PROGRAM');
+    expect(diags.filter(d => d.message.includes('AXIS_REF'))).toHaveLength(0);
+  });
+
+  it('__NEW intrinsic: no "Undefined identifier" warning', () => {
+    const diags = getDiagnostics('PROGRAM P\nVAR\n  p : PVOID;\nEND_VAR\np := __NEW(INT);\nEND_PROGRAM');
+    expect(diags.filter(d => d.message.includes('__NEW'))).toHaveLength(0);
+  });
+
+  it('__DELETE intrinsic: no "Undefined identifier" warning', () => {
+    const diags = getDiagnostics('PROGRAM P\nVAR\n  p : PVOID;\nEND_VAR\n__DELETE(p);\nEND_PROGRAM');
+    expect(diags.filter(d => d.message.includes('__DELETE'))).toHaveLength(0);
+  });
+
+  it('ADR operator: no "Undefined identifier" warning', () => {
+    const diags = getDiagnostics('PROGRAM P\nVAR\n  x : INT;\n  p : PVOID;\nEND_VAR\np := ADR(x);\nEND_PROGRAM');
+    expect(diags.filter(d => d.message.includes('ADR'))).toHaveLength(0);
+  });
+
+  it('SIZEOF operator: no "Undefined identifier" warning', () => {
+    const diags = getDiagnostics('PROGRAM P\nVAR\n  x : INT;\n  sz : UDINT;\nEND_VAR\nsz := SIZEOF(x);\nEND_PROGRAM');
+    expect(diags.filter(d => d.message.includes('SIZEOF'))).toHaveLength(0);
+  });
+
+  it('DINT_TO_UDINT type conversion: no "Undefined identifier" warning', () => {
+    const diags = getDiagnostics('PROGRAM P\nVAR\n  a : DINT;\n  b : UDINT;\nEND_VAR\nb := DINT_TO_UDINT(a);\nEND_PROGRAM');
+    expect(diags.filter(d => d.message.includes('DINT_TO_UDINT'))).toHaveLength(0);
+  });
+
+  it('INT_TO_STRING type conversion: no "Undefined identifier" warning', () => {
+    const diags = getDiagnostics('PROGRAM P\nVAR\n  a : INT;\n  s : STRING;\nEND_VAR\ns := INT_TO_STRING(a);\nEND_PROGRAM');
+    expect(diags.filter(d => d.message.includes('INT_TO_STRING'))).toHaveLength(0);
+  });
+
+  it('MAX library function: no "Undefined identifier" warning', () => {
+    const diags = getDiagnostics('PROGRAM P\nVAR\n  a : INT;\n  b : INT;\n  c : INT;\nEND_VAR\nc := MAX(a, b);\nEND_PROGRAM');
+    expect(diags.filter(d => d.message.includes("'MAX'"))).toHaveLength(0);
+  });
+
+  it('MIN library function: no "Undefined identifier" warning', () => {
+    const diags = getDiagnostics('PROGRAM P\nVAR\n  a : INT;\n  b : INT;\n  c : INT;\nEND_VAR\nc := MIN(a, b);\nEND_PROGRAM');
+    expect(diags.filter(d => d.message.includes("'MIN'"))).toHaveLength(0);
+  });
+
+  it('LEN library function: no "Undefined identifier" warning', () => {
+    const diags = getDiagnostics('PROGRAM P\nVAR\n  s : STRING;\n  n : INT;\nEND_VAR\nn := LEN(s);\nEND_PROGRAM');
+    expect(diags.filter(d => d.message.includes("'LEN'"))).toHaveLength(0);
+  });
+});
+
+describe('FB member scope (methods, properties, actions)', () => {
+  it('calling own method: no "Undefined identifier" warning', () => {
+    // Methods are declared inside the FUNCTION_BLOCK (before END_FUNCTION_BLOCK)
+    const code = `FUNCTION_BLOCK MyFB
+VAR
+  x : INT;
+END_VAR
+DoWork();
+METHOD DoWork
+END_METHOD
+END_FUNCTION_BLOCK
+`;
+    const diags = getDiagnostics(code);
+    expect(diags.filter(d => d.message.includes("'DoWork'"))).toHaveLength(0);
+  });
+
+  it('accessing own property: no "Undefined identifier" warning', () => {
+    // Properties are declared inside the FUNCTION_BLOCK (before END_FUNCTION_BLOCK)
+    const code = `FUNCTION_BLOCK MyFB
+VAR
+  x : INT;
+END_VAR
+x := MyProp;
+PROPERTY MyProp : INT
+END_PROPERTY
+END_FUNCTION_BLOCK
+`;
+    const diags = getDiagnostics(code);
+    expect(diags.filter(d => d.message.includes("'MyProp'"))).toHaveLength(0);
+  });
+
+  it('referencing own action: no "Undefined identifier" warning', () => {
+    const code = `FUNCTION_BLOCK MyFB
+VAR
+  x : INT;
+END_VAR
+MyAction();
+END_FUNCTION_BLOCK
+ACTION MyAction:
+END_ACTION
+`;
+    const diags = getDiagnostics(code);
+    expect(diags.filter(d => d.message.includes("'MyAction'"))).toHaveLength(0);
+  });
+
+  it('calling inherited method (local EXTENDS): no "Undefined identifier" warning', () => {
+    // ParentFB method declared inside it; ChildFB calls it via EXTENDS
+    const code = `FUNCTION_BLOCK ParentFB
+VAR
+END_VAR
+METHOD ParentMethod
+END_METHOD
+END_FUNCTION_BLOCK
+
+FUNCTION_BLOCK ChildFB EXTENDS ParentFB
+VAR
+END_VAR
+ParentMethod();
+END_FUNCTION_BLOCK
+`;
+    const diags = getDiagnostics(code);
+    expect(diags.filter(d => d.message.includes("'ParentMethod'"))).toHaveLength(0);
+  });
+});
+
+describe('method body scope (inherits FB members)', () => {
+  it('method body can call sibling method: no "Undefined identifier" warning', () => {
+    const code = `FUNCTION_BLOCK MyFB
+VAR
+  x : INT;
+END_VAR
+METHOD DoWork
+DoOtherWork();
+END_METHOD
+METHOD DoOtherWork
+END_METHOD
+END_FUNCTION_BLOCK
+`;
+    const diags = getDiagnostics(code);
+    expect(diags.filter(d => d.message.includes("'DoOtherWork'"))).toHaveLength(0);
+  });
+
+  it('method body can reference own property: no "Undefined identifier" warning', () => {
+    const code = `FUNCTION_BLOCK MyFB
+VAR
+  x : INT;
+END_VAR
+METHOD SetValue
+VAR_INPUT
+  v : INT;
+END_VAR
+x := MyValue;
+END_METHOD
+PROPERTY MyValue : INT
+END_PROPERTY
+END_FUNCTION_BLOCK
+`;
+    const diags = getDiagnostics(code);
+    expect(diags.filter(d => d.message.includes("'MyValue'"))).toHaveLength(0);
   });
 });

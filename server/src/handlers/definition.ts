@@ -12,8 +12,8 @@
  */
 
 import * as fs from 'fs';
-import * as path from 'path';
 import { DefinitionParams, Location } from 'vscode-languageserver/node';
+import { mapperForUri, getOrParse } from './shared';
 import { TextDocument } from 'vscode-languageserver-textdocument';
 import {
   FunctionBlockDeclaration,
@@ -32,7 +32,7 @@ import {
 import { parse } from '../parser/parser';
 import { WorkspaceIndex } from '../twincat/workspaceIndex';
 import { findNodeAtPosition } from './hover';
-import { extractST, extractStFromTwinCAT, PositionMapper } from '../twincat/tcExtractor';
+import { extractStFromTwinCAT, PositionMapper } from '../twincat/tcExtractor';
 
 // ---------------------------------------------------------------------------
 // Scope helpers
@@ -110,7 +110,7 @@ function loadWorkspaceDeclarations(
   const result: Array<{ uri: string; declarations: TopLevelDeclaration[] }> = [];
   for (const fileUri of workspaceIndex.getProjectFiles()) {
     if (fileUri === currentUri) continue;
-    const cached = workspaceIndex.getAst(fileUri);
+    const cached = workspaceIndex.getAst?.(fileUri);
     if (cached) {
       result.push({ uri: fileUri, declarations: cached.ast.declarations });
     } else {
@@ -229,24 +229,7 @@ function toLocation(
   return { uri, range: { start, end } };
 }
 
-/**
- * Build a PositionMapper for any workspace file URI.
- * For .st files (passthrough), returns an identity mapper.
- * Reads the file from disk; callers should catch exceptions.
- */
-function mapperForUri(fileUri: string): PositionMapper {
-  try {
-    const filePath = fileUri.startsWith('file://')
-      ? decodeURIComponent(fileUri.replace(/^file:\/\//, ''))
-      : fileUri;
-    const rawText = fs.readFileSync(filePath, 'utf8');
-    const ext = path.extname(filePath);
-    const result = extractST(rawText, ext);
-    return new PositionMapper(result);
-  } catch {
-    return new PositionMapper({ source: '', lineMap: [], sections: [], passthrough: true });
-  }
-}
+
 
 // ---------------------------------------------------------------------------
 // Main handler
@@ -259,11 +242,7 @@ export function handleDefinition(
 ): Location | null {
   if (!document) return null;
 
-  const text = document.getText();
-  const ext = path.extname(document.uri);
-  const extraction = extractST(text, ext);
-  const mapper = new PositionMapper(extraction);
-  const { ast } = parse(extraction.source);
+  const { extraction, mapper, ast } = getOrParse(document!);
 
   const { line, character } = params.position;
   const extractedPos = mapper.originalToExtracted(line, character);
@@ -287,7 +266,7 @@ export function handleDefinition(
       const found = findSuperMemberDeclaration(
         parentFbName, memberName, ast.declarations, workspaceFiles, uri, 10,
       );
-      if (found) return toLocation(found.uri, found.node, mapperForUri(found.uri));
+      if (found) return toLocation(found.uri, found.node, mapperForUri(found.uri, workspaceIndex));
     }
     return null;
   }
@@ -308,13 +287,13 @@ export function handleDefinition(
       const wsMatch = declarations.find(
         d => 'name' in d && (d as { name: string }).name.toUpperCase() === upper,
       );
-      if (wsMatch) return toLocation(fileUri, wsMatch, mapperForUri(fileUri));
+      if (wsMatch) return toLocation(fileUri, wsMatch, mapperForUri(fileUri, workspaceIndex));
       // Also search inside TypeDeclarationBlocks from workspace files
       for (const decl of declarations) {
         if (decl.kind !== 'TypeDeclarationBlock') continue;
         const block = decl as TypeDeclarationBlock;
         const tdMatch = block.declarations.find(d => d.name.toUpperCase() === upper);
-        if (tdMatch) return toLocation(fileUri, tdMatch, mapperForUri(fileUri));
+        if (tdMatch) return toLocation(fileUri, tdMatch, mapperForUri(fileUri, workspaceIndex));
       }
     }
     return null;
@@ -343,9 +322,9 @@ export function handleDefinition(
         const fb = decl as FunctionBlockDeclaration;
         if (fb.name.toUpperCase() !== fbTypeName.toUpperCase()) continue;
         const method = fb.methods.find(m => m.name.toUpperCase() === memberName.toUpperCase());
-        if (method) return toLocation(srcUri, method, srcUri === uri ? mapper : mapperForUri(srcUri));
+        if (method) return toLocation(srcUri, method, srcUri === uri ? mapper : mapperForUri(srcUri, workspaceIndex));
         const prop = fb.properties.find(p => p.name.toUpperCase() === memberName.toUpperCase());
-        if (prop) return toLocation(srcUri, prop, srcUri === uri ? mapper : mapperForUri(srcUri));
+        if (prop) return toLocation(srcUri, prop, srcUri === uri ? mapper : mapperForUri(srcUri, workspaceIndex));
       }
     }
     return null;
@@ -378,21 +357,24 @@ export function handleDefinition(
       // Skip the current document (already searched above)
       if (fileUri === uri) continue;
 
-      let fileText: string;
-      try {
-        // fileUri is already a file:// URI; strip to path for fs.readFileSync
-        const filePath = fileUri.startsWith('file://')
-          ? decodeURIComponent(fileUri.replace(/^file:\/\//, ''))
-          : fileUri;
-        const rawText = fs.readFileSync(filePath, 'utf8');
-        fileText = extractStFromTwinCAT(filePath, rawText).stCode;
-      } catch {
-        continue;
+      let otherAst: SourceFile;
+      const cachedEntry = workspaceIndex.getAst?.(fileUri);
+      if (cachedEntry) {
+        otherAst = cachedEntry.ast;
+      } else {
+        try {
+          const filePath = fileUri.startsWith('file://')
+            ? decodeURIComponent(fileUri.replace(/^file:\/\//, ''))
+            : fileUri;
+          const rawText = fs.readFileSync(filePath, 'utf8');
+          otherAst = parse(extractStFromTwinCAT(filePath, rawText).stCode).ast;
+        } catch {
+          continue;
+        }
       }
 
-      const { ast: otherAst } = parse(fileText);
       const otherMatch = findPouDeclaration(otherAst, name);
-      if (otherMatch) return toLocation(fileUri, otherMatch, mapperForUri(fileUri));
+      if (otherMatch) return toLocation(fileUri, otherMatch, mapperForUri(fileUri, workspaceIndex));
     }
   }
 

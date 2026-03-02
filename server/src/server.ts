@@ -53,6 +53,7 @@ import { handleInlayHints } from './handlers/inlayHints';
 import { handleFoldingRanges } from './handlers/foldingRange';
 import { createWorkspaceIndex, WorkspaceIndex } from './twincat/workspaceIndex';
 import { handleSemanticTokens, TOKEN_TYPES, TOKEN_MODIFIERS } from './handlers/semanticTokens';
+import { getOrParse, invalidateDocumentCache } from './handlers/shared';
 
 const connection = createConnection(ProposedFeatures.all) as any;
 const documents = new TextDocuments(TextDocument);
@@ -259,10 +260,20 @@ connection.languages.semanticTokens.on(
 );
 
 documents.onDidChangeContent(change => {
-	workspaceIndex?.invalidateAst(change.document.uri);
-	validateDocument(connection, change.document, workspaceIndex);
+	const doc = change.document;
+	// Clear stale document parse cache, then compute fresh parse
+	invalidateDocumentCache(doc.uri);
+	const { ast, errors, extraction } = getOrParse(doc);
+	// Push fresh in-memory parse into WorkspaceIndex so cross-file handlers
+	// don't need to fall back to a stale disk read for the just-edited file
+	workspaceIndex?.updateAst(doc.uri, ast, errors, extraction);
+	validateDocument(connection, doc, workspaceIndex);
 });
 documents.onDidOpen(event => validateDocument(connection, event.document, workspaceIndex));
+
+documents.onDidClose(event => {
+	invalidateDocumentCache(event.document.uri);
+});
 
 documents.listen(connection);
 connection.listen();

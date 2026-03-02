@@ -14,7 +14,7 @@ import {
 	TextEdit,
 } from 'vscode-languageserver/node';
 import { TextDocument } from 'vscode-languageserver-textdocument';
-import { parse } from '../parser/parser';
+import { getOrParse } from './shared';
 import { Lexer, TokenKind } from '../parser/lexer';
 import {
 	FunctionBlockDeclaration,
@@ -219,7 +219,7 @@ export function handleCodeActions(
 	doc: TextDocument | undefined,
 ): CodeAction[] {
 	if (!doc) return [];
-	const { ast } = parse(doc.getText());
+	const { ast } = getOrParse(doc);
 	return [
 		...declareVariableActions(params, doc, ast),
 		...uppercaseKeywordActions(params, doc),

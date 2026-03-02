@@ -28,11 +28,10 @@ import {
   VarDeclaration,
   VarKind,
 } from '../parser/ast';
-import { parse } from '../parser/parser';
+import { getOrParse } from './shared';
 import { builtinTypeHover, findBuiltinType } from '../twincat/types';
 import { findStandardFB, standardFBHover } from '../twincat/stdlib';
-import * as path from 'path';
-import { extractST, PositionMapper } from '../twincat/tcExtractor';
+
 import { findPragmaDoc, pragmaHover } from '../twincat/pragmas';
 import { WorkspaceIndex } from '../twincat/workspaceIndex';
 import { formatConstantValue } from './utils';
@@ -360,11 +359,7 @@ export function handleHover(
 ): Hover | null {
   if (!document) return null;
 
-  const text = document.getText();
-  const ext = path.extname(document.uri);
-  const extraction = extractST(text, ext);
-  const mapper = new PositionMapper(extraction);
-  const { ast } = parse(extraction.source);
+  const { extraction, mapper, ast } = getOrParse(document!);
 
   const { line, character } = params.position;
   const extractedPos = mapper.originalToExtracted(line, character);

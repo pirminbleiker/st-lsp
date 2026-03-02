@@ -4,7 +4,6 @@ import {
 	DiagnosticSeverity,
 } from 'vscode-languageserver/node';
 import { TextDocument } from 'vscode-languageserver-textdocument';
-import { parse } from '../parser/parser';
 import {
 	AssignmentStatement,
 	BinaryExpression,
@@ -33,8 +32,10 @@ import {
 } from '../parser/ast';
 import { BUILTIN_TYPES } from '../twincat/types';
 import { STANDARD_FBS } from '../twincat/stdlib';
-import { getLibraryFBs } from '../twincat/libraryRegistry';
-import { extractStFromTwinCAT, OffsetMap } from '../twincat/tcExtractor';
+import { getLibraryFBs, getLibraryFunctions } from '../twincat/libraryRegistry';
+import { SYSTEM_TYPE_NAMES, SYSTEM_FUNCTION_NAMES, TYPE_CONVERSION_NAMES } from '../twincat/systemTypes';
+import { OffsetMap } from '../twincat/tcExtractor';
+import { getOrParse } from './shared';
 import { WorkspaceIndex } from '../twincat/workspaceIndex';
 import type { LibraryRef } from '../twincat/projectReader';
 
@@ -50,6 +51,7 @@ const ALWAYS_ALLOWED = new Set([
 // Pre-build sets of builtin type names and standard FB names (uppercase)
 const BUILTIN_TYPE_NAMES = new Set(BUILTIN_TYPES.map(t => t.name.toUpperCase()));
 const STANDARD_FB_NAMES = new Set(STANDARD_FBS.map(fb => fb.name.toUpperCase()));
+const LIBRARY_FUNCTION_NAMES = new Set(getLibraryFunctions().map(f => f.name.toUpperCase()));
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -59,7 +61,11 @@ function isAllowedName(name: string): boolean {
 	const upper = name.toUpperCase();
 	return ALWAYS_ALLOWED.has(upper)
 		|| BUILTIN_TYPE_NAMES.has(upper)
-		|| STANDARD_FB_NAMES.has(upper);
+		|| STANDARD_FB_NAMES.has(upper)
+		|| SYSTEM_TYPE_NAMES.has(upper)
+		|| SYSTEM_FUNCTION_NAMES.has(upper)
+		|| TYPE_CONVERSION_NAMES.has(upper)
+		|| LIBRARY_FUNCTION_NAMES.has(upper);
 }
 
 /**
@@ -394,10 +400,75 @@ function walkAssignmentInStatement(stmt: Statement, onAssign: (s: AssignmentStat
 }
 
 // ---------------------------------------------------------------------------
+// Inheritance helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Walk the EXTENDS inheritance chain for `fb`, adding all method/property/action
+ * names (and var names) from each ancestor into `scope`.
+ * Resolves parent declarations first in `localAst`, then in `workspaceIndex`.
+ * Depth-limited to prevent infinite loops from circular definitions.
+ */
+function addInheritedMembers(
+	fb: FunctionBlockDeclaration,
+	localAst: SourceFile,
+	workspaceIndex: WorkspaceIndex | undefined,
+	scope: Set<string>,
+	depth = 0,
+): void {
+	if (!fb.extends || depth > 10) return;
+	const parentName = fb.extends.toUpperCase();
+
+	// Search local file first
+	let parentFb: FunctionBlockDeclaration | undefined;
+	for (const d of localAst.declarations) {
+		if (d.kind === 'FunctionBlockDeclaration' &&
+			(d as FunctionBlockDeclaration).name.toUpperCase() === parentName) {
+			parentFb = d as FunctionBlockDeclaration;
+			break;
+		}
+	}
+
+	// Then search workspace index
+	if (!parentFb && workspaceIndex) {
+		outer: for (const fileUri of workspaceIndex.getProjectFiles()) {
+			const cached = workspaceIndex.getAst?.(fileUri);
+			if (!cached) continue;
+			for (const d of cached.ast.declarations) {
+				if (d.kind === 'FunctionBlockDeclaration' &&
+					(d as FunctionBlockDeclaration).name.toUpperCase() === parentName) {
+					parentFb = d as FunctionBlockDeclaration;
+					break outer;
+				}
+			}
+		}
+	}
+
+	if (!parentFb) return;
+
+	for (const m of parentFb.methods) scope.add(m.name.toUpperCase());
+	for (const p of parentFb.properties) scope.add(p.name.toUpperCase());
+	for (const a of parentFb.actions) scope.add(a.name.toUpperCase());
+	for (const vb of parentFb.varBlocks) {
+		for (const vd of vb.declarations) {
+			scope.add(vd.name.toUpperCase());
+		}
+	}
+
+	// Recurse up the chain
+	addInheritedMembers(parentFb, localAst, workspaceIndex, scope, depth + 1);
+}
+
+// ---------------------------------------------------------------------------
 // Semantic analysis
 // ---------------------------------------------------------------------------
 
-function runSemanticAnalysis(ast: SourceFile, libraryRefs?: LibraryRef[]): Diagnostic[] {
+function runSemanticAnalysis(
+	ast: SourceFile,
+	libraryRefs?: LibraryRef[],
+	workspaceIndex?: WorkspaceIndex,
+	currentUri?: string,
+): Diagnostic[] {
 	const diagnostics: Diagnostic[] = [];
 
 	// Collect all POU names and type names from the SourceFile (for cross-references)
@@ -420,6 +491,38 @@ function runSemanticAnalysis(ast: SourceFile, libraryRefs?: LibraryRef[]): Diagn
 			for (const vb of gvl.varBlocks) {
 				for (const vd of vb.declarations) {
 					globalNames.add(vd.name.toUpperCase());
+				}
+			}
+		}
+	}
+
+	// Add cross-file POU/type/interface names from workspace index
+	if (workspaceIndex) {
+		const normalised = currentUri?.startsWith('file://') ? currentUri : (currentUri ? `file://${currentUri}` : undefined);
+		for (const fileUri of workspaceIndex.getProjectFiles()) {
+			if (fileUri === normalised || fileUri === currentUri) continue;
+			const cached = workspaceIndex.getAst?.(fileUri);
+			if (!cached) continue;
+			for (const decl of cached.ast.declarations) {
+				if (
+					decl.kind === 'ProgramDeclaration' ||
+					decl.kind === 'FunctionBlockDeclaration' ||
+					decl.kind === 'FunctionDeclaration' ||
+					decl.kind === 'InterfaceDeclaration'
+				) {
+					globalNames.add((decl as { name: string }).name.toUpperCase());
+				} else if (decl.kind === 'TypeDeclarationBlock') {
+					const tdb = decl as TypeDeclarationBlock;
+					for (const td of tdb.declarations) {
+						globalNames.add(td.name.toUpperCase());
+					}
+				} else if (decl.kind === 'GvlDeclaration') {
+					const gvl = decl as GvlDeclaration;
+					for (const vb of gvl.varBlocks) {
+						for (const vd of vb.declarations) {
+							globalNames.add(vd.name.toUpperCase());
+						}
+					}
 				}
 			}
 		}
@@ -458,7 +561,12 @@ function runSemanticAnalysis(ast: SourceFile, libraryRefs?: LibraryRef[]): Diagn
 	}
 
 	// Set of all known types for Part A checks
-	const knownTypes = new Set<string>([...BUILTIN_TYPE_NAMES, ...STANDARD_FB_NAMES, ...globalNames]);
+	const knownTypes = new Set<string>([
+		...BUILTIN_TYPE_NAMES,
+		...STANDARD_FB_NAMES,
+		...SYSTEM_TYPE_NAMES,
+		...globalNames,
+	]);
 
 	// Build map from uppercase FB name → library name for missing-library diagnostics.
 	// Only populated when libraryRefs are available (file belongs to a project).
@@ -552,6 +660,16 @@ function runSemanticAnalysis(ast: SourceFile, libraryRefs?: LibraryRef[]): Diagn
 		// Add FOR loop variable names from the body
 		for (const name of collectForLoopVars(pou.body)) {
 			scope.add(name);
+		}
+
+		// For FBs: also add own methods, properties, actions to scope
+		if (decl.kind === 'FunctionBlockDeclaration') {
+			const fb = decl as FunctionBlockDeclaration;
+			for (const m of fb.methods) scope.add(m.name.toUpperCase());
+			for (const p of fb.properties) scope.add(p.name.toUpperCase());
+			for (const a of fb.actions) scope.add(a.name.toUpperCase());
+			// Walk EXTENDS chain to add inherited members
+			addInheritedMembers(fb, ast, workspaceIndex, scope);
 		}
 
 		// Walk the body statements and check each NameExpression
@@ -750,11 +868,11 @@ function applyOffsets(diagnostics: Diagnostic[], offsets: OffsetMap): Diagnostic
 }
 
 export function validateDocument(connection: Connection, document: TextDocument, workspaceIndex?: WorkspaceIndex): void {
-	let text = document.getText();
-	const extraction = extractStFromTwinCAT(document.uri, text);
-	text = extraction.stCode;
-
-	const { ast, errors } = parse(text);
+	const { extraction: stExtraction, ast, errors } = getOrParse(document);
+	const offsetMap: OffsetMap = {};
+	stExtraction.lineMap.forEach((originalLine, extractedLine) => {
+		offsetMap[extractedLine] = originalLine;
+	});
 
 	const parseDiags: Diagnostic[] = errors.map(err => ({
 		severity: DiagnosticSeverity.Error,
@@ -769,8 +887,10 @@ export function validateDocument(connection: Connection, document: TextDocument,
 	// Only run semantic analysis when there are no parse errors, to avoid
 	// cascading false positives from partially parsed ASTs.
 	const libraryRefs = workspaceIndex?.getLibraryRefs(document.uri);
-	const semanticDiags = errors.length === 0 ? runSemanticAnalysis(ast, libraryRefs) : [];
+	const semanticDiags = errors.length === 0
+		? runSemanticAnalysis(ast, libraryRefs, workspaceIndex, document.uri)
+		: [];
 
-	const diagnostics = applyOffsets([...parseDiags, ...semanticDiags], extraction.offsets);
+	const diagnostics = applyOffsets([...parseDiags, ...semanticDiags], offsetMap);
 	connection.sendDiagnostics({ uri: document.uri, diagnostics });
 }

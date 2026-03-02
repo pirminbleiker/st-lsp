@@ -5,8 +5,8 @@ import {
   Range,
 } from 'vscode-languageserver/node';
 import { TextDocument } from 'vscode-languageserver-textdocument';
-import * as path from 'path';
-import { extractST, PositionMapper } from '../twincat/tcExtractor';
+import { PositionMapper } from '../twincat/tcExtractor';
+import { getOrParse } from './shared';
 import {
   SourceFile,
   ProgramDeclaration,
@@ -20,18 +20,13 @@ import {
   UnionDeclaration,
   VarBlock,
 } from '../parser/ast';
-import { parse } from '../parser/parser';
 
 export function handleDocumentSymbols(
   params: DocumentSymbolParams,
   document: TextDocument | undefined,
 ): DocumentSymbol[] {
   if (!document) return [];
-  const text = document.getText();
-  const ext = path.extname(document.uri);
-  const extraction = extractST(text, ext);
-  const mapper = new PositionMapper(extraction);
-  const { ast } = parse(extraction.source);
+  const { mapper, ast } = getOrParse(document!);
   return buildSymbols(ast, mapper);
 }
 

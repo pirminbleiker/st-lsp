@@ -1,5 +1,4 @@
 import * as fs from 'fs';
-import * as path from 'path';
 import {
   CompletionItem,
   CompletionItemKind,
@@ -26,8 +25,9 @@ import { BUILTIN_TYPES } from '../twincat/types';
 import { STANDARD_FBS, findStandardFB } from '../twincat/stdlib';
 import { getLibraryFBs } from '../twincat/libraryRegistry';
 import { WorkspaceIndex } from '../twincat/workspaceIndex';
-import { extractST, extractStFromTwinCAT, PositionMapper } from '../twincat/tcExtractor';
+import { extractStFromTwinCAT } from '../twincat/tcExtractor';
 import { formatConstantValue } from './utils';
+import { getOrParse } from './shared';
 
 const KEYWORDS = [
   'IF', 'THEN', 'ELSE', 'ELSIF', 'END_IF',
@@ -244,7 +244,7 @@ function getSuperMembers(
   if (workspaceIndex) {
     for (const fileUri of workspaceIndex.getProjectFiles()) {
       if (fileUri === currentUri) continue;
-      const cached = workspaceIndex.getAst(fileUri);
+      const cached = workspaceIndex.getAst?.(fileUri);
       if (cached) {
         allDeclarations.push(cached.ast.declarations);
       } else {
@@ -397,7 +397,7 @@ function collectAllDeclSets(
   if (!workspaceIndex) return sets;
   for (const fileUri of workspaceIndex.getProjectFiles()) {
     if (fileUri === currentUri) continue;
-    const cached = workspaceIndex.getAst(fileUri);
+    const cached = workspaceIndex.getAst?.(fileUri);
     if (cached) {
       sets.push(cached.ast.declarations);
     } else {
@@ -684,14 +684,8 @@ export function handleCompletion(
   if (!document) return [];
 
   const text = document.getText();
-  const ext = path.extname(document.uri);
-  const extraction = extractST(text, ext);
-  const mapper = new PositionMapper(extraction);
-  // If extraction returned no code from non-empty content, the document content
-  // is likely already-extracted ST fed to a handler with a TwinCAT file URI.
-  // Fall back to parsing the raw text directly so completions are available.
-  const stCode = extraction.source.length > 0 || text.length === 0 ? extraction.source : text;
-  const { ast } = parse(stCode);
+  const { extraction, mapper, ast } = getOrParse(document!);
+  const stCode = extraction.source;
 
   const { line, character } = params.position;
   // Convert cursor position to extracted-source coordinates.

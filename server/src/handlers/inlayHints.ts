@@ -25,7 +25,8 @@ import {
 import { parse } from '../parser/parser';
 import { STANDARD_FBS } from '../twincat/stdlib';
 import { WorkspaceIndex } from '../twincat/workspaceIndex';
-import { extractST, PositionMapper } from '../twincat/tcExtractor';
+import { extractST } from '../twincat/tcExtractor';
+import { getOrParse } from './shared';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -137,7 +138,7 @@ function lookupInWorkspace(
   for (const fileUri of workspaceIndex.getProjectFiles()) {
     if (fileUri === currentUri) continue;
     let fileAst: SourceFile | undefined;
-    const cached = workspaceIndex.getAst(fileUri);
+    const cached = workspaceIndex.getAst?.(fileUri);
     if (cached) {
       fileAst = cached.ast;
     } else {
@@ -348,11 +349,7 @@ export function handleInlayHints(
 ): InlayHint[] {
   if (!document) return [];
 
-  const text = document.getText();
-  const ext = path.extname(document.uri);
-  const extraction = extractST(text, ext);
-  const mapper = new PositionMapper(extraction);
-  const { ast } = parse(extraction.source);
+  const { extraction, mapper, ast } = getOrParse(document!);
 
   // Convert the incoming visible range from original-file to extracted-source coordinates.
   const extractedRangeStart = mapper.originalToExtracted(range.start.line, range.start.character)

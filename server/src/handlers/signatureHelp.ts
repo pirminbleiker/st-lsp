@@ -5,8 +5,7 @@ import {
   SignatureHelpParams,
 } from 'vscode-languageserver/node';
 import { TextDocument } from 'vscode-languageserver-textdocument';
-import * as path from 'path';
-import { extractST, PositionMapper } from '../twincat/tcExtractor';
+import { getOrParse } from './shared';
 import { parse } from '../parser/parser';
 import { STANDARD_FBS } from '../twincat/stdlib';
 import {
@@ -239,10 +238,7 @@ export function handleSignatureHelp(
 ): SignatureHelp | null {
   if (!document) return null;
 
-  const text = document.getText();
-  const ext = path.extname(document.uri);
-  const extraction = extractST(text, ext);
-  const mapper = new PositionMapper(extraction);
+  const { extraction, mapper } = getOrParse(document!);
   const stSource = extraction.source;
 
   // Convert the cursor position to extracted-source coordinates, then compute

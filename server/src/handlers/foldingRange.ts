@@ -25,8 +25,8 @@ import {
   ActionDeclaration,
   SourceFile,
 } from '../parser/ast';
-import { parse } from '../parser/parser';
-import { extractST, getXmlRanges, XmlRange } from '../twincat/tcExtractor';
+import { getXmlRanges, XmlRange } from '../twincat/tcExtractor';
+import { getOrParse } from './shared';
 
 // TwinCAT XML file extensions that need the XML-aware folding handler
 const XML_EXT_SET = new Set(['.tcpou', '.tcgvl', '.tcdut', '.tcio', '.tctask']);
@@ -196,15 +196,14 @@ export function handleFoldingRanges(document: TextDocument | undefined, lineFold
   }
 
   const text = document.getText();
-  const { ast } = parse(text);
+  const { ast } = getOrParse(document!);
   return collectAstFoldingRanges(ast, text);
 }
 
 /** Folding range handler for TwinCAT XML files (.TcPOU, .TcGVL, etc.). */
 function handleFoldingRangesXml(document: TextDocument, ext: string, lineFoldingOnly = false): FoldingRange[] {
   const text = document.getText();
-  const extraction = extractST(text, ext);
-  const { ast } = parse(extraction.source);
+  const { extraction, ast } = getOrParse(document);
   const lm = extraction.lineMap;
   const ranges: FoldingRange[] = [];
 

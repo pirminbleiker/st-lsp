@@ -13,7 +13,6 @@ import * as path from 'path';
 import { SemanticTokens, SemanticTokensBuilder } from 'vscode-languageserver/node';
 import { TextDocument } from 'vscode-languageserver-textdocument';
 import { Lexer, Token, TokenKind } from '../parser/lexer';
-import { parse } from '../parser/parser';
 import {
   EnumDeclaration,
   FunctionBlockDeclaration,
@@ -30,7 +29,8 @@ import {
 } from '../parser/ast';
 import { findBuiltinType } from '../twincat/types';
 import { findStandardFB } from '../twincat/stdlib';
-import { extractST, getXmlRanges, ExtractedSection, XmlRange } from '../twincat/tcExtractor';
+import { getXmlRanges, ExtractedSection, XmlRange } from '../twincat/tcExtractor';
+import { getOrParse } from './shared';
 
 // ---------------------------------------------------------------------------
 // Legend (order determines indices used in encoding)
@@ -389,7 +389,7 @@ export function handleSemanticTokens(document: TextDocument): SemanticTokens {
   }
 
   const text = document.getText();
-  const { ast } = parse(text);
+  const { ast } = getOrParse(document);
   const nameMap = buildNameMap(ast);
 
   const tokens = new Lexer(text).tokenizeWithTrivia();
@@ -599,10 +599,7 @@ function collectStSectionTokens(
 /** Semantic token handler for TwinCAT XML files (.TcPOU, .TcGVL, etc.). */
 function handleSemanticTokensXml(document: TextDocument, ext: string): SemanticTokens {
   const text = document.getText();
-  const extraction = extractST(text, ext);
-
-  // Parse the combined extracted source for name roles (positions don't matter here).
-  const { ast } = parse(extraction.source);
+  const { extraction, ast } = getOrParse(document);
   const nameMap = buildNameMap(ast);
 
   const allTokens: TokenEntry[] = [];
