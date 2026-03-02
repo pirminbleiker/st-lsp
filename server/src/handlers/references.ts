@@ -247,6 +247,11 @@ export function collectNameExpressions(
         for (const arg of e.args) visitNode(arg.value);
         break;
       }
+      case 'ArrayLiteral': {
+        const e = node as import('../parser/ast').ArrayLiteral;
+        for (const elem of e.elements) visitNode(elem);
+        break;
+      }
 
       case 'InterfaceDeclaration': {
         const iface = node as InterfaceDeclaration;

@@ -279,6 +279,11 @@ export function findNodeAtPosition(ast: SourceFile, line: number, character: num
         for (const arg of e.args) { const a = visit(arg.value); if (a) deepest = a; }
         break;
       }
+      case 'ArrayLiteral': {
+        const e = node as import('../parser/ast').ArrayLiteral;
+        for (const elem of e.elements) { const a = visit(elem); if (a) deepest = a; }
+        break;
+      }
 
       case 'InterfaceDeclaration': {
         const iface = node as import('../parser/ast').InterfaceDeclaration;

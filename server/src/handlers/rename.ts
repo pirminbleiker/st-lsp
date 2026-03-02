@@ -112,6 +112,11 @@ function collectNameMatches(ast: SourceFile, targetName: string): NameMatch[] {
         for (const arg of e.args) visitExpr(arg.value);
         break;
       }
+      case 'ArrayLiteral': {
+        const e = node as import('../parser/ast').ArrayLiteral;
+        for (const elem of e.elements) visitExpr(elem);
+        break;
+      }
       // Literals — nothing to walk
       default:
         break;

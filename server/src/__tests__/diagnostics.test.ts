@@ -1206,4 +1206,15 @@ END_FUNCTION_BLOCK`;
     const warnings = diags.filter(d => d.message.includes('MyLibraryFB'));
     expect(warnings).toHaveLength(0);
   });
+
+  it('sjsonvalue_recognized: SJSONVALUE type variable produces no Unknown type warning', () => {
+    const src = `PROGRAM Main
+VAR
+  jv : SJSONVALUE;
+END_VAR
+END_PROGRAM`;
+    const diags = getDiagnostics(src);
+    const warnings = diags.filter(d => d.message.includes('SJSONVALUE'));
+    expect(warnings).toHaveLength(0);
+  });
 });

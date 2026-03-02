@@ -4,6 +4,7 @@ import {
   ActionDeclaration,
   AliasDeclaration,
   ArrayDim,
+  ArrayLiteral,
   AssignmentStatement,
   BinaryExpression,
   BoolLiteral,
@@ -657,7 +658,16 @@ class Parser {
       TokenKind.ACTION, TokenKind.END_ACTION,
       TokenKind.EOF,
     ]);
-    while (!this.check(TokenKind.SEMICOLON) && !endKeywords.has(this.peek().kind)) {
+    let bracketDepth = 0;
+    while (!this.check(TokenKind.EOF)) {
+      const kind = this.peek().kind;
+      if (endKeywords.has(kind)) break;
+      if (kind === TokenKind.LBRACKET) { bracketDepth++; this.advance(); continue; }
+      if (kind === TokenKind.RBRACKET) {
+        if (bracketDepth > 0) { bracketDepth--; this.advance(); continue; }
+        break; // Unmatched ] — stop (error recovery boundary)
+      }
+      if (kind === TokenKind.SEMICOLON && bracketDepth === 0) break;
       this.advance();
     }
     this.match(TokenKind.SEMICOLON);
@@ -1141,6 +1151,25 @@ class Parser {
       case TokenKind.FALSE:
         this.advance();
         return { kind: 'BoolLiteral', value: false, range: tok.range } as BoolLiteral;
+
+      case TokenKind.LBRACKET: {
+        // Array literal: [expr, expr, ...]
+        const start = this.startRange();
+        this.advance(); // [
+        const elements: Expression[] = [];
+        while (!this.check(TokenKind.RBRACKET) && !this.check(TokenKind.EOF)) {
+          elements.push(this.parseExpression());
+          if (!this.match(TokenKind.COMMA)) break;
+          // Allow trailing comma before ]
+          if (this.check(TokenKind.RBRACKET)) break;
+        }
+        this.expect(TokenKind.RBRACKET, "Expected ']'");
+        return {
+          kind: 'ArrayLiteral',
+          elements,
+          range: this.endRange(start),
+        } as ArrayLiteral;
+      }
 
       case TokenKind.LPAREN: {
         this.advance(); // (

@@ -252,7 +252,8 @@ export type Expression =
   | IntegerLiteral
   | RealLiteral
   | StringLiteral
-  | BoolLiteral;
+  | BoolLiteral
+  | ArrayLiteral;
 
 export interface BinaryExpression extends AstNode {
   kind: 'BinaryExpression';
@@ -311,6 +312,11 @@ export interface StringLiteral extends AstNode {
 export interface BoolLiteral extends AstNode {
   kind: 'BoolLiteral';
   value: boolean;
+}
+
+export interface ArrayLiteral extends AstNode {
+  kind: 'ArrayLiteral';
+  elements: Expression[];
 }
 
 // ---------------------------------------------------------------------------

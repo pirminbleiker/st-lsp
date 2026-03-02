@@ -56,6 +56,8 @@ export const SYSTEM_TYPES: readonly SystemType[] = [
   { name: 'XINT', description: 'TwinCAT platform-native signed integer (32- or 64-bit).' },
   { name: 'UXINT', description: 'TwinCAT platform-native unsigned integer.' },
   { name: 'XWORD', description: 'TwinCAT platform-native word.' },
+  // TwinCAT JSON library types (Tc3_JsonXml)
+  { name: 'SJSONVALUE', description: 'TwinCAT JSON library type (Tc3_JsonXml) — represents a JSON value.' },
   // Other common TwinCAT types
   { name: 'T_ARG', description: 'TwinCAT generic argument type for variable-argument functions.' },
   { name: 'E_ECAT_STATE', description: 'EtherCAT state enumeration.' },

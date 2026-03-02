@@ -240,6 +240,9 @@ function collectCallExpressionsInRange(
       case 'MemberExpression':
         visitExpr((expr as import('../parser/ast').MemberExpression).base);
         break;
+      case 'ArrayLiteral':
+        for (const elem of (expr as import('../parser/ast').ArrayLiteral).elements) visitExpr(elem);
+        break;
       default:
         break;
     }
