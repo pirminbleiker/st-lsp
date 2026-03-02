@@ -189,6 +189,20 @@ describe('Lexer', () => {
     });
   });
 
+  describe('compound logical keywords (Phase 4)', () => {
+    it('tokenizes AND_THEN as a single AND_THEN token', () => {
+      const tokens = tokenize('AND_THEN');
+      expect(tokens).toHaveLength(2);
+      expect(tokens[0].kind).toBe(TokenKind.AND_THEN);
+    });
+
+    it('tokenizes OR_ELSE as a single OR_ELSE token', () => {
+      const tokens = tokenize('OR_ELSE');
+      expect(tokens).toHaveLength(2);
+      expect(tokens[0].kind).toBe(TokenKind.OR_ELSE);
+    });
+  });
+
   describe('pragma tokens', () => {
     it('tokenizes {attribute \'hide\'} as PRAGMA', () => {
       const tokens = tokenize("{attribute 'hide'}");

@@ -509,6 +509,9 @@ function runSemanticAnalysis(
 			}
 		} else if (decl.kind === 'GvlDeclaration') {
 			const gvl = decl as GvlDeclaration;
+			if (gvl.name) {
+				globalNames.add(gvl.name.toUpperCase());
+			}
 			for (const vb of gvl.varBlocks) {
 				for (const vd of vb.declarations) {
 					globalNames.add(vd.name.toUpperCase());
@@ -544,6 +547,9 @@ function runSemanticAnalysis(
 					}
 				} else if (decl.kind === 'GvlDeclaration') {
 					const gvl = decl as GvlDeclaration;
+					if (gvl.name) {
+						globalNames.add(gvl.name.toUpperCase());
+					}
 					for (const vb of gvl.varBlocks) {
 						for (const vd of vb.declarations) {
 							globalNames.add(vd.name.toUpperCase());

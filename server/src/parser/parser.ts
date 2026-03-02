@@ -797,8 +797,7 @@ class Parser {
    *   - Boolean literals:       TRUE : / FALSE :
    *   - Negative integers:      - INTEGER : / - INTEGER .. / - INTEGER ,
    *   - Integers:               INTEGER : / INTEGER .. / INTEGER ,
-   *   - Plain identifiers:      IDENT : / IDENT .. / IDENT ,
-   *   - Enum-qualified idents:  IDENT . IDENT : / IDENT . IDENT .. / IDENT . IDENT ,
+   *   - Identifiers:            IDENT(.IDENT)* : / .. / ,
    */
   private isAtCaseLabel(): boolean {
     const tok0 = this.peek(0);
@@ -826,23 +825,20 @@ class Parser {
         tok1.kind === TokenKind.COMMA;
     }
 
-    // Identifier: plain or enum-qualified
+    // Identifier: plain or dotted (arbitrary depth)
     if (tok0.kind === TokenKind.IDENTIFIER) {
-      const tok1 = this.peek(1);
-      // Plain identifier: IDENT : or IDENT .. or IDENT ,
-      if (tok1.kind === TokenKind.COLON ||
-          tok1.kind === TokenKind.DOTDOT ||
-          tok1.kind === TokenKind.COMMA) return true;
-      // Enum-qualified: IDENT . IDENT : or IDENT . IDENT .. or IDENT . IDENT ,
-      if (tok1.kind === TokenKind.DOT) {
-        const tok2 = this.peek(2);
-        if (tok2.kind === TokenKind.IDENTIFIER) {
-          const tok3 = this.peek(3);
-          return tok3.kind === TokenKind.COLON ||
-            tok3.kind === TokenKind.DOTDOT ||
-            tok3.kind === TokenKind.COMMA;
-        }
+      let offset = 1;
+      while (
+        this.peek(offset).kind === TokenKind.DOT &&
+        this.peek(offset + 1).kind === TokenKind.IDENTIFIER
+      ) {
+        offset += 2;
       }
+
+      const next = this.peek(offset);
+      return next.kind === TokenKind.COLON ||
+        next.kind === TokenKind.DOTDOT ||
+        next.kind === TokenKind.COMMA;
     }
 
     return false;
@@ -866,7 +862,7 @@ class Parser {
 
   private parseOr(): Expression {
     let left = this.parseAnd();
-    while (this.check(TokenKind.OR) || this.check(TokenKind.XOR)) {
+    while (this.check(TokenKind.OR) || this.check(TokenKind.OR_ELSE) || this.check(TokenKind.XOR)) {
       const opTok = this.advance();
       const right = this.parseAnd();
       left = this.binary(opTok.kind, left, right);
@@ -876,7 +872,7 @@ class Parser {
 
   private parseAnd(): Expression {
     let left = this.parseComparison();
-    while (this.check(TokenKind.AND)) {
+    while (this.check(TokenKind.AND) || this.check(TokenKind.AND_THEN)) {
       const opTok = this.advance();
       const right = this.parseComparison();
       left = this.binary(opTok.kind, left, right);

@@ -118,6 +118,26 @@ END_PROGRAM`;
       const stmt = prog.body[0] as IfStatement;
       expect(stmt.condition.kind).toBe('BinaryExpression');
     });
+
+    it('parses IF condition with AND_THEN without errors (Phase 4)', () => {
+      const andThenSrc = `PROGRAM P
+VAR a : BOOL; b : BOOL; y : INT; END_VAR
+IF a AND_THEN b THEN y := 1; END_IF;
+END_PROGRAM`;
+
+      const { errors } = parse(andThenSrc);
+      expect(errors).toHaveLength(0);
+    });
+
+    it('parses IF condition with OR_ELSE without errors (Phase 4)', () => {
+      const orElseSrc = `PROGRAM P
+VAR a : BOOL; b : BOOL; y : INT; END_VAR
+IF a OR_ELSE b THEN y := 1; END_IF;
+END_PROGRAM`;
+
+      const { errors } = parse(orElseSrc);
+      expect(errors).toHaveLength(0);
+    });
   });
 
   describe('FOR loop', () => {
@@ -568,6 +588,104 @@ END_VAR`;
       expect(ast.declarations).toHaveLength(1);
       const gvl = ast.declarations[0] as GvlDeclaration;
       expect(gvl.varBlocks).toHaveLength(2);
+    });
+  });
+
+  describe('Phase 2 — CASE dotted label detection', () => {
+    it('parses CASE labels with three-level dotted identifiers (A.B.C:)', () => {
+      const src = `PROGRAM P
+VAR x : INT; END_VAR
+CASE x OF
+  A:
+    x := 0;
+  A.B.C:
+    x := 1;
+END_CASE;
+END_PROGRAM`;
+
+      const { errors } = parse(src);
+      expect(errors).toHaveLength(0);
+    });
+
+    it('parses CASE labels with four-level dotted identifiers (A.B.C.D:)', () => {
+      const src = `PROGRAM P
+VAR x : INT; END_VAR
+CASE x OF
+  A:
+    x := 0;
+  A.B.C.D:
+    x := 1;
+END_CASE;
+END_PROGRAM`;
+
+      const { errors } = parse(src);
+      expect(errors).toHaveLength(0);
+    });
+
+    it('regression: still parses one-level and two-level labels (A: and A.B:)', () => {
+      const src = `PROGRAM P
+VAR x : INT; END_VAR
+CASE x OF
+  A:
+    x := 1;
+  A.B:
+    x := 2;
+END_CASE;
+END_PROGRAM`;
+
+      const { errors } = parse(src);
+      expect(errors).toHaveLength(0);
+    });
+
+    it('parses CASE clause label with explicit __SYSTEM.TYPE_CLASS.TYPE_BOOL:', () => {
+      const src = `PROGRAM P
+VAR x : INT; END_VAR
+CASE x OF
+  __SYSTEM.TYPE_CLASS.TYPE_BOOL:
+    x := 1;
+  ELSE
+    x := 0;
+END_CASE;
+END_PROGRAM`;
+
+      const { errors } = parse(src);
+      expect(errors).toHaveLength(0);
+    });
+
+    it('regression: parses realistic mobject-style CASE labels and assignments', () => {
+      const src = `PROGRAM P
+VAR
+  t : INT;
+  isBool : BOOL;
+END_VAR
+CASE t OF
+  __SYSTEM.TYPE_CLASS.TYPE_BOOL:
+    isBool := TRUE;
+  __SYSTEM.TYPE_CLASS.TYPE_INT,
+  __SYSTEM.TYPE_CLASS.TYPE_DINT:
+    isBool := FALSE;
+  ELSE
+    isBool := FALSE;
+END_CASE;
+END_PROGRAM`;
+
+      const { errors } = parse(src);
+      expect(errors).toHaveLength(0);
+    });
+
+    it("guard: assignment-like ':=' inside clause is not treated as a CASE label", () => {
+      const src = `PROGRAM P
+VAR x : INT; END_VAR
+CASE x OF
+  A:
+    A.B := 1;
+  B:
+    x := 2;
+END_CASE;
+END_PROGRAM`;
+
+      const { errors } = parse(src);
+      expect(errors).toHaveLength(0);
     });
   });
 });

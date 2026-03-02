@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { TextDocument } from 'vscode-languageserver-textdocument';
 import { validateDocument } from '../handlers/diagnostics';
 import { parse } from '../parser/parser';
+import type { GvlDeclaration } from '../parser/ast';
 import { WorkspaceIndex } from '../twincat/workspaceIndex';
 import type { LibraryRef } from '../twincat/projectReader';
 
@@ -777,6 +778,76 @@ describe('cross-file type and identifier resolution', () => {
     );
     const diags = sentParams[0]?.diagnostics as Array<{ message: string }> ?? [];
     expect(diags.filter(d => d.message.toLowerCase().includes('mystruct'))).toHaveLength(0);
+  });
+
+  it('cross-file GVL container name is in scope for member access base', () => {
+    const containerName = 'MyProjectDatatypeLimits';
+    const { ast: gvlAst, errors: gvlErrors } = parse('VAR_GLOBAL\n  BYTE_MAX_VALUE : BYTE := 255;\nEND_VAR');
+    const gvlDecl = gvlAst.declarations.find(d => d.kind === 'GvlDeclaration') as GvlDeclaration | undefined;
+    if (gvlDecl) gvlDecl.name = containerName;
+
+    const mock = {
+      getProjectFiles: () => ['file:///DatatypeLimits.TcGVL'],
+      getAst: (uri: string) => uri === 'file:///DatatypeLimits.TcGVL' ? { ast: gvlAst, errors: gvlErrors } : undefined,
+      getLibraryRefs: () => [],
+      initialize: () => {},
+      isProjectFile: () => false,
+      invalidateAst: () => {},
+      on: () => mock,
+      dispose: () => {},
+    } as unknown as WorkspaceIndex;
+
+    const { connection, sentParams } = makeMockConnection();
+    const doc = TextDocument.create('file:///main.st', 'st', 1,
+      `PROGRAM Main\nVAR\n  b : BYTE;\nEND_VAR\nb := ${containerName}.BYTE_MAX_VALUE;\nEND_PROGRAM`,
+    );
+
+    validateDocument(
+      connection as unknown as import('vscode-languageserver/node').Connection,
+      doc,
+      mock,
+    );
+
+    const diags = sentParams[0]?.diagnostics as Array<{ message: string; severity: number }> ?? [];
+    const undefinedNameErrors = diags.filter(
+      d => d.severity === 1 && d.message.includes(`Undefined identifier '${containerName}'`),
+    );
+    expect(undefinedNameErrors).toHaveLength(0);
+  });
+
+  it('local-file GVL container name is in scope for member access base', () => {
+    const containerName = 'LocalDatatypeLimits';
+    const tcgvlXml = `<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject>
+  <GVL Name="${containerName}">
+    <Declaration><![CDATA[
+VAR_GLOBAL
+  BYTE_MAX_VALUE : BYTE := 255;
+END_VAR
+
+PROGRAM Main
+VAR
+  b : BYTE;
+END_VAR
+b := ${containerName}.BYTE_MAX_VALUE;
+END_PROGRAM
+]]></Declaration>
+  </GVL>
+</TcPlcObject>`;
+
+    const { connection, sentParams } = makeMockConnection();
+    const doc = TextDocument.create('file:///LocalDatatypeLimits.TcGVL', 'st', 1, tcgvlXml);
+
+    validateDocument(
+      connection as unknown as import('vscode-languageserver/node').Connection,
+      doc,
+    );
+
+    const diags = sentParams[0]?.diagnostics as Array<{ message: string; severity: number }> ?? [];
+    const undefinedNameErrors = diags.filter(
+      d => d.severity === 1 && d.message.includes(`Undefined identifier '${containerName}'`),
+    );
+    expect(undefinedNameErrors).toHaveLength(0);
   });
 
   it('current file is not double-counted (uses its own declarations)', () => {
