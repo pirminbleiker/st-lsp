@@ -142,11 +142,18 @@ myTimer.`;
         expect(labels).toContain('ET');
       });
 
-      it('does not return VAR_INPUT IN for TON instance', () => {
+      it('returns IN input for TON instance', () => {
         const doc = makeDoc(fbSrc);
         const items = handleCompletion(makeParams(doc.uri, 4, 8), doc);
         const labels = items.map(i => i.label);
-        expect(labels).not.toContain('IN');
+        expect(labels).toContain('IN');
+      });
+
+      it('returns PT input for TON instance', () => {
+        const doc = makeDoc(fbSrc);
+        const items = handleCompletion(makeParams(doc.uri, 4, 8), doc);
+        const labels = items.map(i => i.label);
+        expect(labels).toContain('PT');
       });
 
       it('does not return flat keywords in dot-access context', () => {
@@ -203,6 +210,84 @@ myInst.`;
         const items = handleCompletion(makeParams(doc.uri, 14, 7), doc);
         const labels = items.map(i => i.label);
         expect(labels).toContain('Enable');
+      });
+    });
+
+    describe('FUNCTION_BLOCK external visibility — only VAR_INPUT/OUTPUT/IN_OUT', () => {
+      const src = `FUNCTION_BLOCK FB_Sensor
+VAR_INPUT
+  bEnable : BOOL;
+END_VAR
+VAR_OUTPUT
+  bValid : BOOL;
+  rValue : REAL;
+END_VAR
+VAR_IN_OUT
+  nBuffer : DWORD;
+END_VAR
+VAR
+  nInternalState : INT;
+  bPrivateFlag : BOOL;
+END_VAR
+VAR_TEMP
+  nTemp : INT;
+END_VAR
+END_FUNCTION_BLOCK
+
+PROGRAM MAIN
+VAR
+  mySensor : FB_Sensor;
+END_VAR
+  mySensor.`;
+      // line 24, character 11
+
+      it('shows VAR_INPUT bEnable', () => {
+        const doc = makeDoc(src);
+        const items = handleCompletion(makeParams(doc.uri, 24, 11), doc);
+        const labels = items.map(i => i.label);
+        expect(labels).toContain('bEnable');
+      });
+
+      it('shows VAR_OUTPUT bValid', () => {
+        const doc = makeDoc(src);
+        const items = handleCompletion(makeParams(doc.uri, 24, 11), doc);
+        const labels = items.map(i => i.label);
+        expect(labels).toContain('bValid');
+      });
+
+      it('shows VAR_OUTPUT rValue', () => {
+        const doc = makeDoc(src);
+        const items = handleCompletion(makeParams(doc.uri, 24, 11), doc);
+        const labels = items.map(i => i.label);
+        expect(labels).toContain('rValue');
+      });
+
+      it('shows VAR_IN_OUT nBuffer', () => {
+        const doc = makeDoc(src);
+        const items = handleCompletion(makeParams(doc.uri, 24, 11), doc);
+        const labels = items.map(i => i.label);
+        expect(labels).toContain('nBuffer');
+      });
+
+      it('does NOT show internal VAR nInternalState', () => {
+        const doc = makeDoc(src);
+        const items = handleCompletion(makeParams(doc.uri, 24, 11), doc);
+        const labels = items.map(i => i.label);
+        expect(labels).not.toContain('nInternalState');
+      });
+
+      it('does NOT show internal VAR bPrivateFlag', () => {
+        const doc = makeDoc(src);
+        const items = handleCompletion(makeParams(doc.uri, 24, 11), doc);
+        const labels = items.map(i => i.label);
+        expect(labels).not.toContain('bPrivateFlag');
+      });
+
+      it('does NOT show VAR_TEMP nTemp', () => {
+        const doc = makeDoc(src);
+        const items = handleCompletion(makeParams(doc.uri, 24, 11), doc);
+        const labels = items.map(i => i.label);
+        expect(labels).not.toContain('nTemp');
       });
     });
 
@@ -307,6 +392,245 @@ notDeclared.`;
         const labels = items.map(i => i.label);
         expect(labels).toContain('IF');
         expect(labels).toContain('WHILE');
+      });
+    });
+
+    describe('UNION field access', () => {
+      const unionSrc = `TYPE
+  ST_TrafficFields : STRUCT
+    bRed : BOOL;
+  END_STRUCT
+END_TYPE
+
+TYPE
+  ST_Traffic : UNION
+    nRaw : DWORD;
+    stFields : ST_TrafficFields;
+    bItems : ARRAY [0..2] OF BOOL;
+  END_UNION
+END_TYPE
+
+PROGRAM MAIN
+VAR
+  mySignal : ST_Traffic;
+END_VAR
+  mySignal.
+END_PROGRAM`;
+      // cursor at line 18 (0-indexed), character 11 (after 'mySignal.')
+
+      it('returns field nRaw', () => {
+        const doc = makeDoc(unionSrc);
+        const items = handleCompletion(makeParams(doc.uri, 18, 11), doc);
+        const labels = items.map(i => i.label);
+        expect(labels).toContain('nRaw');
+      });
+
+      it('returns field stFields', () => {
+        const doc = makeDoc(unionSrc);
+        const items = handleCompletion(makeParams(doc.uri, 18, 11), doc);
+        const labels = items.map(i => i.label);
+        expect(labels).toContain('stFields');
+      });
+
+      it('field items have Field kind', () => {
+        const doc = makeDoc(unionSrc);
+        const items = handleCompletion(makeParams(doc.uri, 18, 11), doc);
+        const nRawItem = items.find(i => i.label === 'nRaw');
+        expect(nRawItem).toBeDefined();
+        expect(nRawItem?.kind).toBe(CompletionItemKind.Field);
+      });
+    });
+
+    describe('PROGRAM instance member access', () => {
+      const progSrc = `PROGRAM Actuator
+VAR_OUTPUT
+  bReady : BOOL;
+  nStatus : INT;
+END_VAR
+VAR_IN_OUT
+  nInOut : DWORD;
+END_VAR
+VAR
+  nPrivate : INT;
+END_VAR
+  ;
+END_PROGRAM
+
+PROGRAM MAIN
+VAR
+  myActuator : Actuator;
+END_VAR
+  myActuator.
+END_PROGRAM`;
+      // cursor at line 18 (0-indexed), character 13 (after '  myActuator.')
+
+      it('returns VAR_OUTPUT bReady', () => {
+        const doc = makeDoc(progSrc);
+        const items = handleCompletion(makeParams(doc.uri, 18, 13), doc);
+        const labels = items.map(i => i.label);
+        expect(labels).toContain('bReady');
+      });
+
+      it('returns VAR_OUTPUT nStatus', () => {
+        const doc = makeDoc(progSrc);
+        const items = handleCompletion(makeParams(doc.uri, 18, 13), doc);
+        const labels = items.map(i => i.label);
+        expect(labels).toContain('nStatus');
+      });
+
+      it('returns VAR_IN_OUT nInOut', () => {
+        const doc = makeDoc(progSrc);
+        const items = handleCompletion(makeParams(doc.uri, 18, 13), doc);
+        const labels = items.map(i => i.label);
+        expect(labels).toContain('nInOut');
+      });
+
+      it('does not return internal VAR nPrivate', () => {
+        const doc = makeDoc(progSrc);
+        const items = handleCompletion(makeParams(doc.uri, 18, 13), doc);
+        const labels = items.map(i => i.label);
+        expect(labels).not.toContain('nPrivate');
+      });
+
+      it('output items have Field kind', () => {
+        const doc = makeDoc(progSrc);
+        const items = handleCompletion(makeParams(doc.uri, 18, 13), doc);
+        const bReadyItem = items.find(i => i.label === 'bReady');
+        expect(bReadyItem).toBeDefined();
+        expect(bReadyItem?.kind).toBe(CompletionItemKind.Field);
+      });
+    });
+
+    describe('pointer dereference dot-completion', () => {
+      const ptrSrc = `FUNCTION_BLOCK FB_Motor
+VAR_OUTPUT
+  bRunning : BOOL;
+  nSpeed : INT;
+END_VAR
+END_FUNCTION_BLOCK
+
+PROGRAM MAIN
+VAR
+  myMotorPtr : POINTER TO FB_Motor;
+END_VAR
+  myMotorPtr^.
+END_PROGRAM`;
+      // cursor at line 11, character 14 (after '  myMotorPtr^.')
+
+      it('returns VAR_OUTPUT bRunning via pointer dereference', () => {
+        const doc = makeDoc(ptrSrc);
+        const items = handleCompletion(makeParams(doc.uri, 11, 14), doc);
+        const labels = items.map(i => i.label);
+        expect(labels).toContain('bRunning');
+      });
+
+      it('returns VAR_OUTPUT nSpeed via pointer dereference', () => {
+        const doc = makeDoc(ptrSrc);
+        const items = handleCompletion(makeParams(doc.uri, 11, 14), doc);
+        const labels = items.map(i => i.label);
+        expect(labels).toContain('nSpeed');
+      });
+
+      it('does not return flat keywords for pointer dot-access', () => {
+        const doc = makeDoc(ptrSrc);
+        const items = handleCompletion(makeParams(doc.uri, 11, 14), doc);
+        const labels = items.map(i => i.label);
+        expect(labels).not.toContain('IF');
+      });
+    });
+
+    describe('THIS dot-completion inside FB', () => {
+      const thisPtrSrc = `FUNCTION_BLOCK FB_Test
+VAR_OUTPUT
+  bDone : BOOL;
+END_VAR
+VAR
+  nInternal : INT;
+END_VAR
+METHOD Execute : BOOL
+END_METHOD
+PROPERTY MyProp : INT
+END_PROPERTY
+  THIS^.
+END_FUNCTION_BLOCK`;
+      // cursor at line 11, character 8 (after '  THIS^.')
+
+      it('returns VAR_OUTPUT bDone on THIS^. trigger', () => {
+        const doc = makeDoc(thisPtrSrc);
+        const items = handleCompletion(makeParams(doc.uri, 11, 8), doc);
+        const labels = items.map(i => i.label);
+        expect(labels).toContain('bDone');
+      });
+
+      it('returns VAR nInternal on THIS^. trigger (self-access)', () => {
+        const doc = makeDoc(thisPtrSrc);
+        const items = handleCompletion(makeParams(doc.uri, 11, 8), doc);
+        const labels = items.map(i => i.label);
+        expect(labels).toContain('nInternal');
+      });
+
+      it('returns method Execute on THIS^. trigger', () => {
+        const doc = makeDoc(thisPtrSrc);
+        const items = handleCompletion(makeParams(doc.uri, 11, 8), doc);
+        const labels = items.map(i => i.label);
+        expect(labels).toContain('Execute');
+      });
+
+      it('returns property MyProp on THIS^. trigger', () => {
+        const doc = makeDoc(thisPtrSrc);
+        const items = handleCompletion(makeParams(doc.uri, 11, 8), doc);
+        const labels = items.map(i => i.label);
+        expect(labels).toContain('MyProp');
+      });
+
+      it('does not return flat keywords on THIS^. trigger', () => {
+        const doc = makeDoc(thisPtrSrc);
+        const items = handleCompletion(makeParams(doc.uri, 11, 8), doc);
+        const labels = items.map(i => i.label);
+        expect(labels).not.toContain('IF');
+      });
+
+      const thisDotSrc = `FUNCTION_BLOCK FB_Test
+VAR_OUTPUT
+  bDone : BOOL;
+END_VAR
+VAR
+  nInternal : INT;
+END_VAR
+METHOD Execute : BOOL
+END_METHOD
+PROPERTY MyProp : INT
+END_PROPERTY
+  THIS.
+END_FUNCTION_BLOCK`;
+      // cursor at line 11, character 7 (after '  THIS.')
+
+      it('returns VAR_OUTPUT bDone on THIS. trigger', () => {
+        const doc = makeDoc(thisDotSrc);
+        const items = handleCompletion(makeParams(doc.uri, 11, 7), doc);
+        const labels = items.map(i => i.label);
+        expect(labels).toContain('bDone');
+      });
+
+      it('returns method Execute on THIS. trigger', () => {
+        const doc = makeDoc(thisDotSrc);
+        const items = handleCompletion(makeParams(doc.uri, 11, 7), doc);
+        const labels = items.map(i => i.label);
+        expect(labels).toContain('Execute');
+      });
+
+      it('returns property MyProp on THIS. trigger', () => {
+        const doc = makeDoc(thisDotSrc);
+        const items = handleCompletion(makeParams(doc.uri, 11, 7), doc);
+        const labels = items.map(i => i.label);
+        expect(labels).toContain('MyProp');
+      });
+
+      it('does not return flat keywords on THIS. trigger', () => {
+        const doc = makeDoc(thisDotSrc);
+        const items = handleCompletion(makeParams(doc.uri, 11, 7), doc);
+        const labels = items.map(i => i.label);
+        expect(labels).not.toContain('IF');
       });
     });
   });
@@ -614,6 +938,35 @@ describe('completion for VAR CONSTANT shows value in detail', () => {
   });
 });
 
+describe('GVL variables in flat completion', () => {
+  const gvlFlatSrc = `VAR_GLOBAL
+  gCounter : INT;
+  gFlag : BOOL;
+END_VAR
+
+PROGRAM MAIN
+VAR END_VAR
+  
+END_PROGRAM`;
+  // cursor at line 7, char 2 (empty line inside PROGRAM body)
+
+  it('includes GVL variables in flat completion', () => {
+    const doc = makeDoc(gvlFlatSrc);
+    const items = handleCompletion(makeParams(doc.uri, 7, 2), doc);
+    const labels = items.map(i => i.label);
+    expect(labels).toContain('gCounter');
+    expect(labels).toContain('gFlag');
+  });
+
+  it('GVL variables have Variable kind', () => {
+    const doc = makeDoc(gvlFlatSrc);
+    const items = handleCompletion(makeParams(doc.uri, 7, 2), doc);
+    const item = items.find(i => i.label === 'gCounter');
+    expect(item).toBeDefined();
+    expect(item?.kind).toBe(CompletionItemKind.Variable);
+  });
+});
+
 describe('completion for enum members shows value in detail', () => {
   it('enum member completion includes value in detail', () => {
     const src = [
@@ -635,5 +988,152 @@ describe('completion for enum members shows value in detail', () => {
     if (redItem) {
       expect(redItem.detail).toContain('0');
     }
+  });
+});
+
+describe('INTERFACE in same-file flat completion', () => {
+  const ifaceSrc = [
+    'INTERFACE I_Device',
+    '  METHOD Execute : BOOL',
+    '  END_METHOD',
+    'END_INTERFACE',
+    'PROGRAM Main',
+    'VAR',
+    '  dev : I_',
+    'END_VAR',
+    'END_PROGRAM',
+  ].join('\n');
+
+  it('includes INTERFACE declared in the same file', () => {
+    const doc = makeDoc(ifaceSrc);
+    // Cursor on line 6 after "  dev : I_"
+    const items = handleCompletion(makeParams(doc.uri, 6, 10), doc);
+    const labels = items.map(i => i.label);
+    expect(labels).toContain('I_Device');
+  });
+
+  it('assigns Interface kind to same-file INTERFACE', () => {
+    const doc = makeDoc(ifaceSrc);
+    const items = handleCompletion(makeParams(doc.uri, 6, 10), doc);
+    const ifaceItem = items.find(i => i.label === 'I_Device');
+    expect(ifaceItem).toBeDefined();
+    expect(ifaceItem?.kind).toBe(CompletionItemKind.Interface);
+  });
+});
+
+describe('INTERFACE dot-member completion (same-file)', () => {
+  const ifaceDotSrc = [
+    'INTERFACE I_Motor',
+    '',
+    'METHOD Start : BOOL',
+    'END_METHOD',
+    '',
+    'METHOD Stop',
+    'END_METHOD',
+    '',
+    'PROPERTY Speed : INT',
+    'END_PROPERTY',
+    '',
+    'END_INTERFACE',
+    '',
+    'FUNCTION_BLOCK FB_Test',
+    'VAR',
+    '  motor : I_Motor;',
+    'END_VAR',
+    '  motor.',
+    'END_FUNCTION_BLOCK',
+  ].join('\n');
+  // cursor at line 17, character 8 (after '  motor.' — line length is 8)
+
+  it('returns method Start for interface-typed variable', () => {
+    const doc = makeDoc(ifaceDotSrc);
+    const items = handleCompletion(makeParams(doc.uri, 17, 8), doc);
+    const labels = items.map(i => i.label);
+    expect(labels).toContain('Start');
+  });
+
+  it('returns method Stop for interface-typed variable', () => {
+    const doc = makeDoc(ifaceDotSrc);
+    const items = handleCompletion(makeParams(doc.uri, 17, 8), doc);
+    const labels = items.map(i => i.label);
+    expect(labels).toContain('Stop');
+  });
+
+  it('returns property Speed for interface-typed variable', () => {
+    const doc = makeDoc(ifaceDotSrc);
+    const items = handleCompletion(makeParams(doc.uri, 17, 8), doc);
+    const labels = items.map(i => i.label);
+    expect(labels).toContain('Speed');
+  });
+
+  it('method item has Method kind', () => {
+    const doc = makeDoc(ifaceDotSrc);
+    const items = handleCompletion(makeParams(doc.uri, 17, 8), doc);
+    const startItem = items.find(i => i.label === 'Start');
+    expect(startItem).toBeDefined();
+    expect(startItem?.kind).toBe(CompletionItemKind.Method);
+  });
+
+  it('property item has Property kind', () => {
+    const doc = makeDoc(ifaceDotSrc);
+    const items = handleCompletion(makeParams(doc.uri, 17, 8), doc);
+    const speedItem = items.find(i => i.label === 'Speed');
+    expect(speedItem).toBeDefined();
+    expect(speedItem?.kind).toBe(CompletionItemKind.Property);
+  });
+
+  it('does not return flat keywords in interface dot-access context', () => {
+    const doc = makeDoc(ifaceDotSrc);
+    const items = handleCompletion(makeParams(doc.uri, 17, 8), doc);
+    const labels = items.map(i => i.label);
+    expect(labels).not.toContain('IF');
+    expect(labels).not.toContain('WHILE');
+  });
+});
+
+describe('INTERFACE EXTENDS chain dot-member completion', () => {
+  const extendsDotSrc = [
+    'INTERFACE I_Base',
+    '',
+    'METHOD BaseMethod : BOOL',
+    'END_METHOD',
+    '',
+    'END_INTERFACE',
+    '',
+    'INTERFACE I_Child EXTENDS I_Base',
+    '',
+    'METHOD ChildMethod',
+    'END_METHOD',
+    '',
+    'END_INTERFACE',
+    '',
+    'FUNCTION_BLOCK FB_Test',
+    'VAR',
+    '  child : I_Child;',
+    'END_VAR',
+    '  child.',
+    'END_FUNCTION_BLOCK',
+  ].join('\n');
+  // cursor at line 18, character 8 (after '  child.' — line length is 8)
+
+  it('returns ChildMethod from I_Child itself', () => {
+    const doc = makeDoc(extendsDotSrc);
+    const items = handleCompletion(makeParams(doc.uri, 18, 8), doc);
+    const labels = items.map(i => i.label);
+    expect(labels).toContain('ChildMethod');
+  });
+
+  it('returns BaseMethod inherited via EXTENDS from I_Base', () => {
+    const doc = makeDoc(extendsDotSrc);
+    const items = handleCompletion(makeParams(doc.uri, 18, 8), doc);
+    const labels = items.map(i => i.label);
+    expect(labels).toContain('BaseMethod');
+  });
+
+  it('does not return flat keywords in EXTENDS-chain dot context', () => {
+    const doc = makeDoc(extendsDotSrc);
+    const items = handleCompletion(makeParams(doc.uri, 18, 8), doc);
+    const labels = items.map(i => i.label);
+    expect(labels).not.toContain('IF');
   });
 });

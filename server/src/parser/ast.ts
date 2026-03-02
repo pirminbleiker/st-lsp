@@ -94,6 +94,7 @@ export interface FunctionDeclaration extends AstNode {
 export interface GvlDeclaration extends AstNode {
   kind: 'GvlDeclaration';
   varBlocks: VarBlock[];
+  name?: string;
 }
 
 // ---------------------------------------------------------------------------

@@ -279,6 +279,24 @@ export function findNodeAtPosition(ast: SourceFile, line: number, character: num
         for (const arg of e.args) { const a = visit(arg.value); if (a) deepest = a; }
         break;
       }
+
+      case 'InterfaceDeclaration': {
+        const iface = node as import('../parser/ast').InterfaceDeclaration;
+        for (const method of iface.methods) {
+          const child = visit(method); if (child) deepest = child;
+        }
+        for (const prop of iface.properties) {
+          const child = visit(prop); if (child) deepest = child;
+        }
+        break;
+      }
+
+      case 'PropertyDeclaration': {
+        const pd = node as import('../parser/ast').PropertyDeclaration;
+        const typeChild = visit(pd.type);
+        if (typeChild) deepest = typeChild;
+        break;
+      }
     }
 
     return deepest;

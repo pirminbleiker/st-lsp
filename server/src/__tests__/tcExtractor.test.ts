@@ -3,7 +3,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { extractST, getXmlRanges, ExtractionResult, PositionMapper } from '../twincat/tcExtractor';
 import { parse } from '../parser/parser';
-import type { FunctionBlockDeclaration } from '../parser/ast';
+import type { FunctionBlockDeclaration, InterfaceDeclaration } from '../parser/ast';
 import { TextDocument } from 'vscode-languageserver-textdocument';
 import { FoldingRangeKind } from 'vscode-languageserver/node';
 import { handleFoldingRanges } from '../handlers/foldingRange';
@@ -292,6 +292,23 @@ describe('.TcGVL extraction', () => {
     expect(r.passthrough).toBe(false);
     expect(r.sections[0].content).toContain('VAR_GLOBAL');
   });
+
+  it('returns containerName from GVL Name attribute', () => {
+    const xml = [
+      '<?xml version="1.0" encoding="utf-8"?>',
+      '<TcPlcObject Version="1.1.0.1">',
+      '  <GVL Name="GVL_Test">',
+      '    <Declaration><![CDATA[VAR_GLOBAL',
+      '  gCounter : INT;',
+      'END_VAR',
+      ']]></Declaration>',
+      '  </GVL>',
+      '</TcPlcObject>',
+    ].join('\n');
+
+    const r = extractST(xml, '.tcgvl');
+    expect(r.containerName).toBe('GVL_Test');
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -363,10 +380,14 @@ describe('.TcIO extraction', () => {
     ].join('\n');
 
     const r = extractST(xml, '.TcIO');
-    expect(r.sections).toHaveLength(1);
+    // interface decl section + method section
+    expect(r.sections).toHaveLength(2);
     expect(r.sections[0].content).toContain('INTERFACE I_Foo');
-    // Method declarations should NOT appear in the top-level extraction
-    expect(r.sections[0].content).not.toContain('DoSomething');
+    // Method declarations ARE extracted as separate sections
+    expect(r.sections[1].content).toContain('DoSomething');
+    expect(r.source).toContain('METHOD');
+    expect(r.source).toContain('END_METHOD');
+    expect(r.source).toContain('END_INTERFACE');
   });
 });
 
@@ -674,9 +695,11 @@ describe('real-world mobject-core fixtures', () => {
       expect(result.sections[0].content).toContain('INTERFACE I_Disposable');
     });
 
-    it('does not include nested method declarations', () => {
-      // The method "Dispose" has its own <Declaration> — must not appear here
-      expect(result.sections[0].content).not.toContain('METHOD PUBLIC Dispose');
+    it('includes nested method declarations as separate sections', () => {
+      // The method "Dispose" is extracted as its own section
+      expect(result.source).toContain('METHOD PUBLIC Dispose');
+      expect(result.source).toContain('END_METHOD');
+      expect(result.source).toContain('END_INTERFACE');
     });
   });
 
@@ -692,6 +715,38 @@ describe('real-world mobject-core fixtures', () => {
 
     it('lineMap covers the full source', () => {
       expect(result.lineMap).toHaveLength(result.source.split('\n').length);
+    });
+
+    it('extracts methods AddAfter, AddBefore, AddFirst, AddLast', () => {
+      expect(result.source).toContain('METHOD PUBLIC AddAfter');
+      expect(result.source).toContain('METHOD PUBLIC AddBefore');
+      expect(result.source).toContain('METHOD PUBLIC AddFirst');
+      expect(result.source).toContain('METHOD PUBLIC AddLast');
+    });
+
+    it('extracts properties First and Last', () => {
+      expect(result.source).toContain('PROPERTY PUBLIC First');
+      expect(result.source).toContain('PROPERTY PUBLIC Last');
+    });
+
+    it('source contains END_METHOD, END_PROPERTY, and END_INTERFACE', () => {
+      expect(result.source).toContain('END_METHOD');
+      expect(result.source).toContain('END_PROPERTY');
+      expect(result.source).toContain('END_INTERFACE');
+    });
+  });
+
+  describe('I_LinkedList.TcIO round-trip through parser', () => {
+    it('should round-trip TcIO through parser with methods and properties populated', () => {
+      const xml = fixture('I_LinkedList.TcIO');
+      const result = extractST(xml, '.TcIO');
+      const { ast } = parse(result.source);
+      const iface = ast.declarations.find(
+        (d): d is InterfaceDeclaration => d.kind === 'InterfaceDeclaration',
+      );
+      expect(iface).toBeDefined();
+      expect(iface!.methods.length).toBeGreaterThan(0);
+      expect(iface!.properties.length).toBeGreaterThan(0);
     });
   });
 });

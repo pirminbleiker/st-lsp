@@ -1,0 +1,12 @@
+{
+	"servers": {
+		"mcp-agent-mail": {
+			"url": "http://localhost:8766/mcp/",
+			"type": "http",
+            "headers": {
+                "Authorization": "Bearer divX3kMCv5vretGkCVwqlvAe7l0aGf7NcvWtRjkLNJQ="
+            }
+		}
+	},
+	"inputs": []
+}

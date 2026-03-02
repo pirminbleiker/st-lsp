@@ -207,6 +207,32 @@ const KEYWORDS: ReadonlyMap<string, TokenKind> = new Map([
   ['PERSISTENT', TokenKind.PERSISTENT],
 ]);
 
+const DATE_TIME_TYPED_PREFIXES = new Set([
+  'DATE',
+  'D',
+  'DT',
+  'DATE_AND_TIME',
+  'TOD',
+  'TIME_OF_DAY',
+  'TIME',
+  'T',
+  'LTIME',
+  'LDT',
+  'LTOD',
+  'LDATE',
+]);
+
+const DASH_SEPARATED_DATE_TIME_TYPED_PREFIXES = new Set([
+  'DATE',
+  'D',
+  'DT',
+  'DATE_AND_TIME',
+  'LDT',
+  'LDATE',
+]);
+
+const REAL_TYPED_PREFIXES = new Set(['REAL', 'LREAL']);
+
 export interface Token {
   kind: TokenKind;
   text: string;
@@ -466,17 +492,41 @@ export class Lexer {
     // Typed literals: INT#16, TIME#1s500ms, BOOL#TRUE, etc.
     if (this.peek() === '#') {
       this.advance(); // consume '#'
+      const typePrefix = text.toUpperCase();
+      const isDateTimeLike = DATE_TIME_TYPED_PREFIXES.has(typePrefix);
+      const isDashSeparatedDateTimeLike = DASH_SEPARATED_DATE_TIME_TYPED_PREFIXES.has(typePrefix);
+      const isRealLike = REAL_TYPED_PREFIXES.has(typePrefix);
       let suffix = '';
       while (this.pos < this.src.length) {
         const c = this.peek();
+        const prev = suffix[suffix.length - 1] ?? '';
+        const atSuffixStart = suffix.length === 0;
+
         if (isIdentContinue(c) || c === '.' || c === '_') {
+          suffix += this.advance();
+        } else if (c === '#') {
+          suffix += this.advance();
+        } else if (c === ':') {
+          if (!isDateTimeLike) break;
+          suffix += this.advance();
+        } else if (c === '+' || c === '-') {
+          const next = this.peek(1);
+          const isUnarySign = atSuffixStart && (isIdentContinue(next) || next === '.');
+          const isExponentSign = isRealLike && (prev === 'E' || prev === 'e');
+          const isDateSeparator = c === '-'
+            && isDashSeparatedDateTimeLike
+            && !atSuffixStart
+            && !suffix.includes(':')
+            && prev >= '0' && prev <= '9'
+            && next >= '0' && next <= '9';
+          if (!isUnarySign && !isExponentSign && !isDateSeparator) break;
           suffix += this.advance();
         } else {
           break;
         }
       }
       return {
-        kind: TokenKind.INTEGER,
+        kind: isRealLike ? TokenKind.REAL : TokenKind.INTEGER,
         text: text + '#' + suffix,
         range: this.makeRange(startPos),
       };

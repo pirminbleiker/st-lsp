@@ -5,12 +5,14 @@ import {
 } from 'vscode-languageserver/node';
 import { TextDocument } from 'vscode-languageserver-textdocument';
 import {
+	ActionDeclaration,
 	AssignmentStatement,
 	BinaryExpression,
 	CallArgument,
 	CallExpression,
 	CallStatement,
 	CaseStatement,
+	EnumDeclaration,
 	Expression,
 	ForStatement,
 	FunctionBlockDeclaration,
@@ -34,7 +36,7 @@ import {
 } from '../parser/ast';
 import { BUILTIN_TYPES } from '../twincat/types';
 import { STANDARD_FBS } from '../twincat/stdlib';
-import { getLibraryFBs, getLibraryFunctions } from '../twincat/libraryRegistry';
+import { getLibraryFBs, getLibraryFunctions, getLibraryGVL } from '../twincat/libraryRegistry';
 import { SYSTEM_TYPE_NAMES, SYSTEM_FUNCTION_NAMES, TYPE_CONVERSION_NAMES } from '../twincat/systemTypes';
 import { OffsetMap } from '../twincat/tcExtractor';
 import { getOrParse } from './shared';
@@ -54,6 +56,15 @@ const ALWAYS_ALLOWED = new Set([
 const BUILTIN_TYPE_NAMES = new Set(BUILTIN_TYPES.map(t => t.name.toUpperCase()));
 const STANDARD_FB_NAMES = new Set(STANDARD_FBS.map(fb => fb.name.toUpperCase()));
 const LIBRARY_FUNCTION_NAMES = new Set(getLibraryFunctions().map(f => f.name.toUpperCase()));
+// Library namespace qualifier names (e.g. 'Tc2_Standard', 'Tc2_System') —
+// used as the base of MemberExpressions like Tc2_Standard.TON(...)
+const LIBRARY_NAMESPACE_NAMES = new Set(
+	[...getLibraryFBs(), ...getLibraryFunctions(), ...getLibraryGVL()]
+		.map(e => e.namespace.toUpperCase()),
+);
+// Library GVL container names (e.g. 'TcGENSYS', 'TcTask') used as
+// MemberExpression bases like TcGENSYS.MAIN_CYCLE_COUNT
+const LIBRARY_GVL_NAMES = new Set(getLibraryGVL().map(g => g.name.toUpperCase()));
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -67,7 +78,9 @@ function isAllowedName(name: string): boolean {
 		|| SYSTEM_TYPE_NAMES.has(upper)
 		|| SYSTEM_FUNCTION_NAMES.has(upper)
 		|| TYPE_CONVERSION_NAMES.has(upper)
-		|| LIBRARY_FUNCTION_NAMES.has(upper);
+		|| LIBRARY_FUNCTION_NAMES.has(upper)
+		|| LIBRARY_NAMESPACE_NAMES.has(upper)
+		|| LIBRARY_GVL_NAMES.has(upper);
 }
 
 /**
@@ -487,6 +500,12 @@ function runSemanticAnalysis(
 			const tdb = decl as TypeDeclarationBlock;
 			for (const td of tdb.declarations) {
 				globalNames.add(td.name.toUpperCase());
+				// Add enum member values so they can be used as plain NameExpressions
+				if (td.kind === 'EnumDeclaration') {
+					for (const ev of (td as EnumDeclaration).values) {
+						globalNames.add(ev.name.toUpperCase());
+					}
+				}
 			}
 		} else if (decl.kind === 'GvlDeclaration') {
 			const gvl = decl as GvlDeclaration;
@@ -517,6 +536,11 @@ function runSemanticAnalysis(
 					const tdb = decl as TypeDeclarationBlock;
 					for (const td of tdb.declarations) {
 						globalNames.add(td.name.toUpperCase());
+						if (td.kind === 'EnumDeclaration') {
+							for (const ev of (td as EnumDeclaration).values) {
+								globalNames.add(ev.name.toUpperCase());
+							}
+						}
 					}
 				} else if (decl.kind === 'GvlDeclaration') {
 					const gvl = decl as GvlDeclaration;
@@ -734,9 +758,32 @@ function runSemanticAnalysis(
 			}
 		});
 
-		// Also check method bodies for FunctionBlockDeclarations
+		// Also check method and action bodies for FunctionBlockDeclarations
 		if (decl.kind === 'FunctionBlockDeclaration') {
 			const fb = decl as FunctionBlockDeclaration;
+
+			// Check action bodies (actions share the FB scope — no extra var blocks)
+			for (const action of fb.actions) {
+				const actionScope = new Set<string>(scope);
+				for (const name of collectForLoopVars((action as ActionDeclaration).body)) {
+					actionScope.add(name);
+				}
+				walkStatements((action as ActionDeclaration).body, (nameExpr: NameExpression) => {
+					const upper = nameExpr.name.toUpperCase();
+					if (isAllowedName(nameExpr.name)) return;
+					if (actionScope.has(upper)) return;
+					diagnostics.push({
+						severity: DiagnosticSeverity.Error,
+						range: {
+							start: { line: nameExpr.range.start.line, character: nameExpr.range.start.character },
+							end:   { line: nameExpr.range.end.line,   character: nameExpr.range.end.character },
+						},
+						message: `Undefined identifier '${nameExpr.name}'`,
+						source: 'st-lsp',
+					});
+				});
+			}
+
 			for (const method of fb.methods) {
 				// Build method scope: FB scope + method's own vars
 				const methodScope = new Set<string>(scope);
@@ -933,6 +980,39 @@ function applyOffsets(diagnostics: Diagnostic[], offsets: OffsetMap): Diagnostic
 			},
 		},
 	}));
+}
+
+/**
+ * Publish diagnostics for a workspace file that is NOT open in the editor,
+ * using the cached parse result from WorkspaceIndex.
+ */
+export function validateUri(connection: Connection, uri: string, workspaceIndex: WorkspaceIndex): void {
+	const cached = workspaceIndex.getAst(uri);
+	if (!cached) return;
+	const { ast, errors, extraction } = cached;
+
+	const offsetMap: OffsetMap = {};
+	extraction.lineMap.forEach((originalLine, extractedLine) => {
+		offsetMap[extractedLine] = originalLine;
+	});
+
+	const parseDiags: Diagnostic[] = errors.map(err => ({
+		severity: DiagnosticSeverity.Error,
+		range: {
+			start: { line: err.range.start.line, character: err.range.start.character },
+			end:   { line: err.range.end.line,   character: err.range.end.character },
+		},
+		message: err.message,
+		source: 'st-lsp',
+	}));
+
+	const libraryRefs = workspaceIndex.getLibraryRefs(uri);
+	const semanticDiags = errors.length === 0
+		? runSemanticAnalysis(ast, libraryRefs, workspaceIndex, uri)
+		: [];
+
+	const diagnostics = applyOffsets([...parseDiags, ...semanticDiags], offsetMap);
+	connection.sendDiagnostics({ uri, diagnostics });
 }
 
 export function validateDocument(connection: Connection, document: TextDocument, workspaceIndex?: WorkspaceIndex): void {

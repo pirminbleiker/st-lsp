@@ -75,6 +75,11 @@ export interface ExtractionResult {
    * In this case source === original content and lineMap[n] === n.
    */
   passthrough: boolean;
+  /**
+   * The name of the container element (POU, GVL, DUT, etc.) as found in the
+   * XML `Name` attribute.  Undefined for passthrough (.st) files.
+   */
+  containerName?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -141,6 +146,7 @@ interface TopLevelExtractionData {
   methods: RawMethodData[];
   properties: RawPropertyData[];
   actions: RawCData[];
+  containerName?: string;
 }
 
 /**
@@ -165,6 +171,10 @@ function extractTopLevelCDATAs(xml: string): TopLevelExtractionData {
   const containerMatch = containerRe.exec(xml);
   if (!containerMatch) return empty;
 
+  // Extract the Name attribute from the container opening tag.
+  const nameMatch = /\bName="([^"]+)"/i.exec(containerMatch[0]);
+  const containerName = nameMatch ? nameMatch[1] : undefined;
+
   const containerStart = containerMatch.index;
   const containerTagName = containerMatch[1];
 
@@ -182,12 +192,15 @@ function extractTopLevelCDATAs(xml: string): TopLevelExtractionData {
   const topImpl = extractImplementationCData(xml, body, containerStart);
 
   // For POU containers, also extract Method, Property and Action children.
+  // ITF containers also have Methods and Properties but not Actions.
   const isPOU = containerTagName.toUpperCase() === 'POU';
-  const methods = isPOU ? extractMethodCDATAs(xml, body, containerStart) : [];
-  const properties = isPOU ? extractPropertyCDATAs(xml, body, containerStart) : [];
+  const isItf = containerTagName.toUpperCase() === 'ITF';
+  const hasMembers = isPOU || isItf;
+  const methods = hasMembers ? extractMethodCDATAs(xml, body, containerStart) : [];
+  const properties = hasMembers ? extractPropertyCDATAs(xml, body, containerStart) : [];
   const actions = isPOU ? extractActionCDATAs(xml, body, containerStart) : [];
 
-  return { topDecl, topImpl, methods, properties, actions };
+  return { topDecl, topImpl, methods, properties, actions, containerName };
 }
 
 /**
@@ -460,10 +473,10 @@ function extractMethodCDATAs(
  * Build an ExtractionResult from structured top-level extraction data.
  */
 function buildResult(data: TopLevelExtractionData): ExtractionResult {
-  const { topDecl, topImpl, methods, properties, actions } = data;
+  const { topDecl, topImpl, methods, properties, actions, containerName } = data;
 
   if (!topDecl && !topImpl && methods.length === 0 && properties.length === 0 && actions.length === 0) {
-    return { source: '', lineMap: [], sections: [], passthrough: false };
+    return { source: '', lineMap: [], sections: [], passthrough: false, containerName };
   }
 
   const sections: ExtractedSection[] = [];
@@ -610,6 +623,7 @@ function buildResult(data: TopLevelExtractionData): ExtractionResult {
     lineMap,
     sections,
     passthrough: false,
+    containerName,
   };
 }
 

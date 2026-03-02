@@ -60,6 +60,13 @@ export function getOrParse(document: TextDocument): DocumentParseResult {
   const extraction = extractST(text, ext);
   const mapper = new PositionMapper(extraction);
   const { ast, errors } = parse(extraction.source);
+  if (extraction.containerName) {
+    for (const decl of ast.declarations) {
+      if (decl.kind === 'GvlDeclaration') {
+        decl.name = extraction.containerName;
+      }
+    }
+  }
   const entry = { version: document.version, extraction, mapper, ast, errors, _text: text };
   documentParseCache.set(uri, entry);
   return entry;

@@ -38,7 +38,7 @@ import {
 
 import { TextDocument } from 'vscode-languageserver-textdocument';
 import { handleHover } from './handlers/hover';
-import { validateDocument } from './handlers/diagnostics';
+import { validateDocument, validateUri } from './handlers/diagnostics';
 import { handleDefinition } from './handlers/definition';
 import { handleCompletion } from './handlers/completion';
 import { handleDocumentSymbols } from './handlers/documentSymbols';
@@ -81,6 +81,7 @@ connection.onInitialize((params: InitializeParams): InitializeResult => {
 		workspaceIndex.on('error', (err) =>
 			connection.console.warn('Workspace index: ' + (err as Error).message),
 		);
+		workspaceIndex.on('change', () => validateAllWorkspaceFiles());
 	}
 
 	const result: InitializeResult = {
@@ -132,6 +133,16 @@ connection.onInitialize((params: InitializeParams): InitializeResult => {
 	return result;
 });
 
+function validateAllWorkspaceFiles(): void {
+	if (!workspaceIndex) return;
+	for (const uri of workspaceIndex.getProjectFiles()) {
+		// Skip files that are open in the editor — onDidOpen / onDidChangeContent handle those
+		if (!documents.get(uri)) {
+			validateUri(connection, uri, workspaceIndex);
+		}
+	}
+}
+
 connection.onInitialized(() => {
 	if (hasConfigurationCapability) {
 		connection.client.register(DidChangeConfigurationNotification.type, undefined);
@@ -141,6 +152,10 @@ connection.onInitialized(() => {
 			connection.console.log('Workspace folder change event received.');
 		});
 	}
+	// Publish diagnostics for all workspace files that are not yet open in the editor.
+	// The initial WorkspaceIndex scan fires 'change' synchronously inside onInitialize
+	// (before the listener in onInitialized is wired up), so we push once here as well.
+	validateAllWorkspaceFiles();
 });
 
 connection.onCompletion(

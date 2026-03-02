@@ -196,6 +196,58 @@ function findSuperMemberDeclaration(
 }
 
 /**
+ * Find a method or property named `memberName` in the interface named `ifaceName`,
+ * walking the EXTENDS chain recursively up to `maxDepth`.
+ * Returns `{ uri, node }` for the matching declaration or null.
+ */
+function findInterfaceMemberDeclaration(
+  ifaceName: string,
+  memberName: string,
+  localDeclarations: TopLevelDeclaration[],
+  workspaceFiles: Array<{ uri: string; declarations: TopLevelDeclaration[] }>,
+  currentUri: string,
+  depth: number,
+): { uri: string; node: { range: { start: Position; end: Position } } } | null {
+  if (depth <= 0) return null;
+
+  const upperIface = ifaceName.toUpperCase();
+  const upperMember = memberName.toUpperCase();
+
+  const allSources: Array<{ uri: string; declarations: TopLevelDeclaration[] }> = [
+    { uri: currentUri, declarations: localDeclarations },
+    ...workspaceFiles,
+  ];
+
+  for (const { uri, declarations } of allSources) {
+    for (const decl of declarations) {
+      if (decl.kind !== 'InterfaceDeclaration') continue;
+      const iface = decl as InterfaceDeclaration;
+      if (iface.name.toUpperCase() !== upperIface) continue;
+
+      // Search methods
+      const method = iface.methods.find(m => m.name.toUpperCase() === upperMember);
+      if (method) return { uri, node: method };
+
+      // Search properties
+      const prop = iface.properties.find(p => p.name.toUpperCase() === upperMember);
+      if (prop) return { uri, node: prop };
+
+      // Walk EXTENDS chain
+      for (const extendsRef of iface.extendsRefs) {
+        const found = findInterfaceMemberDeclaration(
+          extendsRef.name, memberName, localDeclarations, workspaceFiles, currentUri, depth - 1,
+        );
+        if (found) return found;
+      }
+
+      return null;
+    }
+  }
+
+  return null;
+}
+
+/**
  * Find the enclosing FUNCTION_BLOCK declaration's `extends` field at `pos`.
  */
 function getEnclosingFbExtends(ast: SourceFile, pos: Position): string | null {
@@ -425,6 +477,13 @@ export function handleDefinition(
         const prop = fb.properties.find(p => p.name.toUpperCase() === memberName.toUpperCase());
         if (prop) return toLocation(srcUri, prop, srcUri === uri ? mapper : mapperForUri(srcUri, workspaceIndex));
       }
+    }
+    // Also search InterfaceDeclaration (for interface-typed variables, including EXTENDS chain)
+    const ifaceFound = findInterfaceMemberDeclaration(
+      fbTypeName, memberName, ast.declarations, wsFiles, uri, 10,
+    );
+    if (ifaceFound) {
+      return toLocation(ifaceFound.uri, ifaceFound.node, ifaceFound.uri === uri ? mapper : mapperForUri(ifaceFound.uri, workspaceIndex));
     }
     return null;
   }

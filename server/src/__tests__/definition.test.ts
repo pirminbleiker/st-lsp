@@ -476,6 +476,102 @@ END_PROGRAM
       expect(result).toBeNull();
     });
   });
+
+  // ---------------------------------------------------------------------------
+  // Interface instance member access (myIntf.Method / myIntf.Property)
+  // ---------------------------------------------------------------------------
+  describe('Interface instance member access', () => {
+    it('navigates to METHOD when cursor is on the member name of an interface-typed variable', () => {
+      const src = `INTERFACE I_Motor
+METHOD Start : BOOL
+END_METHOD
+END_INTERFACE
+
+PROGRAM Main
+VAR
+  myIntf : I_Motor;
+END_VAR
+  myIntf.Start();
+END_PROGRAM
+`;
+      const doc = makeDoc(src);
+      const callPos = findPos(src, 'myIntf.Start');
+      const memberPos = { line: callPos.line, character: callPos.character + 'myIntf.'.length + 1 };
+      const result = handleDefinition(makeParams(doc.uri, memberPos.line, memberPos.character), doc, undefined);
+      expect(result).not.toBeNull();
+      const methodDecl = findPos(src, 'METHOD Start');
+      expect(result?.range.start.line).toBe(methodDecl.line);
+    });
+
+    it('navigates to PROPERTY when cursor is on the property name of an interface-typed variable', () => {
+      const src = `INTERFACE I_Motor
+METHOD Start : BOOL
+END_METHOD
+PROPERTY Value : INT
+END_PROPERTY
+END_INTERFACE
+
+PROGRAM Main
+VAR
+  myIntf : I_Motor;
+END_VAR
+  dummy := myIntf.Value;
+END_PROGRAM
+`;
+      const doc = makeDoc(src);
+      const callPos = findPos(src, 'myIntf.Value');
+      const memberPos = { line: callPos.line, character: callPos.character + 'myIntf.'.length + 1 };
+      const result = handleDefinition(makeParams(doc.uri, memberPos.line, memberPos.character), doc, undefined);
+      expect(result).not.toBeNull();
+      const propDecl = findPos(src, 'PROPERTY Value');
+      expect(result?.range.start.line).toBe(propDecl.line);
+    });
+
+    it('navigates to METHOD declared in parent interface via EXTENDS chain', () => {
+      const src = `INTERFACE I_Base
+METHOD Run : BOOL
+END_METHOD
+END_INTERFACE
+
+INTERFACE I_Child EXTENDS I_Base
+END_INTERFACE
+
+PROGRAM Main
+VAR
+  myIntf : I_Child;
+END_VAR
+  myIntf.Run();
+END_PROGRAM
+`;
+      const doc = makeDoc(src);
+      const callPos = findPos(src, 'myIntf.Run');
+      const memberPos = { line: callPos.line, character: callPos.character + 'myIntf.'.length + 1 };
+      const result = handleDefinition(makeParams(doc.uri, memberPos.line, memberPos.character), doc, undefined);
+      expect(result).not.toBeNull();
+      const methodDecl = findPos(src, 'METHOD Run');
+      expect(result?.range.start.line).toBe(methodDecl.line);
+    });
+
+    it('returns null when member does not exist on interface', () => {
+      const src = `INTERFACE I_Motor
+METHOD Start : BOOL
+END_METHOD
+END_INTERFACE
+
+PROGRAM Main
+VAR
+  myIntf : I_Motor;
+END_VAR
+  myIntf.NoSuchMethod();
+END_PROGRAM
+`;
+      const doc = makeDoc(src);
+      const callPos = findPos(src, 'myIntf.NoSuchMethod');
+      const memberPos = { line: callPos.line, character: callPos.character + 'myIntf.'.length + 1 };
+      const result = handleDefinition(makeParams(doc.uri, memberPos.line, memberPos.character), doc, undefined);
+      expect(result).toBeNull();
+    });
+  });
 });
 
 describe('TcPOU position mapping', () => {

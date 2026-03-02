@@ -10,6 +10,7 @@ import {
   ProgramDeclaration,
   FunctionBlockDeclaration,
   FunctionDeclaration,
+  GvlDeclaration,
   VarDeclaration,
   Position,
   SourceFile,
@@ -55,6 +56,9 @@ const KEYWORDS = [
   'AND', 'OR', 'XOR', 'NOT',
   'MOD', 'ABS', 'TRUNC',
 ];
+
+/** VAR kinds visible to external callers of a FUNCTION_BLOCK. */
+const EXTERNAL_VISIBLE_VAR_KINDS = new Set(['VAR_INPUT', 'VAR_OUTPUT', 'VAR_IN_OUT']);
 
 /**
  * Position helper: check if pos is within [start, end]
@@ -104,8 +108,8 @@ function getIdentifierBeforeDot(text: string, line: number, character: number): 
   if (character === 0 || lineText[character - 1] !== '.') return null;
 
   let i = character - 2;
-  while (i >= 0 && /[a-zA-Z0-9_.]/.test(lineText[i])) i--;
-  const ident = lineText.slice(i + 1, character - 1);
+  while (i >= 0 && /[a-zA-Z0-9_.^]/.test(lineText[i])) i--;
+  const ident = lineText.slice(i + 1, character - 1).replace(/\^/g, '');
   return ident.length > 0 ? ident : null;
 }
 
@@ -185,8 +189,8 @@ function getIdentifierBeforeDotInLines(lines: string[], line: number, character:
   const lineText = lines[line];
   if (character === 0 || lineText[character - 1] !== '.') return null;
   let i = character - 2;
-  while (i >= 0 && /[a-zA-Z0-9_.]/.test(lineText[i])) i--;
-  const ident = lineText.slice(i + 1, character - 1);
+  while (i >= 0 && /[a-zA-Z0-9_.^]/.test(lineText[i])) i--;
+  const ident = lineText.slice(i + 1, character - 1).replace(/\^/g, '');
   return ident.length > 0 ? ident : null;
 }
 
@@ -484,7 +488,22 @@ function findMemberType(
               (typeDecl as AliasDeclaration).type.name, memberName, declarations, currentUri, workspaceIndex, visited,
             );
           }
+          if (typeDecl.kind === 'UnionDeclaration' && typeDecl.name.toUpperCase() === upperTypeName) {
+            const union = typeDecl as UnionDeclaration;
+            const field = union.fields.find(f => f.name.toUpperCase() === upperMemberName);
+            if (field) return field.type.name;
+            return null;
+          }
         }
+      }
+      if (decl.kind === 'ProgramDeclaration') {
+        const prog = decl as ProgramDeclaration;
+        if (prog.name.toUpperCase() !== upperTypeName) continue;
+        for (const vb of prog.varBlocks) {
+          const vd = vb.declarations.find(v => v.name.toUpperCase() === upperMemberName);
+          if (vd) return vd.type.name;
+        }
+        return null;
       }
     }
   }
@@ -518,6 +537,7 @@ function getMembersFromDeclarations(
 
         const items: CompletionItem[] = [];
         for (const vb of fb.varBlocks) {
+          if (!EXTERNAL_VISIBLE_VAR_KINDS.has(vb.varKind)) continue;
           for (const vd of vb.declarations) {
             items.push({ label: vd.name, kind: CompletionItemKind.Field, detail: vd.type.name });
           }
@@ -600,7 +620,28 @@ function getMembersFromDeclarations(
               (typeDecl as AliasDeclaration).type.name, declarations, currentUri, workspaceIndex, visited,
             );
           }
+          if (typeDecl.kind === 'UnionDeclaration' && typeDecl.name.toUpperCase() === upperName) {
+            const union = typeDecl as UnionDeclaration;
+            return union.fields.map(f => ({
+              label: f.name,
+              kind: CompletionItemKind.Field,
+              detail: f.type.name,
+            }));
+          }
         }
+      }
+      if (decl.kind === 'ProgramDeclaration') {
+        const prog = decl as ProgramDeclaration;
+        if (prog.name.toUpperCase() !== upperName) continue;
+        const items: CompletionItem[] = [];
+        for (const vb of prog.varBlocks) {
+          if (vb.varKind === 'VAR_OUTPUT' || vb.varKind === 'VAR_IN_OUT') {
+            for (const vd of vb.declarations) {
+              items.push({ label: vd.name, kind: CompletionItemKind.Field, detail: vd.type.name });
+            }
+          }
+        }
+        return items;
       }
     }
   }
@@ -633,7 +674,69 @@ function getDotAccessMembers(
   if (vd) {
     typeName = vd.type.name;
   } else {
-    // Not a local variable — treat as a direct type name (e.g. enum static access)
+    // Check if parts[0] matches a named GVL across all declaration sets
+    for (const declSet of collectAllDeclSets(declarations, currentUri, workspaceIndex)) {
+      for (const d of declSet) {
+        if (d.kind !== 'GvlDeclaration') continue;
+        const gvl = d as GvlDeclaration;
+        if (!gvl.name || gvl.name.toUpperCase() !== parts[0].toUpperCase()) continue;
+
+        // Collect all GVL variables
+        const gvlVars: VarDeclaration[] = [];
+        for (const vb of gvl.varBlocks) {
+          gvlVars.push(...vb.declarations);
+        }
+
+        if (parts.length === 1) {
+          // Return all GVL variables as completion items
+          return gvlVars.map(v => ({
+            label: v.name,
+            kind: CompletionItemKind.Variable,
+            detail: v.type.name,
+          }));
+        }
+
+        // Resolve chain starting from parts[1] within the GVL's vars
+        const gvlVar = gvlVars.find(v => v.name.toUpperCase() === parts[1].toUpperCase());
+        if (!gvlVar) continue; // member not in this GVL, keep searching
+
+        let innerTypeName = gvlVar.type.name;
+        for (let i = 2; i < parts.length; i++) {
+          const memberName = parts[i];
+          const innerStdFb = findStandardFB(innerTypeName);
+          if (innerStdFb) {
+            const param = [...innerStdFb.inputs, ...innerStdFb.outputs].find(p => p.name.toUpperCase() === memberName.toUpperCase());
+            if (!param?.type) return null;
+            innerTypeName = param.type;
+            continue;
+          }
+          const memberType = findMemberType(innerTypeName, memberName, declarations, currentUri, workspaceIndex);
+          if (!memberType) return null;
+          innerTypeName = memberType;
+        }
+
+        const innerStdFb = findStandardFB(innerTypeName);
+        if (innerStdFb) {
+          return [
+            ...innerStdFb.inputs.map(i => ({
+              label: i.name,
+              kind: CompletionItemKind.Field,
+              detail: i.type,
+              documentation: i.description,
+            })),
+            ...innerStdFb.outputs.map(o => ({
+              label: o.name,
+              kind: CompletionItemKind.Field,
+              detail: o.type,
+              documentation: o.description,
+            })),
+          ];
+        }
+        return getMembersFromDeclarations(innerTypeName, declarations, currentUri, workspaceIndex);
+      }
+    }
+
+    // Not a local variable or GVL — treat as a direct type name (e.g. enum static access)
     if (parts.length === 1) {
       const enumDecl = findEnumDeclaration(parts[0], declarations, currentUri, workspaceIndex);
       if (enumDecl) {
@@ -652,9 +755,9 @@ function getDotAccessMembers(
     const memberName = parts[i];
     const stdFb = findStandardFB(typeName);
     if (stdFb) {
-      const output = stdFb.outputs.find(o => o.name.toUpperCase() === memberName.toUpperCase());
-      if (!output?.type) return null;
-      typeName = output.type;
+      const param = [...stdFb.inputs, ...stdFb.outputs].find(p => p.name.toUpperCase() === memberName.toUpperCase());
+      if (!param?.type) return null;
+      typeName = param.type;
       continue;
     }
     const memberType = findMemberType(typeName, memberName, declarations, currentUri, workspaceIndex);
@@ -665,12 +768,20 @@ function getDotAccessMembers(
   // Return members of the resolved type
   const stdFb = findStandardFB(typeName);
   if (stdFb) {
-    return stdFb.outputs.map(o => ({
-      label: o.name,
-      kind: CompletionItemKind.Field,
-      detail: o.type,
-      documentation: o.description,
-    }));
+    return [
+      ...stdFb.inputs.map(i => ({
+        label: i.name,
+        kind: CompletionItemKind.Field,
+        detail: i.type,
+        documentation: i.description,
+      })),
+      ...stdFb.outputs.map(o => ({
+        label: o.name,
+        kind: CompletionItemKind.Field,
+        detail: o.type,
+        documentation: o.description,
+      })),
+    ];
   }
 
   return getMembersFromDeclarations(typeName, declarations, currentUri, workspaceIndex);
@@ -718,6 +829,32 @@ export function handleCompletion(
   // the members of the resolved type rather than the flat keyword/type list.
   const identBeforeDot = getIdentifierBeforeDotInLines(stLines, stCodeLine.line, stCodeLine.char);
   if (identBeforeDot !== null) {
+    // Special case: THIS (or THIS^ after caret-stripping) — return all members of the enclosing FB.
+    if (identBeforeDot.toUpperCase() === 'THIS') {
+      for (const decl of ast.declarations) {
+        if (decl.kind !== 'FunctionBlockDeclaration') continue;
+        const fb = decl as FunctionBlockDeclaration;
+        if (!positionContains(fb.range.start, fb.range.end, pos)) continue;
+        const thisItems: CompletionItem[] = [];
+        for (const vb of fb.varBlocks) {
+          for (const vd of vb.declarations) {
+            thisItems.push({ label: vd.name, kind: CompletionItemKind.Variable, detail: vd.type.name });
+          }
+        }
+        for (const method of fb.methods) {
+          thisItems.push({ label: method.name, kind: CompletionItemKind.Method });
+        }
+        for (const prop of fb.properties) {
+          thisItems.push({ label: prop.name, kind: CompletionItemKind.Property });
+        }
+        for (const action of fb.actions) {
+          thisItems.push({ label: action.name, kind: CompletionItemKind.Method, detail: 'ACTION' });
+        }
+        return thisItems;
+      }
+      return [];
+    }
+
     const vars = collectVarDeclarations(ast.declarations, pos);
     const members = getDotAccessMembers(
       identBeforeDot, vars.map(v => v.vd), ast.declarations, params.textDocument.uri, workspaceIndex,
@@ -799,6 +936,21 @@ export function handleCompletion(
     });
   }
 
+  // 4a. Global variables from GVL blocks in the current file
+  for (const decl of ast.declarations) {
+    if (decl.kind !== 'GvlDeclaration') continue;
+    const gvl = decl as GvlDeclaration;
+    for (const vb of gvl.varBlocks) {
+      for (const vd of vb.declarations) {
+        items.push({
+          label: vd.name,
+          kind: CompletionItemKind.Variable,
+          detail: gvl.name ? `${vd.type.name} (from ${gvl.name})` : vd.type.name,
+        });
+      }
+    }
+  }
+
   // 5. POUs in the same file
   for (const decl of ast.declarations) {
     if (decl.kind === 'ProgramDeclaration' ||
@@ -809,23 +961,13 @@ export function handleCompletion(
         label: pou.name,
         kind: decl.kind === 'FunctionDeclaration' ? CompletionItemKind.Function : CompletionItemKind.Class,
       });
-    }
-  }
-
-  // 5a. THIS. member completion: actions and methods of the enclosing FB
-  const linePrefix = text.split('\n')[pos.line]?.slice(0, pos.character) ?? '';
-  if (/\bTHIS\s*\.\s*$/i.test(linePrefix)) {
-    for (const decl of ast.declarations) {
-      if (decl.kind !== 'FunctionBlockDeclaration') continue;
-      const fb = decl as FunctionBlockDeclaration;
-      if (!positionContains(fb.range.start, fb.range.end, pos)) continue;
-      for (const action of fb.actions) {
-        items.push({ label: action.name, kind: CompletionItemKind.Method, detail: 'ACTION' });
-      }
-      for (const method of fb.methods) {
-        items.push({ label: method.name, kind: CompletionItemKind.Method });
-      }
-      break;
+    } else if (decl.kind === 'InterfaceDeclaration') {
+      const iface = decl as InterfaceDeclaration;
+      items.push({
+        label: iface.name,
+        kind: CompletionItemKind.Interface,
+        detail: 'INTERFACE',
+      });
     }
   }
 
@@ -930,6 +1072,16 @@ export function handleCompletion(
               detail: `(from ${fileUri})`,
             });
           }
+        } else if (decl.kind === 'InterfaceDeclaration') {
+          const iface = decl as InterfaceDeclaration;
+          if (!existingLabels.has(iface.name) && (!prefix || iface.name.toUpperCase().startsWith(prefix))) {
+            existingLabels.add(iface.name);
+            items.push({
+              label: iface.name,
+              kind: CompletionItemKind.Interface,
+              detail: 'INTERFACE',
+            });
+          }
         } else if (decl.kind === 'TypeDeclarationBlock') {
           const typeBlock = decl as TypeDeclarationBlock;
           for (const typeDecl of typeBlock.declarations) {
@@ -983,6 +1135,20 @@ export function handleCompletion(
                   label: unionDecl.name,
                   kind: CompletionItemKind.Struct,
                   detail: 'UNION',
+                });
+              }
+            }
+          }
+        } else if (decl.kind === 'GvlDeclaration') {
+          const gvl = decl as GvlDeclaration;
+          for (const vb of gvl.varBlocks) {
+            for (const vd of vb.declarations) {
+              if (!existingLabels.has(vd.name) && (!prefix || vd.name.toUpperCase().startsWith(prefix))) {
+                existingLabels.add(vd.name);
+                items.push({
+                  label: vd.name,
+                  kind: CompletionItemKind.Variable,
+                  detail: gvl.name ? `${vd.type.name} (${gvl.name})` : vd.type.name,
                 });
               }
             }

@@ -215,4 +215,101 @@ describe('Lexer', () => {
       expect(tokens[1].text).toBe('myVar');
     });
   });
+
+  describe('typed literals (Phase 1)', () => {
+    it('tokenizes SINT#-128 as a single INTEGER token', () => {
+      const tokens = tokenize('SINT#-128');
+      expect(tokens).toHaveLength(2);
+      expect(tokens[0].kind).toBe(TokenKind.INTEGER);
+      expect(tokens[0].text).toBe('SINT#-128');
+    });
+
+    it('tokenizes LREAL#1.79E+308 as a single REAL token', () => {
+      const tokens = tokenize('LREAL#1.79E+308');
+      expect(tokens).toHaveLength(2);
+      expect(tokens[0].kind).toBe(TokenKind.REAL);
+      expect(tokens[0].text).toBe('LREAL#1.79E+308');
+    });
+
+    it('tokenizes DWORD#16#FFFFFFFF as a single INTEGER token', () => {
+      const tokens = tokenize('DWORD#16#FFFFFFFF');
+      expect(tokens).toHaveLength(2);
+      expect(tokens[0].kind).toBe(TokenKind.INTEGER);
+      expect(tokens[0].text).toBe('DWORD#16#FFFFFFFF');
+    });
+
+    it('tokenizes DATE#1970-1-1 as a single token', () => {
+      const tokens = tokenize('DATE#1970-1-1');
+      expect(tokens).toHaveLength(2);
+      expect(tokens[0].text).toBe('DATE#1970-1-1');
+    });
+
+    it('tokenizes DT#1970-1-1-0:0:0 as a single token', () => {
+      const tokens = tokenize('DT#1970-1-1-0:0:0');
+      expect(tokens).toHaveLength(2);
+      expect(tokens[0].text).toBe('DT#1970-1-1-0:0:0');
+    });
+
+    it('tokenizes TOD#23:59:59.999 as a single token', () => {
+      const tokens = tokenize('TOD#23:59:59.999');
+      expect(tokens).toHaveLength(2);
+      expect(tokens[0].text).toBe('TOD#23:59:59.999');
+    });
+
+    it('tokenizes T#49D17H2M47S295MS as a single token', () => {
+      const tokens = tokenize('T#49D17H2M47S295MS');
+      expect(tokens).toHaveLength(2);
+      expect(tokens[0].text).toBe('T#49D17H2M47S295MS');
+    });
+
+    it('keeps BYTE#0 tokenization working', () => {
+      const tokens = tokenize('BYTE#0');
+      expect(tokens).toHaveLength(2);
+      expect(tokens[0].kind).toBe(TokenKind.INTEGER);
+      expect(tokens[0].text).toBe('BYTE#0');
+    });
+
+    it('does not regress normal subtraction tokenization', () => {
+      const tokens = tokenize('a - b');
+      expect(tokens).toHaveLength(4);
+      expect(tokens[0].kind).toBe(TokenKind.IDENTIFIER);
+      expect(tokens[1].kind).toBe(TokenKind.MINUS);
+      expect(tokens[2].kind).toBe(TokenKind.IDENTIFIER);
+    });
+
+    it('does not swallow subtraction after typed numeric literal', () => {
+      const tokens = tokenize('SINT#128-2');
+      expect(tokens).toHaveLength(4);
+      expect(tokens[0].text).toBe('SINT#128');
+      expect(tokens[1].kind).toBe(TokenKind.MINUS);
+      expect(tokens[2].text).toBe('2');
+    });
+
+    it('does not swallow subtraction after TOD typed literal', () => {
+      const tokens = tokenize('TOD#23:59:59.999-1');
+      expect(tokens).toHaveLength(4);
+      expect(tokens[0].text).toBe('TOD#23:59:59.999');
+      expect(tokens[1].kind).toBe(TokenKind.MINUS);
+      expect(tokens[2].kind).toBe(TokenKind.INTEGER);
+      expect(tokens[2].text).toBe('1');
+    });
+
+    it('does not swallow subtraction after DT typed literal', () => {
+      const tokens = tokenize('DT#1970-1-1-0:0:0-1');
+      expect(tokens).toHaveLength(4);
+      expect(tokens[0].text).toBe('DT#1970-1-1-0:0:0');
+      expect(tokens[1].kind).toBe(TokenKind.MINUS);
+      expect(tokens[2].kind).toBe(TokenKind.INTEGER);
+      expect(tokens[2].text).toBe('1');
+    });
+
+    it('does not swallow addition after T typed literal', () => {
+      const tokens = tokenize('T#49D17H2M47S295MS+1');
+      expect(tokens).toHaveLength(4);
+      expect(tokens[0].text).toBe('T#49D17H2M47S295MS');
+      expect(tokens[1].kind).toBe(TokenKind.PLUS);
+      expect(tokens[2].kind).toBe(TokenKind.INTEGER);
+      expect(tokens[2].text).toBe('1');
+    });
+  });
 });

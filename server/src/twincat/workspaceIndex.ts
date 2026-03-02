@@ -327,6 +327,13 @@ export class WorkspaceIndex extends EventEmitter {
       const ext = path.extname(filePath);
       const extraction = extractST(text, ext);
       const result = parse(extraction.source);
+      if (extraction.containerName) {
+        for (const decl of result.ast.declarations) {
+          if (decl.kind === 'GvlDeclaration') {
+            decl.name = extraction.containerName;
+          }
+        }
+      }
       this.astCache.set(uri, { ast: result.ast, errors: result.errors, extraction });
     } catch {
       // File may not exist or may not be readable yet — skip silently.

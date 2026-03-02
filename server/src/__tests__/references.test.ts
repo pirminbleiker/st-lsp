@@ -397,6 +397,46 @@ END_TYPE`;
     expect(lines).not.toContain(4);
   });
 
+  // ── InterfaceDeclaration traversal tests ─────────────────────────────────
+
+  it('finds type references inside interface method VAR_INPUT blocks', () => {
+    const src = `INTERFACE I_Motor
+METHOD Move : BOOL
+VAR_INPUT
+  speed : MotorSpeed;
+END_VAR
+END_METHOD
+END_INTERFACE`;
+    const doc = makeDoc(src);
+    // 'MotorSpeed' is at line 3, col 10 (after "  speed : ")
+    const params = makeParams(doc.uri, 3, 10);
+    const result = handleReferences(params, doc);
+
+    // Should find: the type annotation on line 3
+    expect(result.length).toBe(1);
+    expect(result[0].range.start.line).toBe(3);
+  });
+
+  it('finds interface EXTENDS references when searching for the base interface name', () => {
+    const src = `INTERFACE I_Child EXTENDS I_Base
+END_INTERFACE
+FUNCTION_BLOCK MyFB
+VAR
+  ref : I_Base;
+END_VAR
+END_FUNCTION_BLOCK`;
+    const doc = makeDoc(src);
+    // Cursor on 'I_Base' at the VAR type annotation (line 4, col 8)
+    const params = makeParams(doc.uri, 4, 8);
+    const result = handleReferences(params, doc);
+
+    // Should find: VAR type annotation (line 4) + EXTENDS ref in I_Child (line 0) = 2
+    expect(result.length).toBe(2);
+    const lines = result.map(l => l.range.start.line);
+    expect(lines).toContain(0); // EXTENDS I_Base
+    expect(lines).toContain(4); // ref : I_Base
+  });
+
   // ── Composite TypeRef nameRange tests ────────────────────────────────────
 
   it('reference range for POINTER TO type covers only the type name, not POINTER TO prefix', () => {

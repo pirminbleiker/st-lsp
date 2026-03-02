@@ -19,6 +19,7 @@ import {
   AstNode,
   FunctionBlockDeclaration,
   FunctionDeclaration,
+  InterfaceDeclaration,
   MethodDeclaration,
   NameExpression,
   ProgramDeclaration,
@@ -247,6 +248,29 @@ export function collectNameExpressions(
         break;
       }
 
+      case 'InterfaceDeclaration': {
+        const iface = node as InterfaceDeclaration;
+        for (const ref of iface.extendsRefs) {
+          if (ref.name.toUpperCase() === upper) {
+            results.push({ uri, range: ref.range });
+          }
+        }
+        for (const method of iface.methods) visitNode(method);
+        for (const prop of iface.properties) visitNode(prop);
+        break;
+      }
+
+      case 'PropertyDeclaration': {
+        const pd = node as import('../parser/ast').PropertyDeclaration;
+        if (pd.name.toUpperCase() === upper) {
+          results.push({ uri, range: { start: pd.range.start, end: pd.range.end } });
+        }
+        if (pd.type.name.toUpperCase() === upper) {
+          results.push({ uri, range: { start: pd.type.nameRange.start, end: pd.type.nameRange.end } });
+        }
+        break;
+      }
+
       // Leaf nodes with no children to traverse
       case 'IntegerLiteral':
       case 'RealLiteral':
@@ -258,7 +282,6 @@ export function collectNameExpressions(
       case 'ContinueStatement':
       case 'EmptyStatement':
       case 'AliasDeclaration':
-      case 'InterfaceDeclaration':
         break;
 
       default:
