@@ -688,4 +688,292 @@ END_PROGRAM`;
       expect(errors).toHaveLength(0);
     });
   });
+
+  describe('Phase 5 — anonymous inline enum in VAR declarations', () => {
+    it('parses VAR x : (A, B, C); END_VAR without errors', () => {
+      const src = `PROGRAM P
+VAR
+  x : (A, B, C);
+END_VAR
+END_PROGRAM`;
+
+      const { errors } = parse(src);
+      expect(errors).toHaveLength(0);
+    });
+
+    it('parses VAR x : (A, B, C) := A; END_VAR with initializer', () => {
+      const src = `PROGRAM P
+VAR
+  x : (A, B, C) := A;
+END_VAR
+END_PROGRAM`;
+
+      const { errors } = parse(src);
+      expect(errors).toHaveLength(0);
+    });
+
+    it('parses VAR x : (A := 1, B := 2); END_VAR with explicit enum values', () => {
+      const src = `PROGRAM P
+VAR
+  x : (A := 1, B := 2);
+END_VAR
+END_PROGRAM`;
+
+      const { errors } = parse(src);
+      expect(errors).toHaveLength(0);
+    });
+  });
+
+  describe('Phase 6 — pragmas before METHOD/PROPERTY members', () => {
+    it('parses pragma before PROPERTY in FUNCTION_BLOCK without errors', () => {
+      const src = `FUNCTION_BLOCK FB_Test
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC ErrorId : UDINT
+END_PROPERTY
+END_FUNCTION_BLOCK`;
+
+      const { ast, errors } = parse(src);
+      expect(errors).toHaveLength(0);
+
+      const fb = ast.declarations[0] as FunctionBlockDeclaration;
+      expect(fb.properties).toHaveLength(1);
+      expect(fb.properties[0].name).toBe('ErrorId');
+    });
+
+    it('parses pragma before METHOD in FUNCTION_BLOCK without errors', () => {
+      const src = `FUNCTION_BLOCK FB_Test
+{attribute 'test'}
+METHOD PUBLIC Execute : BOOL
+END_METHOD
+END_FUNCTION_BLOCK`;
+
+      const { ast, errors } = parse(src);
+      expect(errors).toHaveLength(0);
+
+      const fb = ast.declarations[0] as FunctionBlockDeclaration;
+      expect(fb.methods).toHaveLength(1);
+      expect(fb.methods[0].name).toBe('Execute');
+    });
+
+    it('parses pragma before METHOD and PROPERTY in INTERFACE without errors', () => {
+      const src = `INTERFACE I_Test
+{attribute 'monitoring' := 'call'}
+METHOD PUBLIC Execute : BOOL
+END_METHOD
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC ErrorId : UDINT
+END_PROPERTY
+END_INTERFACE`;
+
+      const { ast, errors } = parse(src);
+      expect(errors).toHaveLength(0);
+
+      const iface = ast.declarations[0] as InterfaceDeclaration;
+      expect(iface.methods).toHaveLength(1);
+      expect(iface.properties).toHaveLength(1);
+      expect(iface.methods[0].name).toBe('Execute');
+      expect(iface.properties[0].name).toBe('ErrorId');
+    });
+  });
+
+  describe('Phase 7 — FB constructor-call syntax in VAR declarations', () => {
+    it('parses VAR x : MyFB(Param := 42); END_VAR and records initArgs AST', () => {
+      const src = `PROGRAM P
+VAR
+  x : MyFB(Param := 42);
+END_VAR
+END_PROGRAM`;
+
+      const { ast, errors } = parse(src);
+      expect(errors).toHaveLength(0);
+
+      const prog = ast.declarations[0] as ProgramDeclaration;
+      const decl = prog.varBlocks[0].declarations[0];
+      expect(decl.initArgs).toBeDefined();
+      expect(decl.initArgs).toHaveLength(1);
+      expect(decl.initArgs?.[0].name).toBe('Param');
+      expect(decl.initArgs?.[0].value.kind).toBe('IntegerLiteral');
+    });
+
+    it('parses VAR x : MyFB(A := 1, B := TRUE); END_VAR and records named initArgs', () => {
+      const src = `PROGRAM P
+VAR
+  x : MyFB(A := 1, B := TRUE);
+END_VAR
+END_PROGRAM`;
+
+      const { ast, errors } = parse(src);
+      expect(errors).toHaveLength(0);
+
+      const prog = ast.declarations[0] as ProgramDeclaration;
+      const decl = prog.varBlocks[0].declarations[0];
+      expect(decl.initArgs).toBeDefined();
+      expect(decl.initArgs).toHaveLength(2);
+      expect(decl.initArgs?.[0].name).toBe('A');
+      expect(decl.initArgs?.[1].name).toBe('B');
+      expect(decl.initArgs?.[0].value.kind).toBe('IntegerLiteral');
+      expect(decl.initArgs?.[1].value.kind).toBe('BoolLiteral');
+    });
+
+    it('parses VAR x : MyFB(Target := THIS^); END_VAR and keeps constructor syntax support', () => {
+      const src = `PROGRAM P
+VAR
+  x : MyFB(Target := THIS^);
+END_VAR
+END_PROGRAM`;
+
+      const { ast, errors } = parse(src);
+      expect(errors).toHaveLength(0);
+
+      const prog = ast.declarations[0] as ProgramDeclaration;
+      const decl = prog.varBlocks[0].declarations[0];
+      expect(decl.initArgs).toBeDefined();
+      expect(decl.initArgs).toHaveLength(1);
+      expect(decl.initArgs?.[0].name).toBe('Target');
+      expect(decl.initArgs?.[0].value.kind).toBe('NameExpression');
+    });
+
+    it('regression: STRING(80) is parsed as sized type suffix, not VarDeclaration.initArgs', () => {
+      const src = `PROGRAM P
+VAR
+  s : STRING(80);
+END_VAR
+END_PROGRAM`;
+
+      const { ast, errors } = parse(src);
+      expect(errors).toHaveLength(0);
+
+      const prog = ast.declarations[0] as ProgramDeclaration;
+      const decl = prog.varBlocks[0].declarations[0];
+      expect(decl.type.name).toBe('STRING');
+      expect(decl.initArgs).toBeUndefined();
+    });
+
+    it('regression: WSTRING(80) is parsed as sized type suffix, not VarDeclaration.initArgs', () => {
+      const src = `PROGRAM P
+VAR
+  ws : WSTRING(80);
+END_VAR
+END_PROGRAM`;
+
+      const { ast, errors } = parse(src);
+      expect(errors).toHaveLength(0);
+
+      const prog = ast.declarations[0] as ProgramDeclaration;
+      const decl = prog.varBlocks[0].declarations[0];
+      expect(decl.type.name).toBe('WSTRING');
+      expect(decl.initArgs).toBeUndefined();
+    });
+  });
+
+  describe('Phase 8 — INTERFACE trailing semicolon', () => {
+    it('parses INTERFACE with EXTENDS and trailing semicolon before END_INTERFACE without errors', () => {
+      const src = `INTERFACE I_Foo EXTENDS I_Bar;
+END_INTERFACE`;
+
+      const { ast, errors } = parse(src);
+      expect(errors).toHaveLength(0);
+
+      const iface = ast.declarations[0] as InterfaceDeclaration;
+      expect(iface.name).toBe('I_Foo');
+      expect(iface.extendsRefs).toHaveLength(1);
+      expect(iface.extendsRefs[0].name).toBe('I_Bar');
+    });
+
+    it('parses extracted TcIO-like short form INTERFACE I_Foo; without errors', () => {
+      const src = 'INTERFACE I_Foo;';
+
+      const { ast, errors } = parse(src);
+      expect(errors).toHaveLength(0);
+
+      const iface = ast.declarations[0] as InterfaceDeclaration;
+      expect(iface.name).toBe('I_Foo');
+      expect(iface.extendsRefs).toHaveLength(0);
+    });
+
+    it('reports an error for incomplete INTERFACE I_Foo without semicolon and END_INTERFACE', () => {
+      const src = 'INTERFACE I_Foo';
+
+      const { errors } = parse(src);
+      expect(errors.length).toBeGreaterThan(0);
+      expect(errors.some(e => e.message.includes("END_INTERFACE"))).toBe(true);
+    });
+  });
+
+  describe('Phase 9 — PROPERTY GET/SET body parsing', () => {
+    it('parses PROPERTY with GET accessor var blocks and body', () => {
+      const src = `FUNCTION_BLOCK FB_Test
+PROPERTY PUBLIC Value : INT
+GET
+VAR
+  localValue : INT;
+END_VAR
+Value := localValue;
+END_GET
+END_PROPERTY
+END_FUNCTION_BLOCK`;
+
+      const { ast, errors } = parse(src);
+      expect(errors).toHaveLength(0);
+
+      const fb = ast.declarations[0] as FunctionBlockDeclaration;
+      const prop = fb.properties[0] as any;
+      expect(prop.name).toBe('Value');
+      expect(prop.getAccessor).toBeDefined();
+      expect(prop.getAccessor.varBlocks).toHaveLength(1);
+      expect(prop.getAccessor.varBlocks[0].declarations[0].name).toBe('localValue');
+      expect(prop.getAccessor.body).toHaveLength(1);
+      expect(prop.getAccessor.body[0].kind).toBe('AssignmentStatement');
+      expect(prop.setAccessor).toBeUndefined();
+    });
+
+    it('parses PROPERTY with SET accessor var blocks and body', () => {
+      const src = `FUNCTION_BLOCK FB_Test
+PROPERTY PUBLIC Value : INT
+SET
+VAR
+  changed : BOOL;
+END_VAR
+changed := TRUE;
+END_SET
+END_PROPERTY
+END_FUNCTION_BLOCK`;
+
+      const { ast, errors } = parse(src);
+      expect(errors).toHaveLength(0);
+
+      const fb = ast.declarations[0] as FunctionBlockDeclaration;
+      const prop = fb.properties[0] as any;
+      expect(prop.name).toBe('Value');
+      expect(prop.setAccessor).toBeDefined();
+      expect(prop.setAccessor.varBlocks).toHaveLength(1);
+      expect(prop.setAccessor.varBlocks[0].declarations[0].name).toBe('changed');
+      expect(prop.setAccessor.body).toHaveLength(1);
+      expect(prop.setAccessor.body[0].kind).toBe('AssignmentStatement');
+      expect(prop.getAccessor).toBeUndefined();
+    });
+
+    it('parses PROPERTY with both GET and SET accessors', () => {
+      const src = `FUNCTION_BLOCK FB_Test
+PROPERTY PUBLIC Value : INT
+GET
+Value := 1;
+END_GET
+SET
+Value := 2;
+END_SET
+END_PROPERTY
+END_FUNCTION_BLOCK`;
+
+      const { ast, errors } = parse(src);
+      expect(errors).toHaveLength(0);
+
+      const fb = ast.declarations[0] as FunctionBlockDeclaration;
+      const prop = fb.properties[0] as any;
+      expect(prop.getAccessor).toBeDefined();
+      expect(prop.setAccessor).toBeDefined();
+      expect(prop.getAccessor.body).toHaveLength(1);
+      expect(prop.setAccessor.body).toHaveLength(1);
+    });
+  });
 });

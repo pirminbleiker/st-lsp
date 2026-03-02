@@ -38,6 +38,8 @@ export interface TypeRef extends AstNode {
   isReference?: boolean; // REFERENCE TO <name>
   isArray?: boolean;     // ARRAY[dims] OF <name>
   arrayDims?: ArrayDim[];
+  /** Anonymous inline enum type in VAR declarations, e.g. x : (A, B := 2); */
+  inlineEnumValues?: EnumValue[];
 }
 
 // ---------------------------------------------------------------------------
@@ -128,6 +130,8 @@ export interface VarDeclaration extends AstNode {
   nameRange: Range;
   pragmas: Pragma[];
   type: TypeRef;
+  /** Optional FB constructor-style args after type, e.g. x : MyFB(A := 1); */
+  initArgs?: CallArgument[];
   initialValue?: Expression;
 }
 
@@ -371,11 +375,18 @@ export interface ActionDeclaration extends AstNode {
   body: Statement[];
 }
 
+export interface PropertyAccessor {
+  varBlocks: VarBlock[];
+  body: Statement[];
+}
+
 export interface PropertyDeclaration extends AstNode {
   kind: 'PropertyDeclaration';
   name: string;
   type: TypeRef;
   modifiers: string[];
+  getAccessor?: PropertyAccessor;
+  setAccessor?: PropertyAccessor;
 }
 
 export interface InterfaceDeclaration extends AstNode {

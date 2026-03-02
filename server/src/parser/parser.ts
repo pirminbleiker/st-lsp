@@ -264,6 +264,12 @@ class Parser {
     const properties: PropertyDeclaration[] = [];
 
     while (!this.check(TokenKind.END_FUNCTION_BLOCK) && !this.check(TokenKind.EOF)) {
+      // Pragmas may appear before METHOD/PROPERTY declarations in FB bodies.
+      if (this.check(TokenKind.PRAGMA)) {
+        this.parsePragmas();
+        continue;
+      }
+
       if (this.check(TokenKind.METHOD)) {
         methods.push(this.parseMethodDeclaration());
       } else if (this.check(TokenKind.PROPERTY)) {
@@ -390,6 +396,16 @@ class Parser {
     this.expect(TokenKind.COLON, "Expected ':' after variable name");
     const type = this.parseTypeRef();
 
+    let initArgs: CallArgument[] | undefined;
+    if (this.check(TokenKind.LPAREN)) {
+      if (this.isSizedStringType(type)) {
+        // STRING(80) / WSTRING(80) are sized type suffixes, not constructor init args.
+        this.parseCallArgs();
+      } else {
+        initArgs = this.parseCallArgs();
+      }
+    }
+
     let initialValue: Expression | undefined;
     if (this.match(TokenKind.ASSIGN)) {
       initialValue = this.parseExpression();
@@ -397,7 +413,12 @@ class Parser {
 
     this.expect(TokenKind.SEMICOLON, "Expected ';'");
 
-    return { kind: 'VarDeclaration', name, nameRange: nameTok.range, pragmas, type, initialValue, range: this.endRange(start) };
+    return { kind: 'VarDeclaration', name, nameRange: nameTok.range, pragmas, type, initArgs, initialValue, range: this.endRange(start) };
+  }
+
+  private isSizedStringType(type: TypeRef): boolean {
+    const upper = type.name.toUpperCase();
+    return upper === 'STRING' || upper === 'WSTRING';
   }
 
   // ---- Type references --------------------------------------------------
@@ -450,6 +471,11 @@ class Parser {
         range: this.endRange(start),
       };
     }
+    
+    // Anonymous inline enum in VAR declarations: (A, B, C) or (A := 1, B := 2)
+    if (this.check(TokenKind.LPAREN)) {
+      return this.parseInlineEnumTypeRef(start);
+    }
 
     // Simple type name (identifier or keyword used as type)
     const nameTok = this.advance();
@@ -459,6 +485,32 @@ class Parser {
       name: nameTok.text.toUpperCase(),
       nameRange,
       range: nameRange,
+    };
+  }
+
+  private parseInlineEnumTypeRef(typeStart: Position): TypeRef {
+    const lparen = this.expect(TokenKind.LPAREN, "Expected '(' to start inline enum type");
+    const values: EnumValue[] = [];
+
+    while (!this.check(TokenKind.RPAREN) && !this.check(TokenKind.EOF)) {
+      const valueStart = this.startRange();
+      const valueTok = this.expect(TokenKind.IDENTIFIER, 'Expected enum member name');
+      let value: Expression | undefined;
+      if (this.match(TokenKind.ASSIGN)) {
+        value = this.parseExpression();
+      }
+      values.push({ name: valueTok.text, value, range: this.endRange(valueStart) });
+      if (!this.match(TokenKind.COMMA)) break;
+    }
+
+    this.expect(TokenKind.RPAREN, "Expected ')' after inline enum type");
+
+    return {
+      kind: 'TypeRef',
+      name: '__INLINE_ENUM',
+      nameRange: lparen.range,
+      inlineEnumValues: values,
+      range: this.endRange(typeStart),
     };
   }
 
@@ -1347,6 +1399,20 @@ class Parser {
     const nameTok = this.expect(TokenKind.IDENTIFIER, 'Expected interface name');
     const name = nameTok.text;
 
+    // TcIO-like extracted snippets may contain only `INTERFACE Name;`.
+    // Accept EOF only for this exact short form.
+    if (this.check(TokenKind.SEMICOLON) && this.peek(1).kind === TokenKind.EOF) {
+      this.advance();
+      return {
+        kind: 'InterfaceDeclaration',
+        name,
+        extendsRefs: [],
+        methods: [],
+        properties: [],
+        range: this.endRange(start),
+      };
+    }
+
     // Optional EXTENDS <name>, <name>, ...
     const extendsRefs: NamedRef[] = [];
     if (this.check(TokenKind.EXTENDS)) {
@@ -1361,10 +1427,19 @@ class Parser {
     const properties: PropertyDeclaration[] = [];
 
     while (!this.check(TokenKind.END_INTERFACE) && !this.check(TokenKind.EOF)) {
+      // Pragmas may appear before METHOD/PROPERTY declarations in INTERFACE bodies.
+      if (this.check(TokenKind.PRAGMA)) {
+        this.parsePragmas();
+        continue;
+      }
+
       if (this.check(TokenKind.METHOD)) {
         methods.push(this.parseMethodDeclaration());
       } else if (this.check(TokenKind.PROPERTY)) {
         properties.push(this.parsePropertyDeclaration());
+      } else if (this.check(TokenKind.SEMICOLON)) {
+        // TwinCAT allows a trailing semicolon after INTERFACE declaration/EXTENDS.
+        this.advance();
       } else {
         // Skip unknown tokens with error recovery
         this.addError(`Unexpected token '${this.peek().text}' inside INTERFACE`, this.peek().range);
@@ -1458,10 +1533,28 @@ class Parser {
     this.expect(TokenKind.COLON, "Expected ':' after property name");
     const type = this.parseTypeRef();
 
-    // Skip optional GET/SET blocks until END_PROPERTY
+    let getAccessor: { varBlocks: VarBlock[]; body: Statement[] } | undefined;
+    let setAccessor: { varBlocks: VarBlock[]; body: Statement[] } | undefined;
+
     while (!this.check(TokenKind.END_PROPERTY) && !this.check(TokenKind.EOF)) {
+      if (this.isIdentifierText('GET')) {
+        this.advance(); // GET (context-sensitive keyword in PROPERTY)
+        getAccessor = this.parsePropertyAccessor('END_GET', 'SET');
+        if (this.isIdentifierText('END_GET')) this.advance();
+        continue;
+      }
+
+      if (this.isIdentifierText('SET')) {
+        this.advance(); // SET (context-sensitive keyword in PROPERTY)
+        setAccessor = this.parsePropertyAccessor('END_SET', 'GET');
+        if (this.isIdentifierText('END_SET')) this.advance();
+        continue;
+      }
+
+      // Recovery for unknown tokens inside PROPERTY.
       this.advance();
     }
+
     this.expect(TokenKind.END_PROPERTY, "Expected 'END_PROPERTY'");
 
     return {
@@ -1469,8 +1562,48 @@ class Parser {
       name,
       type,
       modifiers,
+      getAccessor,
+      setAccessor,
       range: this.endRange(start),
     };
+  }
+
+  private parsePropertyAccessor(endMarker: 'END_GET' | 'END_SET', nextAccessor: 'GET' | 'SET'): { varBlocks: VarBlock[]; body: Statement[] } {
+    const varBlocks: VarBlock[] = [];
+
+    while (!this.check(TokenKind.EOF) && !this.check(TokenKind.END_PROPERTY)) {
+      if (this.isIdentifierText(endMarker) || this.isIdentifierText(nextAccessor)) {
+        break;
+      }
+
+      const blocks = this.parseVarBlocks();
+      if (blocks.length > 0) {
+        varBlocks.push(...blocks);
+        continue;
+      }
+      break;
+    }
+
+    const body: Statement[] = [];
+    while (!this.check(TokenKind.EOF) && !this.check(TokenKind.END_PROPERTY)) {
+      if (this.isIdentifierText(endMarker) || this.isIdentifierText(nextAccessor)) {
+        break;
+      }
+
+      try {
+        const stmt = this.parseStatement();
+        if (stmt) body.push(stmt);
+      } catch {
+        this.skipToSemicolon();
+      }
+    }
+
+    return { varBlocks, body };
+  }
+
+  private isIdentifierText(text: string): boolean {
+    const tok = this.peek();
+    return tok.kind === TokenKind.IDENTIFIER && tok.text.toUpperCase() === text;
   }
 
   // ---- ACTION -----------------------------------------------------------
