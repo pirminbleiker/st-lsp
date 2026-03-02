@@ -178,19 +178,9 @@ export function collectNameExpressions(
         // The loop variable is stored as a plain string (not a NameExpression),
         // so we check it directly here.
         if (s.variable.toUpperCase() === upper) {
-          // The ForStatement range covers the entire loop; emit a location that
-          // covers just the loop variable token which starts at the statement's
-          // start position.  We use the statement start as an approximation
-          // since the variable has no dedicated range node.
           results.push({
             uri,
-            range: {
-              start: s.range.start,
-              end: {
-                line: s.range.start.line,
-                character: s.range.start.character + s.variable.length,
-              },
-            },
+            range: s.variableRange,
           });
         }
         visitNode(s.from);
@@ -311,7 +301,6 @@ function mapperForUri(fileUri: string): PositionMapper {
   const extraction = extractST(content, ext);
   return new PositionMapper(extraction);
 }
-
 export function handleReferences(
   params: ReferenceParams,
   document: TextDocument | undefined,

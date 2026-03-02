@@ -108,6 +108,9 @@ export enum TokenKind {
   SLASH = '/',
   POWER = '**',
 
+  // Pointer dereference
+  CARET = '^',
+
   // Punctuation
   LPAREN = '(',
   RPAREN = ')',
@@ -118,7 +121,6 @@ export enum TokenKind {
   COLON = ':',
   DOT = '.',
   DOTDOT = '..',
-  CARET = '^',
 
   // Special
   EOF = 'EOF',
@@ -381,6 +383,25 @@ export class Lexer {
       }
     }
 
+    // Based integer literals: 16#FF, 2#1010, 8#177, or typed: INT#16
+    if (this.peek() === '#') {
+      this.advance(); // consume '#'
+      let value = '';
+      while (this.pos < this.src.length) {
+        const c = this.peek();
+        if ((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F') || c === '_') {
+          value += this.advance();
+        } else {
+          break;
+        }
+      }
+      return {
+        kind: TokenKind.INTEGER,
+        text: raw + '#' + value,
+        range: this.makeRange(startPos),
+      };
+    }
+
     // Check for decimal point (not .. range operator)
     if (this.peek() === '.' && this.peek(1) !== '.') {
       isReal = true;
@@ -440,6 +461,25 @@ export class Lexer {
     let text = '';
     while (this.pos < this.src.length && isIdentContinue(this.peek())) {
       text += this.advance();
+    }
+
+    // Typed literals: INT#16, TIME#1s500ms, BOOL#TRUE, etc.
+    if (this.peek() === '#') {
+      this.advance(); // consume '#'
+      let suffix = '';
+      while (this.pos < this.src.length) {
+        const c = this.peek();
+        if (isIdentContinue(c) || c === '.' || c === '_') {
+          suffix += this.advance();
+        } else {
+          break;
+        }
+      }
+      return {
+        kind: TokenKind.INTEGER,
+        text: text + '#' + suffix,
+        range: this.makeRange(startPos),
+      };
     }
 
     // ST is case-insensitive; normalise to uppercase for keyword lookup

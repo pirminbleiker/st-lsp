@@ -458,3 +458,58 @@ END_PROGRAM`;
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// TwinCAT XML (.TcPOU) extraction tests
+// ---------------------------------------------------------------------------
+
+describe('handleReferences — TcPOU XML extraction', () => {
+  // XML where 'counter' variable is on original line 6 (extracted line 2).
+  // offsets: { 0:4, 1:5, 2:6, 3:7 }
+  const xmlPou = [
+    '<?xml version="1.0" encoding="utf-8"?>',  // line 0
+    '<TcPlcObject Version="1.1.0.1">',           // line 1
+    '  <POU Name="TestFB">',                     // line 2
+    '    <Declaration><![CDATA[',                // line 3
+    'FUNCTION_BLOCK TestFB',                     // line 4  (extracted line 0)
+    'VAR',                                       // line 5  (extracted line 1)
+    '  counter : INT := 0;',                     // line 6  (extracted line 2)
+    'END_VAR]]></Declaration>',                  // line 7  (extracted line 3)
+    '  </POU>',                                  // line 8
+    '</TcPlcObject>',                            // line 9
+  ].join('\n');
+
+  it('finds references when cursor is at original-file coordinates inside a TcPOU', () => {
+    const doc = TextDocument.create('file:///test.TcPOU', 'iec-st', 1, xmlPou);
+    // Cursor on 'counter' at original line 6, character 2
+    const params = makeParams(doc.uri, 6, 2);
+    const result = handleReferences(params, doc);
+
+    expect(result.length).toBeGreaterThan(0);
+  });
+
+  it('returns locations with ranges in original-file (XML) coordinates', () => {
+    const doc = TextDocument.create('file:///test.TcPOU', 'iec-st', 1, xmlPou);
+    const params = makeParams(doc.uri, 6, 2);
+    const result = handleReferences(params, doc);
+
+    // All returned ranges must be in original-file coordinates (line ≥ 4, not extracted 0-3)
+    for (const loc of result) {
+      expect(loc.range.start.line).toBeGreaterThanOrEqual(4);
+    }
+  });
+
+  it('does not return ranges with extracted-file line numbers', () => {
+    const doc = TextDocument.create('file:///test.TcPOU', 'iec-st', 1, xmlPou);
+    const params = makeParams(doc.uri, 6, 2);
+    const result = handleReferences(params, doc);
+
+    // If no translation happened, counter's range would be at extracted line 2.
+    // After correct translation, it must be at original line 6.
+    for (const loc of result) {
+      if (loc.uri === doc.uri) {
+        expect(loc.range.start.line).toBe(6);
+      }
+    }
+  });
+});

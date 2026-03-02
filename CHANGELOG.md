@@ -1,3 +1,25 @@
+## [1.1.4](https://github.com/pirminbleiker/st-lsp/compare/v1.1.3...v1.1.4) (2026-02-28)
+
+
+### Bug Fixes
+
+* **test:** wrap serverStartup proc in try/finally and increase timeout (sl-7pf8) ([f0b9255](https://github.com/pirminbleiker/st-lsp/commit/f0b92552b48aefc32d2d0707c5ada39335eaeaec))
+
+## [1.1.3](https://github.com/pirminbleiker/st-lsp/compare/v1.1.2...v1.1.3) (2026-02-28)
+
+
+### Bug Fixes
+
+* **lsp:** add TcPOU extraction + position translation to references/rename/signatureHelp (sl-lsp-bugs) ([5f28d7b](https://github.com/pirminbleiker/st-lsp/commit/5f28d7b749359f105cc61b41946f43354a75e82f))
+* **types:** use optional chaining for WorkspaceEdit.changes access in rename test ([5a410e4](https://github.com/pirminbleiker/st-lsp/commit/5a410e42b7af351134f8e497b2bc2f49141e3665))
+
+## [1.1.2](https://github.com/pirminbleiker/st-lsp/compare/v1.1.1...v1.1.2) (2026-02-28)
+
+
+### Bug Fixes
+
+* agent config warnings + LSP bug fixes (sl-lsp-bugs) ([b63e07c](https://github.com/pirminbleiker/st-lsp/commit/b63e07c1649dda84fad7dd1fbcc0ec04dab4d9f5)), closes [16#FF](https://github.com/16/issues/FF) [INT#16](https://github.com/INT/issues/16) [TIME#1s](https://github.com/TIME/issues/1s)
+
 ## [1.1.1](https://github.com/pirminbleiker/st-lsp/compare/v1.1.0...v1.1.1) (2026-02-27)
 
 

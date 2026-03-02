@@ -237,3 +237,40 @@ describe('handleSignatureHelp', () => {
     });
   });
 });
+
+// ---------------------------------------------------------------------------
+// TwinCAT XML (.TcPOU) extraction tests
+// ---------------------------------------------------------------------------
+
+describe('handleSignatureHelp — TcPOU XML extraction', () => {
+  // 'TON(' is on original line 10 (extracted line 5).
+  // offsets: { 0:4, 1:5, 2:6, 3:7, 4:9, 5:10 }
+  const xmlPou = [
+    '<?xml version="1.0" encoding="utf-8"?>',  // line 0
+    '<TcPlcObject Version="1.1.0.1">',           // line 1
+    '  <POU Name="TestFB">',                     // line 2
+    '    <Declaration><![CDATA[',                // line 3
+    'FUNCTION_BLOCK TestFB',                     // line 4  (extracted line 0)
+    'VAR',                                       // line 5  (extracted line 1)
+    '  counter : INT := 0;',                     // line 6  (extracted line 2)
+    'END_VAR]]></Declaration>',                  // line 7  (extracted line 3)
+    '    <Implementation>',                      // line 8
+    '      <ST><![CDATA[',                       // line 9  (extracted line 4 — blank separator)
+    'TON(',                                      // line 10 (extracted line 5)
+    ']]></ST>',                                  // line 11
+    '    </Implementation>',                     // line 12
+    '  </POU>',                                  // line 13
+    '</TcPlcObject>',                            // line 14
+  ].join('\n');
+
+  it('returns signature help when cursor is inside a call in a TcPOU at original-file position', () => {
+    const doc = TextDocument.create('file:///test.TcPOU', 'iec-st', 1, xmlPou);
+    // Cursor at original line 10, character 4 (after "TON(")
+    const params = makeParams(doc.uri, 10, 4);
+    const result = handleSignatureHelp(params, doc);
+
+    expect(result).not.toBeNull();
+    expect(result!.signatures).toHaveLength(1);
+    expect(result!.signatures[0].label).toContain('TON');
+  });
+});
