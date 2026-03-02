@@ -60,6 +60,20 @@ import {
 import { Lexer, Token, TokenKind } from './lexer';
 
 // ---------------------------------------------------------------------------
+// Structural boundary tokens — expression parser must NOT consume these.
+// When parsePrimaryExpression() encounters one of these, it stops without
+// advancing so that the enclosing block/statement parser can terminate cleanly.
+// ---------------------------------------------------------------------------
+const EXPRESSION_STOP_TOKENS = new Set<TokenKind>([
+  TokenKind.END_IF, TokenKind.END_FOR, TokenKind.END_WHILE,
+  TokenKind.END_REPEAT, TokenKind.END_CASE, TokenKind.END_VAR,
+  TokenKind.END_PROGRAM, TokenKind.END_FUNCTION, TokenKind.END_FUNCTION_BLOCK,
+  TokenKind.END_TYPE, TokenKind.END_STRUCT, TokenKind.END_ENUM,
+  TokenKind.END_METHOD, TokenKind.END_PROPERTY, TokenKind.END_INTERFACE,
+  TokenKind.ACTION, TokenKind.END_ACTION,
+]);
+
+// ---------------------------------------------------------------------------
 // Parser
 // ---------------------------------------------------------------------------
 
@@ -284,6 +298,7 @@ class Parser {
     const properties: PropertyDeclaration[] = [];
 
     while (!this.check(TokenKind.END_FUNCTION_BLOCK) && !this.check(TokenKind.EOF)) {
+      const before = this.pos;
       // Pragmas may appear before METHOD/PROPERTY declarations in FB bodies.
       if (this.check(TokenKind.PRAGMA)) {
         this.parsePragmas();
@@ -306,6 +321,10 @@ class Parser {
         } catch {
           this.skipToSemicolon();
         }
+      }
+      // Guard: if no progress was made, skip one token to prevent infinite loop
+      if (this.pos === before) {
+        this.advance();
       }
     }
 
@@ -395,11 +414,17 @@ class Parser {
 
     const declarations: VarDeclaration[] = [];
     while (!this.check(TokenKind.END_VAR) && !this.check(TokenKind.EOF)) {
+      const before = this.pos;
       try {
         declarations.push(this.parseVarDeclaration());
       } catch {
         // Skip to next semicolon for recovery
         this.skipToSemicolon();
+      }
+      if (this.pos === before) {
+        // No progress — break to avoid infinite loop (the END_VAR check
+        // above should catch this, but guard against other stuck states).
+        break;
       }
     }
     this.expect(TokenKind.END_VAR, "Expected 'END_VAR'");
@@ -410,7 +435,7 @@ class Parser {
   private parseVarDeclaration(): VarDeclaration {
     const pragmas = this.parsePragmas();
     const start = pragmas.length > 0 ? pragmas[0].range.start : this.startRange();
-    const nameTok = this.expect(TokenKind.IDENTIFIER, 'Expected variable name');
+    const nameTok = this.expectName('Expected variable name');
     const name = nameTok.text;
 
     this.expect(TokenKind.COLON, "Expected ':' after variable name");
@@ -427,7 +452,7 @@ class Parser {
     }
 
     let initialValue: Expression | undefined;
-    if (this.match(TokenKind.ASSIGN)) {
+    if (this.match(TokenKind.ASSIGN) || this.match(TokenKind.REF_ASSIGN)) {
       initialValue = this.parseExpression();
     }
 
@@ -583,11 +608,21 @@ class Parser {
   private parseStatementList(...endKinds: TokenKind[]): Statement[] {
     const stmts: Statement[] = [];
     while (!this.check(TokenKind.EOF) && !endKinds.some(k => this.check(k))) {
+      // Guard against infinite loops: if a parse cycle makes no progress
+      // (e.g. a structural end keyword the caller wasn't expecting), break.
+      const before = this.pos;
       try {
         const stmt = this.parseStatement();
         if (stmt) stmts.push(stmt);
       } catch {
         this.skipToSemicolon();
+      }
+      if (this.pos === before) {
+        // No token was consumed — we're stuck on an unexpected token.
+        // If it's a structural boundary, let the parent parser deal with it.
+        if (EXPRESSION_STOP_TOKENS.has(this.peek().kind)) break;
+        // Otherwise skip one token to avoid an infinite loop.
+        this.advance();
       }
     }
     return stmts;
@@ -677,14 +712,16 @@ class Parser {
     const start = this.startRange();
     const left = this.parsePostfixExpression();
 
-    // Assignment
-    if (this.match(TokenKind.ASSIGN)) {
+    // Assignment (:= or REF=)
+    const assignTok = this.match(TokenKind.ASSIGN) ?? this.match(TokenKind.REF_ASSIGN);
+    if (assignTok) {
       const right = this.parseExpression();
       this.expect(TokenKind.SEMICOLON, "Expected ';'");
       return {
         kind: 'AssignmentStatement',
         left,
         right,
+        isRefAssign: assignTok.kind === TokenKind.REF_ASSIGN || undefined,
         range: this.endRange(start),
       } as AssignmentStatement;
     }
@@ -1053,15 +1090,18 @@ class Parser {
           range: this.endRange(start),
         } as CallExpression;
       } else if (this.check(TokenKind.LBRACKET)) {
-        // Array subscript
+        // Array subscript — supports multi-dimensional: arr[i,j,k]
         const start = expr.range.start;
         this.advance(); // [
-        const index = this.parseExpression();
+        const indices: Expression[] = [this.parseExpression()];
+        while (this.match(TokenKind.COMMA)) {
+          indices.push(this.parseExpression());
+        }
         this.expect(TokenKind.RBRACKET, "Expected ']'");
         expr = {
           kind: 'SubscriptExpression',
           base: expr,
-          index,
+          indices,
           range: this.endRange(start),
         } as SubscriptExpression;
       } else if (this.check(TokenKind.CARET)) {
@@ -1069,10 +1109,13 @@ class Parser {
         // The LSP treats `ptr^.member` the same as `ptr.member` for navigation.
         this.advance();
       } else if (this.check(TokenKind.DOT)) {
-        // Member access
+        // Member access — also accept integer literals for bit-access syntax
+        // (e.g. pByte^.0, myWord.7, varName.0)
         const start = expr.range.start;
         this.advance(); // .
-        const memberTok = this.expect(TokenKind.IDENTIFIER, 'Expected member name');
+        const memberTok = this.check(TokenKind.INTEGER)
+          ? this.advance()
+          : this.expect(TokenKind.IDENTIFIER, 'Expected member name');
         expr = {
           kind: 'MemberExpression',
           base: expr,
@@ -1216,6 +1259,16 @@ class Parser {
           return { kind: 'NameExpression', name: tok.text, range: tok.range } as NameExpression;
         }
 
+        // Structural boundary keywords should NOT be consumed — let the
+        // calling statement/block parser see them and break its loop.
+        // This prevents cascade errors where e.g. END_VAR is eaten and
+        // then the VAR block never finds its terminator.
+        if (EXPRESSION_STOP_TOKENS.has(tok.kind)) {
+          this.addError(`Unexpected token '${tok.text}' in expression`, tok.range);
+          // Do NOT advance — the end keyword stays for the parent parser
+          return { kind: 'NameExpression', name: '', range: tok.range } as NameExpression;
+        }
+
         this.addError(`Unexpected token '${tok.text}' in expression`, tok.range);
         // Advance to prevent infinite loops in statement parsing loops
         this.advance();
@@ -1231,6 +1284,7 @@ class Parser {
     const declarations: TypeDeclaration[] = [];
 
     while (!this.check(TokenKind.END_TYPE) && !this.check(TokenKind.EOF)) {
+      const before = this.pos;
       try {
         const nameTok = this.expect(TokenKind.IDENTIFIER, 'Expected type name');
         const name = nameTok.text;
@@ -1269,6 +1323,7 @@ class Parser {
       } catch {
         this.skipToSemicolon();
       }
+      if (this.pos === before) this.advance();
     }
 
     this.expect(TokenKind.END_TYPE, "Expected 'END_TYPE'");
@@ -1293,11 +1348,13 @@ class Parser {
 
     const fields: VarDeclaration[] = [];
     while (!this.check(TokenKind.END_STRUCT) && !this.check(TokenKind.EOF)) {
+      const before = this.pos;
       try {
         fields.push(this.parseVarDeclaration());
       } catch {
         this.skipToSemicolon();
       }
+      if (this.pos === before) this.advance();
     }
 
     this.expect(TokenKind.END_STRUCT, "Expected 'END_STRUCT'");
@@ -1317,11 +1374,13 @@ class Parser {
 
     const fields: VarDeclaration[] = [];
     while (!this.check(TokenKind.END_UNION) && !this.check(TokenKind.EOF)) {
+      const before = this.pos;
       try {
         fields.push(this.parseVarDeclaration());
       } catch {
         this.skipToSemicolon();
       }
+      if (this.pos === before) this.advance();
     }
 
     this.expect(TokenKind.END_UNION, "Expected 'END_UNION'");
@@ -1636,12 +1695,14 @@ class Parser {
         break;
       }
 
+      const before = this.pos;
       try {
         const stmt = this.parseStatement();
         if (stmt) body.push(stmt);
       } catch {
         this.skipToSemicolon();
       }
+      if (this.pos === before) this.advance();
     }
 
     return { varBlocks, body };
@@ -1697,6 +1758,8 @@ function isKeywordUsableAsIdentifier(kind: TokenKind): boolean {
     // Access modifiers and OOP qualifiers — frequently used as identifier names
     TokenKind.PUBLIC, TokenKind.PRIVATE, TokenKind.PROTECTED, TokenKind.INTERNAL,
     TokenKind.ABSTRACT, TokenKind.OVERRIDE, TokenKind.FINAL_KW,
+    // ENUM can appear as an identifier (e.g., method parameter named 'Enum')
+    TokenKind.ENUM,
   ]);
   return keywordIdents.has(kind);
 }

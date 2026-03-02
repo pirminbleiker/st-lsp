@@ -232,7 +232,7 @@ export function collectNameExpressions(
       case 'SubscriptExpression': {
         const e = node as import('../parser/ast').SubscriptExpression;
         visitNode(e.base);
-        visitNode(e.index);
+        for (const idx of e.indices) visitNode(idx);
         break;
       }
       case 'MemberExpression': {

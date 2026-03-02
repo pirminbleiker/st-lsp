@@ -156,6 +156,7 @@ export interface AssignmentStatement extends AstNode {
   kind: 'AssignmentStatement';
   left: Expression;
   right: Expression;
+  isRefAssign?: boolean; // REF= reference assignment operator
 }
 
 export interface CallStatement extends AstNode {
@@ -271,7 +272,7 @@ export interface UnaryExpression extends AstNode {
 export interface SubscriptExpression extends AstNode {
   kind: 'SubscriptExpression';
   base: Expression;
-  index: Expression;
+  indices: Expression[]; // one or more comma-separated indices (multi-dim: arr[i,j])
 }
 
 export interface MemberExpression extends AstNode {

@@ -265,7 +265,7 @@ export function findNodeAtPosition(ast: SourceFile, line: number, character: num
       case 'SubscriptExpression': {
         const e = node as import('../parser/ast').SubscriptExpression;
         const b = visit(e.base); if (b) deepest = b;
-        const i = visit(e.index); if (i) deepest = i;
+        for (const idx of e.indices) { const i = visit(idx); if (i) deepest = i; }
         break;
       }
       case 'MemberExpression': {

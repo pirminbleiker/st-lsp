@@ -234,7 +234,7 @@ function collectCallExpressionsInRange(
       case 'SubscriptExpression': {
         const se = expr as import('../parser/ast').SubscriptExpression;
         visitExpr(se.base);
-        visitExpr(se.index);
+        for (const idx of se.indices) visitExpr(idx);
         break;
       }
       case 'MemberExpression':

@@ -159,7 +159,7 @@ function walkExpression(expr: Expression, onName: (n: NameExpression) => void): 
 		case 'SubscriptExpression': {
 			const e = expr as SubscriptExpression;
 			walkExpression(e.base, onName);
-			walkExpression(e.index, onName);
+			for (const idx of e.indices) walkExpression(idx, onName);
 			break;
 		}
 		case 'MemberExpression': {
@@ -714,6 +714,9 @@ function runSemanticAnalysis(
 		}
 
 		// For FBs: also add own methods, properties, actions to scope
+		// Track whether EXTENDS parent is unresolvable (external library) — if so,
+		// suppress "Undefined identifier" errors since we can't know what the parent provides.
+		let extendsUnresolvable = false;
 		if (decl.kind === 'FunctionBlockDeclaration') {
 			const fb = decl as FunctionBlockDeclaration;
 			for (const m of fb.methods) scope.add(m.name.toUpperCase());
@@ -721,6 +724,10 @@ function runSemanticAnalysis(
 			for (const a of fb.actions) scope.add(a.name.toUpperCase());
 			// Walk EXTENDS chain to add inherited members
 			addInheritedMembers(fb, ast, workspaceIndex, scope);
+			// If EXTENDS parent cannot be resolved, we cannot know inherited members
+			if (fb.extendsRef && !globalNames.has(fb.extendsRef.name.toUpperCase())) {
+				extendsUnresolvable = true;
+			}
 		}
 
 		// Walk the body statements and check each NameExpression
@@ -730,6 +737,8 @@ function runSemanticAnalysis(
 			// Skip always-allowed names and scope-known names
 			if (isAllowedName(nameExpr.name)) return;
 			if (scope.has(upper)) return;
+			// Skip if parent is unresolvable — inherited members are unknown
+			if (extendsUnresolvable) return;
 
 			diagnostics.push({
 				severity: DiagnosticSeverity.Error,
@@ -797,6 +806,7 @@ function runSemanticAnalysis(
 					const upper = nameExpr.name.toUpperCase();
 					if (isAllowedName(nameExpr.name)) return;
 					if (actionScope.has(upper)) return;
+					if (extendsUnresolvable) return;
 					diagnostics.push({
 						severity: DiagnosticSeverity.Error,
 						range: {
@@ -845,6 +855,7 @@ function runSemanticAnalysis(
 					const upper = nameExpr.name.toUpperCase();
 					if (isAllowedName(nameExpr.name)) return;
 					if (methodScope.has(upper)) return;
+					if (extendsUnresolvable) return;
 					diagnostics.push({
 						severity: DiagnosticSeverity.Error,
 						range: {
@@ -925,7 +936,7 @@ function runSemanticAnalysis(
 				const fb = decl as FunctionBlockDeclaration;
 				if (fb.extendsRef && !globalNames.has(fb.extendsRef.name.toUpperCase())) {
 					diagnostics.push({
-						severity: DiagnosticSeverity.Error,
+						severity: DiagnosticSeverity.Warning,
 						range: {
 							start: { line: fb.extendsRef.range.start.line, character: fb.extendsRef.range.start.character },
 							end:   { line: fb.extendsRef.range.end.line,   character: fb.extendsRef.range.end.character },
@@ -937,7 +948,7 @@ function runSemanticAnalysis(
 				for (const ref of fb.implementsRefs) {
 					if (!globalNames.has(ref.name.toUpperCase())) {
 						diagnostics.push({
-							severity: DiagnosticSeverity.Error,
+							severity: DiagnosticSeverity.Warning,
 							range: {
 								start: { line: ref.range.start.line, character: ref.range.start.character },
 								end:   { line: ref.range.end.line,   character: ref.range.end.character },
@@ -952,7 +963,7 @@ function runSemanticAnalysis(
 				for (const ref of intf.extendsRefs) {
 					if (!globalNames.has(ref.name.toUpperCase())) {
 						diagnostics.push({
-							severity: DiagnosticSeverity.Error,
+							severity: DiagnosticSeverity.Warning,
 							range: {
 								start: { line: ref.range.start.line, character: ref.range.start.character },
 								end:   { line: ref.range.end.line,   character: ref.range.end.character },
@@ -969,7 +980,7 @@ function runSemanticAnalysis(
 						const s = td as StructDeclaration;
 						if (s.extendsRef && !globalNames.has(s.extendsRef.name.toUpperCase())) {
 							diagnostics.push({
-								severity: DiagnosticSeverity.Error,
+								severity: DiagnosticSeverity.Warning,
 								range: {
 									start: { line: s.extendsRef.range.start.line, character: s.extendsRef.range.start.character },
 									end:   { line: s.extendsRef.range.end.line,   character: s.extendsRef.range.end.character },
@@ -990,6 +1001,9 @@ function runSemanticAnalysis(
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
+
+/** Maximum number of diagnostics reported per file to avoid flooding the client. */
+const MAX_DIAGNOSTICS_PER_FILE = 100;
 
 function applyOffsets(diagnostics: Diagnostic[], offsets: OffsetMap): Diagnostic[] {
 	return diagnostics.map(d => ({
@@ -1037,7 +1051,7 @@ export function validateUri(connection: Connection, uri: string, workspaceIndex:
 		: [];
 
 	const diagnostics = applyOffsets([...parseDiags, ...semanticDiags], offsetMap);
-	connection.sendDiagnostics({ uri, diagnostics });
+	connection.sendDiagnostics({ uri, diagnostics: diagnostics.slice(0, MAX_DIAGNOSTICS_PER_FILE) });
 }
 
 export function validateDocument(connection: Connection, document: TextDocument, workspaceIndex?: WorkspaceIndex): void {
@@ -1065,5 +1079,5 @@ export function validateDocument(connection: Connection, document: TextDocument,
 		: [];
 
 	const diagnostics = applyOffsets([...parseDiags, ...semanticDiags], offsetMap);
-	connection.sendDiagnostics({ uri: document.uri, diagnostics });
+	connection.sendDiagnostics({ uri: document.uri, diagnostics: diagnostics.slice(0, MAX_DIAGNOSTICS_PER_FILE) });
 }

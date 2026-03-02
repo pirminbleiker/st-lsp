@@ -103,7 +103,7 @@ function collectNameMatches(ast: SourceFile, targetName: string): NameMatch[] {
       case 'SubscriptExpression': {
         const e = node as SubscriptExpression;
         visitExpr(e.base);
-        visitExpr(e.index);
+        for (const idx of e.indices) visitExpr(idx);
         break;
       }
       case 'CallExpression': {

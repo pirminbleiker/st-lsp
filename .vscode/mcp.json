@@ -1,7 +1,7 @@
 {
 	"servers": {
 		"mcp-agent-mail": {
-			"url": "http://localhost:8766/mcp/",
+			"url": "http://localhost:8765/mcp/",
 			"type": "http",
 		}
 	},

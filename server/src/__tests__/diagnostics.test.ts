@@ -1117,22 +1117,22 @@ END_PROGRAM`;
 });
 
 describe('EXTENDS/IMPLEMENTS validation', () => {
-  it('EXTENDS with unknown type produces Error diagnostic', () => {
+  it('EXTENDS with unknown type produces Warning diagnostic', () => {
     const src = `FUNCTION_BLOCK MyFB EXTENDS GhostBase
 VAR END_VAR
 END_FUNCTION_BLOCK`;
     const diags = getDiagnosticsWithIndex(src, makeEmptyWorkspaceIndex());
-    const errors = diags.filter(d => d.severity === 1);
-    expect(errors.some(d => d.message.includes('GhostBase'))).toBe(true);
+    const warnings = diags.filter(d => d.severity === 2);
+    expect(warnings.some(d => d.message.includes('GhostBase'))).toBe(true);
   });
 
-  it('IMPLEMENTS with unknown interface produces Error diagnostic', () => {
+  it('IMPLEMENTS with unknown interface produces Warning diagnostic', () => {
     const src = `FUNCTION_BLOCK MyFB IMPLEMENTS I_Ghost
 VAR END_VAR
 END_FUNCTION_BLOCK`;
     const diags = getDiagnosticsWithIndex(src, makeEmptyWorkspaceIndex());
-    const errors = diags.filter(d => d.severity === 1);
-    expect(errors.some(d => d.message.includes('I_Ghost'))).toBe(true);
+    const warnings = diags.filter(d => d.severity === 2);
+    expect(warnings.some(d => d.message.includes('I_Ghost'))).toBe(true);
   });
 
   it('EXTENDS with locally defined parent: no Error', () => {
@@ -1156,6 +1156,57 @@ END_FUNCTION_BLOCK`;
     const diags = getDiagnostics(src);
     const errors = diags.filter(d => d.severity === 1 && d.message.includes('GhostBase'));
     expect(errors).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// bd-1dc: External type resolution and inherited member suppression
+// ---------------------------------------------------------------------------
+
+describe('bd-1dc: external type resolution and inherited member suppression', () => {
+  it('extendsUnresolvable_isWarning_notError: FB EXTENDS unknown type → Warning not Error', () => {
+    const src = `FUNCTION_BLOCK MyFB EXTENDS ExternalLib_Base
+VAR END_VAR
+METHOD DoSomething : BOOL
+END_METHOD
+END_FUNCTION_BLOCK`;
+    const diags = getDiagnosticsWithIndex(src, makeEmptyWorkspaceIndex());
+    const cannotResolve = diags.filter(d => d.message.includes('ExternalLib_Base'));
+    expect(cannotResolve).toHaveLength(1);
+    expect(cannotResolve[0].severity).toBe(2); // DiagnosticSeverity.Warning
+  });
+
+  it('implementsUnresolvable_isWarning_notError: FB IMPLEMENTS unknown interface → Warning not Error', () => {
+    const src = `FUNCTION_BLOCK MyFB IMPLEMENTS ExternalLib_IFoo
+VAR END_VAR
+END_FUNCTION_BLOCK`;
+    const diags = getDiagnosticsWithIndex(src, makeEmptyWorkspaceIndex());
+    const cannotResolve = diags.filter(d => d.message.includes('ExternalLib_IFoo'));
+    expect(cannotResolve).toHaveLength(1);
+    expect(cannotResolve[0].severity).toBe(2); // DiagnosticSeverity.Warning
+  });
+
+  it('extendsUnresolvable_inheritedMembers_suppressed: no Undefined identifier for calls in FB with unresolvable EXTENDS', () => {
+    const src = `FUNCTION_BLOCK MyFB EXTENDS ExternalLib_Base
+VAR END_VAR
+METHOD Test : BOOL
+  InheritedMethod();
+END_METHOD
+END_FUNCTION_BLOCK`;
+    const diags = getDiagnosticsWithIndex(src, makeEmptyWorkspaceIndex());
+    const undefinedErrors = diags.filter(d => d.message.startsWith('Undefined identifier'));
+    expect(undefinedErrors).toHaveLength(0);
+  });
+
+  it('extendsResolvable_stillError: genuine undefined identifier with resolvable parent → still Error', () => {
+    const src = `PROGRAM P
+VAR x : INT; END_VAR
+  y := 42;
+END_PROGRAM`;
+    const diags = getDiagnosticsWithIndex(src, makeEmptyWorkspaceIndex());
+    const undefinedErrors = diags.filter(d => d.message.includes("Undefined identifier 'y'"));
+    expect(undefinedErrors).toHaveLength(1);
+    expect(undefinedErrors[0].severity).toBe(1); // DiagnosticSeverity.Error
   });
 });
 
@@ -1216,5 +1267,23 @@ END_PROGRAM`;
     const diags = getDiagnostics(src);
     const warnings = diags.filter(d => d.message.includes('SJSONVALUE'));
     expect(warnings).toHaveLength(0);
+  });
+
+  describe('Phase 5 — max diagnostics cap', () => {
+    it('maxDiagnosticsCap: files with many errors are capped at 100 diagnostics', () => {
+      // Generate a program with 150+ parse errors (missing colons in var declarations)
+      const badDecls = Array.from({ length: 150 }, (_, i) => `  var${i} INT;`).join('\n');
+      const src = `PROGRAM BigBadProgram\nVAR\n${badDecls}\nEND_VAR\nEND_PROGRAM`;
+      const diags = getDiagnostics(src);
+      expect(diags.length).toBeLessThanOrEqual(100);
+    });
+
+    it('maxDiagnosticsCap_smallFile: files with few errors are unaffected by cap', () => {
+      const src = `PROGRAM P\nVAR\n  x INT;\nEND_VAR\nEND_PROGRAM`;
+      const diags = getDiagnostics(src);
+      // Small number of errors — should not be capped
+      expect(diags.length).toBeGreaterThan(0);
+      expect(diags.length).toBeLessThan(100);
+    });
   });
 });

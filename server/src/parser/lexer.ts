@@ -98,6 +98,7 @@ export enum TokenKind {
   // Operators
   ASSIGN = ':=',         // :=
   OUTPUT_ASSIGN = '=>',  // =>
+  REF_ASSIGN = 'REF=',   // REF=
   EQ = '=',
   NEQ = '<>',
   LT = '<',
@@ -538,6 +539,13 @@ export class Lexer {
 
     // ST is case-insensitive; normalise to uppercase for keyword lookup
     const upper = text.toUpperCase();
+
+    // REF= is an IEC 61131-3 reference assignment operator (two chars: identifier + '=')
+    if (upper === 'REF' && this.peek() === '=') {
+      this.advance(); // consume '='
+      return { kind: TokenKind.REF_ASSIGN, text: text + '=', range: this.makeRange(startPos) };
+    }
+
     const kind = KEYWORDS.get(upper) ?? TokenKind.IDENTIFIER;
     return { kind, text, range: this.makeRange(startPos) };
   }

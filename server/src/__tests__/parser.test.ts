@@ -1188,5 +1188,323 @@ END_FUNCTION_BLOCK`;
       const { errors } = parse(src);
       expect(errors).toHaveLength(0);
     });
+
+    it('errorRecovery_endVarNotConsumed: END_VAR stops expression parser without being consumed', () => {
+      // When a parse error occurs mid-expression in a VAR block, the expression
+      // parser must NOT consume END_VAR — it must leave it for parseVarBlock()
+      // to find and cleanly terminate the block.
+      const src = `FUNCTION_BLOCK FB_Test
+VAR
+  badVar INT;
+END_VAR
+METHOD M1 : BOOL
+VAR END_VAR
+M1 := TRUE;
+END_METHOD
+END_FUNCTION_BLOCK`;
+      const { ast, errors } = parse(src);
+      // badVar line causes an error, but method should still parse cleanly
+      const fb = ast.declarations[0] as FunctionBlockDeclaration;
+      expect(fb.methods).toHaveLength(1);
+      expect(fb.methods[0].name).toBe('M1');
+      // No errors should mention END_VAR or END_METHOD — those are structural, not cascade
+      const cascadeErrors = errors.filter(
+        e => e.message.includes("'END_VAR'") || e.message.includes("'END_METHOD'"),
+      );
+      expect(cascadeErrors).toHaveLength(0);
+    });
+
+    it('errorRecovery_endMethodNotConsumed: END_METHOD stops expression parser without being consumed', () => {
+      // A malformed statement should NOT cause END_METHOD to be consumed by the
+      // expression parser, which would cascade errors into subsequent methods.
+      const src = `FUNCTION_BLOCK FB_Test
+VAR END_VAR
+METHOD Bad : BOOL
+VAR END_VAR
+UNKNOWN_KEYWORD;
+END_METHOD
+METHOD Good : INT
+VAR END_VAR
+Good := 42;
+END_METHOD
+END_FUNCTION_BLOCK`;
+      const { ast, errors } = parse(src);
+      const fb = ast.declarations[0] as FunctionBlockDeclaration;
+      // Both methods should be parsed — error recovery shouldn't eat END_METHOD
+      expect(fb.methods).toHaveLength(2);
+      expect(fb.methods[0].name).toBe('Bad');
+      expect(fb.methods[1].name).toBe('Good');
+      // No errors should reference END_METHOD
+      const cascadeErrors = errors.filter(e => e.message.includes("'END_METHOD'"));
+      expect(cascadeErrors).toHaveLength(0);
+    });
+
+    it('cascadeCount_multiMethodFB: error in one method does not cascade into others', () => {
+      // Simulates real-world pattern from mobject-core: FB with multiple methods,
+      // one has a parse error. Error should be isolated to that method only.
+      const src = `FUNCTION_BLOCK FB_JsonSerializer
+VAR
+  writer : INT;
+END_VAR
+METHOD PUBLIC AddBool : BOOL
+VAR_INPUT
+  Value : BOOL;
+END_VAR
+writer := Value;
+AddBool := TRUE;
+END_METHOD
+METHOD PUBLIC AddInt : BOOL
+VAR_INPUT
+  Value : INT;
+END_VAR
+writer := Value;
+AddInt := TRUE;
+END_METHOD
+END_FUNCTION_BLOCK`;
+      const { ast, errors } = parse(src);
+      expect(errors).toHaveLength(0);
+      const fb = ast.declarations[0] as FunctionBlockDeclaration;
+      expect(fb.methods).toHaveLength(2);
+    });
+  });
+
+  describe('REF= reference assignment operator', () => {
+    it('refAssign_basic: parses REF= as AssignmentStatement with isRefAssign', () => {
+      const src = `PROGRAM P
+VAR x : REFERENCE TO INT; y : INT; END_VAR
+x REF= y;
+END_PROGRAM`;
+      const { errors, ast } = parse(src);
+      expect(errors).toHaveLength(0);
+      const prog = ast.declarations[0] as ProgramDeclaration;
+      const stmt = prog.body[0] as AssignmentStatement;
+      expect(stmt.kind).toBe('AssignmentStatement');
+      expect(stmt.isRefAssign).toBe(true);
+    });
+
+    it('refAssign_lowercase: lowercase ref= is accepted (case-insensitive)', () => {
+      const src = `PROGRAM P
+VAR x : REFERENCE TO INT; y : INT; END_VAR
+x ref= y;
+END_PROGRAM`;
+      const { errors } = parse(src);
+      expect(errors).toHaveLength(0);
+    });
+
+    it('refAssign_memberAccess: THIS^.field REF= expr parses cleanly', () => {
+      const src = `FUNCTION_BLOCK FB_Foo
+VAR
+  jsonParser : REFERENCE TO INT;
+  parent : INT;
+END_VAR
+THIS^.jsonParser REF= parent;
+END_FUNCTION_BLOCK`;
+      const { errors } = parse(src);
+      expect(errors).toHaveLength(0);
+    });
+
+    it('refAssign_regression: normal := assignment still works after REF= added', () => {
+      const src = `PROGRAM P
+VAR x : INT; END_VAR
+x := 42;
+END_PROGRAM`;
+      const { errors, ast } = parse(src);
+      expect(errors).toHaveLength(0);
+      const prog = ast.declarations[0] as ProgramDeclaration;
+      const stmt = prog.body[0] as AssignmentStatement;
+      expect(stmt.isRefAssign).toBeUndefined();
+    });
+
+    it('refAssign_statement_simple: simple REF= statement yields 0 errors and correct body kind', () => {
+      const src = `PROGRAM P
+VAR x : REFERENCE TO INT; y : INT; END_VAR
+x REF= y;
+END_PROGRAM`;
+      const { errors, ast } = parse(src);
+      expect(errors).toHaveLength(0);
+      const prog = ast.declarations[0] as ProgramDeclaration;
+      expect(prog.body[0].kind).toBe('AssignmentStatement');
+      expect((prog.body[0] as AssignmentStatement).isRefAssign).toBe(true);
+    });
+
+    it('refAssign_statement_member_access: THIS^.field REF= inside METHOD parses cleanly', () => {
+      const src = `FUNCTION_BLOCK FB
+VAR ref : REFERENCE TO BYTE; END_VAR
+METHOD Init
+  THIS^.ref REF= someVar;
+END_METHOD
+END_FUNCTION_BLOCK`;
+      const { errors } = parse(src);
+      expect(errors).toHaveLength(0);
+    });
+
+    it('refAssign_var_initializer: REFERENCE TO with REF= initializer in VAR block', () => {
+      const src = `PROGRAM P
+VAR
+  activeData : REFERENCE TO BYTE REF= localData;
+END_VAR
+END_PROGRAM`;
+      const { errors, ast } = parse(src);
+      expect(errors).toHaveLength(0);
+      const prog = ast.declarations[0] as ProgramDeclaration;
+      const decl = prog.varBlocks[0].declarations[0];
+      expect(decl.initialValue).toBeDefined();
+    });
+
+    it('refAssign_no_regression_eq: x = y parses as BinaryExpression (EQ), not RefAssign', () => {
+      const src = `PROGRAM P
+VAR x : INT; y : INT; END_VAR
+IF x = y THEN
+END_IF
+END_PROGRAM`;
+      const { errors } = parse(src);
+      expect(errors).toHaveLength(0);
+    });
+
+    it('refAssign_no_regression_identifier_ref: identifier named refCount parses as plain IDENTIFIER', () => {
+      const src = `PROGRAM P
+VAR refCount : INT; END_VAR
+refCount := 5;
+END_PROGRAM`;
+      const { errors, ast } = parse(src);
+      expect(errors).toHaveLength(0);
+      const prog = ast.declarations[0] as ProgramDeclaration;
+      expect(prog.varBlocks[0].declarations[0].name).toBe('refCount');
+    });
+  });
+
+  describe('Bit access via numeric literal (.0-.7)', () => {
+    it('bitAccess_direct: myByte.0 parses as MemberExpression with member "0"', () => {
+      const src = `PROGRAM P
+VAR b : BYTE; result : BOOL; END_VAR
+result := b.0;
+END_PROGRAM`;
+      const { errors } = parse(src);
+      expect(errors).toHaveLength(0);
+    });
+
+    it('bitAccess_deref_pointer: pByte^.0 parses cleanly', () => {
+      const src = `FUNCTION GetBitValue : BOOL
+VAR_INPUT pByte : POINTER TO BYTE; END_VAR
+GetBitValue := pByte^.0;
+END_FUNCTION`;
+      const { errors } = parse(src);
+      expect(errors).toHaveLength(0);
+    });
+
+    it('bitAccess_high_bit: pByte^.7 parses cleanly', () => {
+      const src = `FUNCTION GetBit7 : BOOL
+VAR_INPUT pByte : POINTER TO BYTE; END_VAR
+GetBit7 := pByte^.7;
+END_FUNCTION`;
+      const { errors } = parse(src);
+      expect(errors).toHaveLength(0);
+    });
+
+    it('bitAccess_assignment_lhs: b.3 := TRUE parses cleanly', () => {
+      const src = `PROGRAM P
+VAR b : BYTE; END_VAR
+b.3 := TRUE;
+END_PROGRAM`;
+      const { errors } = parse(src);
+      expect(errors).toHaveLength(0);
+    });
+
+    it('bitAccess_regression_member_ident: b.count still works as named member', () => {
+      const src = `PROGRAM P
+VAR s : SomeStruct; END_VAR
+s.count := 5;
+END_PROGRAM`;
+      const { errors } = parse(src);
+      expect(errors).toHaveLength(0);
+    });
+  });
+
+  describe('ENUM keyword as identifier', () => {
+    it('enum_as_param_name: ENUM used as named parameter in function call', () => {
+      const src = `PROGRAM P
+VAR result : SomeType; END_VAR
+result := UnknownEnumerationError(EnumString := Enum);
+END_PROGRAM`;
+      const { errors } = parse(src);
+      expect(errors).toHaveLength(0);
+    });
+
+    it('enum_as_variable_name: variable named Enum parses cleanly', () => {
+      const src = `PROGRAM P
+VAR Enum : INT; END_VAR
+Enum := 5;
+END_PROGRAM`;
+      const { errors } = parse(src);
+      expect(errors).toHaveLength(0);
+    });
+
+    it('enum_keyword_regression: TYPE ... ENUM declaration still works', () => {
+      const src = `TYPE
+MyEnum : (Val1, Val2, Val3);
+END_TYPE`;
+      const { errors } = parse(src);
+      expect(errors).toHaveLength(0);
+    });
+  });
+
+  describe('Multi-dimensional array subscript indexing arr[i,j]', () => {
+    it('multiDimSubscript_2D: arr[i,j] parses as SubscriptExpression with 2 indices', () => {
+      const src = `PROGRAM P
+VAR arr : ARRAY[0..1, 0..1] OF INT; i : INT; j : INT; val : INT; END_VAR
+val := arr[i, j];
+END_PROGRAM`;
+      const { errors, ast } = parse(src);
+      expect(errors).toHaveLength(0);
+      const prog = ast.declarations[0] as ProgramDeclaration;
+      const stmt = prog.body[0] as import('../parser/ast').AssignmentStatement;
+      const sub = stmt.right as import('../parser/ast').SubscriptExpression;
+      expect(sub.kind).toBe('SubscriptExpression');
+      expect(sub.indices).toHaveLength(2);
+    });
+
+    it('multiDimSubscript_3D: arr[i,j,k] parses with 3 indices', () => {
+      const src = `PROGRAM P
+VAR arr : ARRAY[0..1, 0..1, 0..1] OF INT; i : INT; j : INT; k : INT; val : INT; END_VAR
+val := arr[i, j, k];
+END_PROGRAM`;
+      const { errors, ast } = parse(src);
+      expect(errors).toHaveLength(0);
+      const prog = ast.declarations[0] as ProgramDeclaration;
+      const stmt = prog.body[0] as import('../parser/ast').AssignmentStatement;
+      const sub = stmt.right as import('../parser/ast').SubscriptExpression;
+      expect(sub.indices).toHaveLength(3);
+    });
+
+    it('multiDimSubscript_lhs: arr[i,j] := x parses cleanly on left-hand side', () => {
+      const src = `PROGRAM P
+VAR arr : ARRAY[0..1, 0..1] OF INT; i : INT; j : INT; END_VAR
+arr[i, j] := 42;
+END_PROGRAM`;
+      const { errors } = parse(src);
+      expect(errors).toHaveLength(0);
+    });
+
+    it('multiDimSubscript_regression_1D: arr[i] still has 1 index', () => {
+      const src = `PROGRAM P
+VAR arr : ARRAY[0..9] OF INT; i : INT; val : INT; END_VAR
+val := arr[i];
+END_PROGRAM`;
+      const { errors, ast } = parse(src);
+      expect(errors).toHaveLength(0);
+      const prog = ast.declarations[0] as ProgramDeclaration;
+      const stmt = prog.body[0] as import('../parser/ast').AssignmentStatement;
+      const sub = stmt.right as import('../parser/ast').SubscriptExpression;
+      expect(sub.indices).toHaveLength(1);
+    });
+
+    it('multiDimSubscript_literal_indices: arr[0,1] with literal indices parses cleanly', () => {
+      const src = `PROGRAM P
+VAR arr : ARRAY[0..1, 0..1] OF BOOL; val : BOOL; END_VAR
+val := arr[0, 1];
+END_PROGRAM`;
+      const { errors } = parse(src);
+      expect(errors).toHaveLength(0);
+    });
   });
 });
