@@ -5,6 +5,8 @@ import {
   SignatureHelpParams,
 } from 'vscode-languageserver/node';
 import { TextDocument } from 'vscode-languageserver-textdocument';
+import * as path from 'path';
+import { extractST, PositionMapper } from '../twincat/tcExtractor';
 import { parse } from '../parser/parser';
 import { STANDARD_FBS } from '../twincat/stdlib';
 import {
@@ -108,9 +110,9 @@ function buildSignatureFromPou(
  */
 function resolveVarType(
   varName: string,
-  text: string,
+  stSource: string,
 ): string | null {
-  const { ast } = parse(text);
+  const { ast } = parse(stSource);
   const upper = varName.toUpperCase();
 
   for (const decl of ast.declarations) {
@@ -145,7 +147,7 @@ function resolveVarType(
  */
 function lookupCallable(
   name: string,
-  text: string,
+  stSource: string,
 ): CallableSignature | null {
   const upper = name.toUpperCase();
 
@@ -164,7 +166,7 @@ function lookupCallable(
   }
 
   // 2. User-defined FUNCTIONs and FUNCTION_BLOCKs in the current file — match by type name
-  const { ast } = parse(text);
+  const { ast } = parse(stSource);
   for (const decl of ast.declarations) {
     if (
       decl.kind === 'FunctionDeclaration' ||
@@ -178,7 +180,7 @@ function lookupCallable(
   }
 
   // 3. Variable instance call: resolve var name to its type, then look up by type
-  const typeName = resolveVarType(name, text);
+  const typeName = resolveVarType(name, stSource);
   if (typeName) {
     const typeUpper = typeName.toUpperCase();
 
@@ -238,12 +240,27 @@ export function handleSignatureHelp(
   if (!document) return null;
 
   const text = document.getText();
-  const offset = document.offsetAt(params.position);
+  const ext = path.extname(document.uri);
+  const extraction = extractST(text, ext);
+  const mapper = new PositionMapper(extraction);
+  const stSource = extraction.source;
 
-  const activeCall = findActiveCall(text, offset);
+  // Convert the cursor position to extracted-source coordinates, then compute
+  // the character offset within the extracted source.
+  const { line, character } = params.position;
+  const extractedPos = mapper.originalToExtracted(line, character) ?? { line, character };
+  // Compute offset in stSource from extracted position
+  const stLines = stSource.split('\n');
+  let extractedOffset = 0;
+  for (let i = 0; i < extractedPos.line && i < stLines.length; i++) {
+    extractedOffset += stLines[i].length + 1; // +1 for newline
+  }
+  extractedOffset += extractedPos.character;
+
+  const activeCall = findActiveCall(stSource, extractedOffset);
   if (!activeCall) return null;
 
-  const sig = lookupCallable(activeCall.callee, text);
+  const sig = lookupCallable(activeCall.callee, stSource);
   if (!sig) return null;
 
   const sigInfo = buildSignatureInformation(sig);

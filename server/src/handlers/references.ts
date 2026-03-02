@@ -7,9 +7,11 @@
  */
 
 import * as fs from 'fs';
+import * as path from 'path';
 import { ReferenceParams, Location } from 'vscode-languageserver/node';
 import { TextDocument } from 'vscode-languageserver-textdocument';
 import { WorkspaceIndex } from '../twincat/workspaceIndex';
+import { extractST, PositionMapper } from '../twincat/tcExtractor';
 import { parse } from '../parser/parser';
 import { findNodeAtPosition } from './hover';
 import {
@@ -281,6 +283,35 @@ export function collectNameExpressions(
 // Main handler
 // ---------------------------------------------------------------------------
 
+/**
+ * Map a Location whose range is in extracted-source coordinates back to
+ * original-file coordinates using the provided PositionMapper.
+ */
+function mapLocation(loc: Location, mapper: PositionMapper): Location {
+  return {
+    uri: loc.uri,
+    range: {
+      start: mapper.extractedToOriginal(loc.range.start.line, loc.range.start.character),
+      end: mapper.extractedToOriginal(loc.range.end.line, loc.range.end.character),
+    },
+  };
+}
+
+/**
+ * Build a PositionMapper for an arbitrary workspace file URI by reading the
+ * file from disk.
+ */
+function mapperForUri(fileUri: string): PositionMapper {
+  const filePath = fileUri.startsWith('file://')
+    ? decodeURIComponent(fileUri.replace(/^file:\/\//, ''))
+    : fileUri;
+  const ext = path.extname(filePath);
+  let content = '';
+  try { content = fs.readFileSync(filePath, 'utf8'); } catch { /* ignore */ }
+  const extraction = extractST(content, ext);
+  return new PositionMapper(extraction);
+}
+
 export function handleReferences(
   params: ReferenceParams,
   document: TextDocument | undefined,
@@ -289,10 +320,14 @@ export function handleReferences(
   if (!document) return [];
 
   const text = document.getText();
-  const { ast } = parse(text);
+  const ext = path.extname(document.uri);
+  const extraction = extractST(text, ext);
+  const mapper = new PositionMapper(extraction);
+  const { ast } = parse(extraction.source);
 
   const { line, character } = params.position;
-  const node = findNodeAtPosition(ast, line, character);
+  const extractedPos = mapper.originalToExtracted(line, character) ?? { line, character };
+  const node = findNodeAtPosition(ast, extractedPos.line, extractedPos.character);
   if (!node) return [];
 
   // Extract the identifier name from either a NameExpression, a VarDeclaration,
@@ -312,8 +347,9 @@ export function handleReferences(
 
   const uri = params.textDocument.uri;
 
-  // Collect all matching occurrences in the current document
-  const locations: Location[] = collectNameExpressions(ast, name, uri);
+  // Collect all matching occurrences in the current document (in extracted space, then map back)
+  const rawLocations: Location[] = collectNameExpressions(ast, name, uri);
+  const locations: Location[] = rawLocations.map(loc => mapLocation(loc, mapper));
 
   // Optionally search other workspace files via WorkspaceIndex
   if (workspaceIndex) {
@@ -324,7 +360,6 @@ export function handleReferences(
 
       let fileText: string;
       try {
-        // fileUri is a file:// URI; strip to path for fs.readFileSync
         const filePath = fileUri.startsWith('file://')
           ? decodeURIComponent(fileUri.replace(/^file:\/\//, ''))
           : fileUri;
@@ -333,9 +368,12 @@ export function handleReferences(
         continue;
       }
 
-      const { ast: otherAst } = parse(fileText);
+      const otherExt = path.extname(fileUri);
+      const otherExtraction = extractST(fileText, otherExt);
+      const otherMapper = new PositionMapper(otherExtraction);
+      const { ast: otherAst } = parse(otherExtraction.source);
       const otherLocations = collectNameExpressions(otherAst, name, fileUri);
-      locations.push(...otherLocations);
+      locations.push(...otherLocations.map(loc => mapLocation(loc, otherMapper)));
     }
   }
 

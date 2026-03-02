@@ -59,6 +59,7 @@ const documents = new TextDocuments(TextDocument);
 
 let hasConfigurationCapability = false;
 let hasWorkspaceFolderCapability = false;
+let lineFoldingOnly = false;
 let workspaceIndex: WorkspaceIndex | undefined;
 
 connection.onInitialize((params: InitializeParams): InitializeResult => {
@@ -70,6 +71,7 @@ connection.onInitialize((params: InitializeParams): InitializeResult => {
 	hasWorkspaceFolderCapability = !!(
 		capabilities.workspace && !!capabilities.workspace.workspaceFolders
 	);
+	lineFoldingOnly = params.capabilities.textDocument?.foldingRange?.lineFoldingOnly ?? false;
 
 	const workspaceRoot =
 		params.workspaceFolders?.[0]?.uri ?? params.rootUri ?? undefined;
@@ -244,7 +246,7 @@ connection.languages.inlayHint.on(
 connection.onFoldingRanges(
 	(params: FoldingRangeParams): FoldingRange[] => {
 		const document = documents.get(params.textDocument.uri);
-		return handleFoldingRanges(document);
+		return handleFoldingRanges(document, lineFoldingOnly);
 	}
 );
 

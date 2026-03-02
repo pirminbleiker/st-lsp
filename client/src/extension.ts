@@ -10,23 +10,29 @@ import {
 let client: LanguageClient;
 
 export function activate(context: ExtensionContext): void {
-	const serverModule = context.asAbsolutePath(
-		path.join('server-out', 'server.js')
-	);
+	const serverModule = process.env.ST_LSP_SERVER_PATH
+		?? context.asAbsolutePath(path.join('server-out', 'server.js'));
 
-	const serverOptions: ServerOptions = {
-		run: {
-			module: serverModule,
-			transport: TransportKind.ipc,
-		},
-		debug: {
-			module: serverModule,
-			transport: TransportKind.ipc,
-			options: {
-				execArgv: ['--nolazy', '--inspect=6009'],
+	const useDevtools = process.env.ST_LSP_DEVTOOLS === '1';
+	const serverOptions: ServerOptions = useDevtools
+		? {
+			command: 'lsp-devtools',
+			args: ['agent', '--', 'node', serverModule, '--stdio'],
+			transport: TransportKind.stdio,
+		}
+		: {
+			run: {
+				module: serverModule,
+				transport: TransportKind.ipc,
 			},
-		},
-	};
+			debug: {
+				module: serverModule,
+				transport: TransportKind.ipc,
+				options: {
+					execArgv: ['--nolazy', '--inspect=6009'],
+				},
+			},
+		};
 
 	const clientOptions: LanguageClientOptions = {
 		documentSelector: [

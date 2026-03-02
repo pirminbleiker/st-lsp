@@ -15,6 +15,7 @@
  */
 
 import * as fs from 'fs';
+import * as path from 'path';
 import {
   RenameParams,
   WorkspaceEdit,
@@ -24,6 +25,7 @@ import {
 } from 'vscode-languageserver/node';
 import { TextDocument } from 'vscode-languageserver-textdocument';
 import { WorkspaceIndex } from '../twincat/workspaceIndex';
+import { extractST, PositionMapper } from '../twincat/tcExtractor';
 import { parse } from '../parser/parser';
 import { findNodeAtPosition } from './hover';
 import {
@@ -252,6 +254,31 @@ function positionInRange(pos: { line: number; character: number }, range: Range)
   return true;
 }
 
+/**
+ * Map an AST range (in extracted-source coordinates) back to original-file
+ * coordinates.
+ */
+function mapRange(r: Range, mapper: PositionMapper): Range {
+  return {
+    start: mapper.extractedToOriginal(r.start.line, r.start.character),
+    end: mapper.extractedToOriginal(r.end.line, r.end.character),
+  };
+}
+
+/**
+ * Build a PositionMapper for an arbitrary workspace file URI.
+ */
+function mapperForUri(fileUri: string): PositionMapper {
+  const filePath = fileUri.startsWith('file://')
+    ? decodeURIComponent(fileUri.replace(/^file:\/\//, ''))
+    : fileUri;
+  const ext = path.extname(filePath);
+  let content = '';
+  try { content = fs.readFileSync(filePath, 'utf8'); } catch { /* ignore */ }
+  const extraction = extractST(content, ext);
+  return new PositionMapper(extraction);
+}
+
 export function handleRename(
   params: RenameParams,
   document: TextDocument | undefined,
@@ -260,10 +287,14 @@ export function handleRename(
   if (!document) return null;
 
   const text = document.getText();
-  const { ast } = parse(text);
+  const ext = path.extname(document.uri);
+  const extraction = extractST(text, ext);
+  const mapper = new PositionMapper(extraction);
+  const { ast } = parse(extraction.source);
 
   const { line, character } = params.position;
-  const node = findNodeAtPosition(ast, line, character);
+  const extractedPos = mapper.originalToExtracted(line, character) ?? { line, character };
+  const node = findNodeAtPosition(ast, extractedPos.line, extractedPos.character);
   if (!node) return null;
 
   let targetName: string;
@@ -271,11 +302,14 @@ export function handleRename(
     targetName = (node as NameExpression).name;
   } else if (node.kind === 'ForStatement') {
     const fs = node as ForStatement;
-    if (!positionInRange({ line, character }, fs.variableRange)) return null;
+    // variableRange is in extracted space — convert to original for position check
+    const mappedVarRange = mapRange(fs.variableRange, mapper);
+    if (!positionInRange({ line, character }, mappedVarRange)) return null;
     targetName = fs.variable;
   } else if (node.kind === 'VarDeclaration') {
     const vd = node as VarDeclaration;
-    if (!positionInRange({ line, character }, vd.nameRange)) return null;
+    const mappedNameRange = mapRange(vd.nameRange, mapper);
+    if (!positionInRange({ line, character }, mappedNameRange)) return null;
     targetName = vd.name;
   } else {
     return null;
@@ -287,10 +321,10 @@ export function handleRename(
 
   const changes: { [uri: string]: TextEdit[] } = {};
 
-  // --- Current document ---
+  // --- Current document: matches in extracted space, map ranges back ---
   const currentMatches = collectNameMatches(ast, targetName);
   if (currentMatches.length > 0) {
-    changes[currentUri] = currentMatches.map(m => TextEdit.replace(m.range, newName));
+    changes[currentUri] = currentMatches.map(m => TextEdit.replace(mapRange(m.range, mapper), newName));
   }
 
   // --- Other workspace files ---
@@ -309,10 +343,13 @@ export function handleRename(
         continue;
       }
 
-      const { ast: otherAst } = parse(fileText);
+      const otherMapper = mapperForUri(fileUri);
+      const otherExt = path.extname(fileUri);
+      const otherExtraction = extractST(fileText, otherExt);
+      const { ast: otherAst } = parse(otherExtraction.source);
       const otherMatches = collectNameMatches(otherAst, targetName);
       if (otherMatches.length > 0) {
-        changes[fileUri] = otherMatches.map(m => TextEdit.replace(m.range, newName));
+        changes[fileUri] = otherMatches.map(m => TextEdit.replace(mapRange(m.range, otherMapper), newName));
       }
     }
   }
@@ -336,28 +373,43 @@ export function handlePrepareRename(
   if (!document) return null;
 
   const text = document.getText();
-  const { ast } = parse(text);
+  const ext = path.extname(document.uri);
+  const extraction = extractST(text, ext);
+  const mapper = new PositionMapper(extraction);
+  const { ast } = parse(extraction.source);
 
   const { line, character } = params.position;
-  const node = findNodeAtPosition(ast, line, character);
+  const extractedPos = mapper.originalToExtracted(line, character) ?? { line, character };
+  const node = findNodeAtPosition(ast, extractedPos.line, extractedPos.character);
   if (!node) return null;
 
   if (node.kind === 'NameExpression') {
     const name = (node as NameExpression).name;
     if (!name) return null;
-    return { start: node.range.start, end: node.range.end };
+    return {
+      start: mapper.extractedToOriginal(node.range.start.line, node.range.start.character),
+      end: mapper.extractedToOriginal(node.range.end.line, node.range.end.character),
+    };
   }
 
   if (node.kind === 'ForStatement') {
     const fs = node as ForStatement;
-    if (!positionInRange({ line, character }, fs.variableRange)) return null;
-    return { start: fs.variableRange.start, end: fs.variableRange.end };
+    const mappedVarRange = {
+      start: mapper.extractedToOriginal(fs.variableRange.start.line, fs.variableRange.start.character),
+      end: mapper.extractedToOriginal(fs.variableRange.end.line, fs.variableRange.end.character),
+    };
+    if (!positionInRange({ line, character }, mappedVarRange)) return null;
+    return mappedVarRange;
   }
 
   if (node.kind === 'VarDeclaration') {
     const vd = node as VarDeclaration;
-    if (!positionInRange({ line, character }, vd.nameRange)) return null;
-    return { start: vd.nameRange.start, end: vd.nameRange.end };
+    const mappedNameRange = {
+      start: mapper.extractedToOriginal(vd.nameRange.start.line, vd.nameRange.start.character),
+      end: mapper.extractedToOriginal(vd.nameRange.end.line, vd.nameRange.end.character),
+    };
+    if (!positionInRange({ line, character }, mappedNameRange)) return null;
+    return mappedNameRange;
   }
 
   return null;

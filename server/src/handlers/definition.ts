@@ -12,6 +12,7 @@
  */
 
 import * as fs from 'fs';
+import * as path from 'path';
 import { DefinitionParams, Location } from 'vscode-languageserver/node';
 import { TextDocument } from 'vscode-languageserver-textdocument';
 import {
@@ -31,7 +32,7 @@ import {
 import { parse } from '../parser/parser';
 import { WorkspaceIndex } from '../twincat/workspaceIndex';
 import { findNodeAtPosition } from './hover';
-import { extractStFromTwinCAT } from '../twincat/tcExtractor';
+import { extractST, extractStFromTwinCAT, PositionMapper } from '../twincat/tcExtractor';
 
 // ---------------------------------------------------------------------------
 // Scope helpers
@@ -214,14 +215,37 @@ function findTypeDeclaration(
 // Location builders
 // ---------------------------------------------------------------------------
 
-function toLocation(uri: string, decl: { range: { start: Position; end: Position } }): Location {
-  return {
-    uri,
-    range: {
-      start: decl.range.start,
-      end: decl.range.end,
-    },
-  };
+function toLocation(
+  uri: string,
+  decl: { range: { start: Position; end: Position } },
+  mapper?: PositionMapper,
+): Location {
+  const start = mapper
+    ? mapper.extractedToOriginal(decl.range.start.line, decl.range.start.character)
+    : { line: decl.range.start.line, character: decl.range.start.character };
+  const end = mapper
+    ? mapper.extractedToOriginal(decl.range.end.line, decl.range.end.character)
+    : { line: decl.range.end.line, character: decl.range.end.character };
+  return { uri, range: { start, end } };
+}
+
+/**
+ * Build a PositionMapper for any workspace file URI.
+ * For .st files (passthrough), returns an identity mapper.
+ * Reads the file from disk; callers should catch exceptions.
+ */
+function mapperForUri(fileUri: string): PositionMapper {
+  try {
+    const filePath = fileUri.startsWith('file://')
+      ? decodeURIComponent(fileUri.replace(/^file:\/\//, ''))
+      : fileUri;
+    const rawText = fs.readFileSync(filePath, 'utf8');
+    const ext = path.extname(filePath);
+    const result = extractST(rawText, ext);
+    return new PositionMapper(result);
+  } catch {
+    return new PositionMapper({ source: '', lineMap: [], sections: [], passthrough: true });
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -236,14 +260,18 @@ export function handleDefinition(
   if (!document) return null;
 
   const text = document.getText();
-  const extraction = extractStFromTwinCAT(document.uri, text);
-  const { ast } = parse(extraction.stCode);
+  const ext = path.extname(document.uri);
+  const extraction = extractST(text, ext);
+  const mapper = new PositionMapper(extraction);
+  const { ast } = parse(extraction.source);
 
   const { line, character } = params.position;
-  const node = findNodeAtPosition(ast, line, character);
+  const extractedPos = mapper.originalToExtracted(line, character);
+  if (!extractedPos) return null; // cursor on XML-only line
+  const node = findNodeAtPosition(ast, extractedPos.line, extractedPos.character);
   if (!node) return null;
 
-  const pos: Position = { line, character };
+  const pos: Position = { line: extractedPos.line, character: extractedPos.character };
   const uri = params.textDocument.uri;
 
   // SUPER^.Member go-to-definition: navigate to the parent FB's member declaration.
@@ -259,7 +287,7 @@ export function handleDefinition(
       const found = findSuperMemberDeclaration(
         parentFbName, memberName, ast.declarations, workspaceFiles, uri, 10,
       );
-      if (found) return toLocation(found.uri, found.node);
+      if (found) return toLocation(found.uri, found.node, mapperForUri(found.uri));
     }
     return null;
   }
@@ -270,9 +298,9 @@ export function handleDefinition(
     const typeName = (node as TypeRef).name;
     if (!typeName) return null;
     const pouMatch = findPouDeclaration(ast, typeName);
-    if (pouMatch) return toLocation(uri, pouMatch);
+    if (pouMatch) return toLocation(uri, pouMatch, mapper);
     const typeMatch = findTypeDeclaration(ast, typeName);
-    if (typeMatch) return toLocation(uri, typeMatch);
+    if (typeMatch) return toLocation(uri, typeMatch, mapper);
     // Search workspace files
     const wsFiles = loadWorkspaceDeclarations(uri, workspaceIndex);
     for (const { uri: fileUri, declarations } of wsFiles) {
@@ -280,13 +308,13 @@ export function handleDefinition(
       const wsMatch = declarations.find(
         d => 'name' in d && (d as { name: string }).name.toUpperCase() === upper,
       );
-      if (wsMatch) return toLocation(fileUri, wsMatch);
+      if (wsMatch) return toLocation(fileUri, wsMatch, mapperForUri(fileUri));
       // Also search inside TypeDeclarationBlocks from workspace files
       for (const decl of declarations) {
         if (decl.kind !== 'TypeDeclarationBlock') continue;
         const block = decl as TypeDeclarationBlock;
         const tdMatch = block.declarations.find(d => d.name.toUpperCase() === upper);
-        if (tdMatch) return toLocation(fileUri, tdMatch);
+        if (tdMatch) return toLocation(fileUri, tdMatch, mapperForUri(fileUri));
       }
     }
     return null;
@@ -315,9 +343,9 @@ export function handleDefinition(
         const fb = decl as FunctionBlockDeclaration;
         if (fb.name.toUpperCase() !== fbTypeName.toUpperCase()) continue;
         const method = fb.methods.find(m => m.name.toUpperCase() === memberName.toUpperCase());
-        if (method) return toLocation(srcUri, method);
+        if (method) return toLocation(srcUri, method, srcUri === uri ? mapper : mapperForUri(srcUri));
         const prop = fb.properties.find(p => p.name.toUpperCase() === memberName.toUpperCase());
-        if (prop) return toLocation(srcUri, prop);
+        if (prop) return toLocation(srcUri, prop, srcUri === uri ? mapper : mapperForUri(srcUri));
       }
     }
     return null;
@@ -333,15 +361,15 @@ export function handleDefinition(
   // 1. Local VarDeclarations in the enclosing POU
   const localVars = collectLocalVars(ast, pos);
   const localMatch = localVars.find(v => v.name.toUpperCase() === nameUpper);
-  if (localMatch) return toLocation(uri, localMatch);
+  if (localMatch) return toLocation(uri, localMatch, mapper);
 
   // 2. Action declarations in any FB in the current file
   const actionMatch = findActionDeclaration(ast, name);
-  if (actionMatch) return toLocation(uri, actionMatch.location);
+  if (actionMatch) return toLocation(uri, actionMatch.location, mapper);
 
   // 3. POU declarations in the current file
   const pouMatch = findPouDeclaration(ast, name);
-  if (pouMatch) return toLocation(uri, pouMatch);
+  if (pouMatch) return toLocation(uri, pouMatch, mapper);
 
   // 3. Cross-file POU search via workspaceIndex
   if (workspaceIndex) {
@@ -364,7 +392,7 @@ export function handleDefinition(
 
       const { ast: otherAst } = parse(fileText);
       const otherMatch = findPouDeclaration(otherAst, name);
-      if (otherMatch) return toLocation(fileUri, otherMatch);
+      if (otherMatch) return toLocation(fileUri, otherMatch, mapperForUri(fileUri));
     }
   }
 

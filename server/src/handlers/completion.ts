@@ -1,4 +1,5 @@
 import * as fs from 'fs';
+import * as path from 'path';
 import {
   CompletionItem,
   CompletionItemKind,
@@ -25,7 +26,7 @@ import { BUILTIN_TYPES } from '../twincat/types';
 import { STANDARD_FBS, findStandardFB } from '../twincat/stdlib';
 import { getLibraryFBs } from '../twincat/libraryRegistry';
 import { WorkspaceIndex } from '../twincat/workspaceIndex';
-import { extractStFromTwinCAT } from '../twincat/tcExtractor';
+import { extractST, extractStFromTwinCAT, PositionMapper } from '../twincat/tcExtractor';
 import { formatConstantValue } from './utils';
 
 const KEYWORDS = [
@@ -161,6 +162,53 @@ function getLhsIdentifierForAssignment(text: string, line: number, character: nu
  */
 function getCaseSelectorIdentifier(text: string, line: number): string | null {
   const lines = text.split('\n');
+  let depth = 0;
+  for (let l = line; l >= 0; l--) {
+    const lineText = lines[l];
+    if (/\bEND_CASE\b/i.test(lineText)) depth++;
+    const match = /\bCASE\s+([A-Za-z_][A-Za-z0-9_]*)\s+OF\b/i.exec(lineText);
+    if (match) {
+      if (depth > 0) {
+        depth--;
+      } else {
+        return match[1];
+      }
+    }
+  }
+  return null;
+}
+
+// ---- Variants that operate on pre-split lines (for use with extracted ST source) ----
+
+function getIdentifierBeforeDotInLines(lines: string[], line: number, character: number): string | null {
+  if (line >= lines.length) return null;
+  const lineText = lines[line];
+  if (character === 0 || lineText[character - 1] !== '.') return null;
+  let i = character - 2;
+  while (i >= 0 && /[a-zA-Z0-9_.]/.test(lineText[i])) i--;
+  const ident = lineText.slice(i + 1, character - 1);
+  return ident.length > 0 ? ident : null;
+}
+
+function isSuperBeforeDotInLines(lines: string[], line: number, character: number): boolean {
+  if (line >= lines.length) return false;
+  const prefix = lines[line].slice(0, character);
+  return /\bSUPER\s*\^\s*\.\s*$/i.test(prefix);
+}
+
+function getLhsIdentifierForAssignmentInLines(lines: string[], line: number, character: number): string | null {
+  if (line >= lines.length) return null;
+  const lineUpToCursor = lines[line].slice(0, character);
+  const assignIdx = lineUpToCursor.lastIndexOf(':=');
+  if (assignIdx < 0) return null;
+  const afterAssign = lineUpToCursor.slice(assignIdx + 2);
+  if (/[^A-Za-z0-9_.\s]/.test(afterAssign)) return null;
+  const beforeAssign = lineUpToCursor.slice(0, assignIdx).trimEnd();
+  const identMatch = beforeAssign.match(/\b([A-Za-z_][A-Za-z0-9_]*)$/);
+  return identMatch ? identMatch[1] : null;
+}
+
+function getCaseSelectorIdentifierInLines(lines: string[], line: number): string | null {
   let depth = 0;
   for (let l = line; l >= 0; l--) {
     const lineText = lines[l];
@@ -636,17 +684,33 @@ export function handleCompletion(
   if (!document) return [];
 
   const text = document.getText();
-  const extraction = extractStFromTwinCAT(document.uri, text);
+  const ext = path.extname(document.uri);
+  const extraction = extractST(text, ext);
+  const mapper = new PositionMapper(extraction);
   // If extraction returned no code from non-empty content, the document content
   // is likely already-extracted ST fed to a handler with a TwinCAT file URI.
   // Fall back to parsing the raw text directly so completions are available.
-  const stCode = extraction.stCode.length > 0 || text.length === 0 ? extraction.stCode : text;
+  const stCode = extraction.source.length > 0 || text.length === 0 ? extraction.source : text;
   const { ast } = parse(stCode);
-  const pos = params.position;
+
+  const { line, character } = params.position;
+  // Convert cursor position to extracted-source coordinates.
+  // If the cursor is on an XML-only line, fall back to raw position (for .st files the mapper
+  // is a passthrough so this is always fine).
+  const extractedPos = mapper.originalToExtracted(line, character) ?? { line, character };
+  const pos: Position = { line: extractedPos.line, character: extractedPos.character };
+
+  // Use extracted source lines for text-based analysis (not raw XML).
+  const stLines = stCode.split('\n');
+  const lineToInStCode = (origLine: number, origChar: number): { line: number; char: number } => {
+    const ep = mapper.originalToExtracted(origLine, origChar);
+    return ep ? { line: ep.line, char: ep.character } : { line: origLine, char: origChar };
+  };
+  const stCodeLine = lineToInStCode(line, character);
 
   // SUPER^. member completion: when inside a child FB and user types 'SUPER^.',
   // return the parent FB's inherited members.
-  if (isSuperBeforeDot(text, pos.line, pos.character)) {
+  if (isSuperBeforeDotInLines(stLines, stCodeLine.line, stCodeLine.char)) {
     const parentName = getEnclosingFbExtends(ast.declarations, pos);
     if (parentName) {
       return getSuperMembers(
@@ -658,7 +722,7 @@ export function handleCompletion(
 
   // Dot-access member completion: when the user types '<ident>.', return only
   // the members of the resolved type rather than the flat keyword/type list.
-  const identBeforeDot = getIdentifierBeforeDot(text, pos.line, pos.character);
+  const identBeforeDot = getIdentifierBeforeDotInLines(stLines, stCodeLine.line, stCodeLine.char);
   if (identBeforeDot !== null) {
     const vars = collectVarDeclarations(ast.declarations, pos);
     const members = getDotAccessMembers(
@@ -669,7 +733,7 @@ export function handleCompletion(
 
   // Enum-aware assignment completion: when cursor is on RHS of ':=', return
   // only the enum values if the LHS variable has an enum type.
-  const lhsIdent = getLhsIdentifierForAssignment(text, pos.line, pos.character);
+  const lhsIdent = getLhsIdentifierForAssignmentInLines(stLines, stCodeLine.line, stCodeLine.char);
   if (lhsIdent !== null) {
     const vars = collectVarDeclarations(ast.declarations, pos);
     const vd = vars.find(v => v.vd.name.toUpperCase() === lhsIdent.toUpperCase());
@@ -683,7 +747,7 @@ export function handleCompletion(
 
   // CASE selector enum completion: when cursor is inside a CASE...OF block where
   // the selector variable has an enum type, return only the relevant enum values.
-  const caseSelectorIdent = getCaseSelectorIdentifier(text, pos.line);
+  const caseSelectorIdent = getCaseSelectorIdentifierInLines(stLines, stCodeLine.line);
   if (caseSelectorIdent !== null) {
     const vars = collectVarDeclarations(ast.declarations, pos);
     const vd = vars.find(v => v.vd.name.toUpperCase() === caseSelectorIdent.toUpperCase());

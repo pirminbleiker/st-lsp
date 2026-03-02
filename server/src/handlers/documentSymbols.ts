@@ -5,6 +5,8 @@ import {
   Range,
 } from 'vscode-languageserver/node';
 import { TextDocument } from 'vscode-languageserver-textdocument';
+import * as path from 'path';
+import { extractST, PositionMapper } from '../twincat/tcExtractor';
 import {
   SourceFile,
   ProgramDeclaration,
@@ -25,14 +27,18 @@ export function handleDocumentSymbols(
   document: TextDocument | undefined,
 ): DocumentSymbol[] {
   if (!document) return [];
-  const { ast } = parse(document.getText());
-  return buildSymbols(ast);
+  const text = document.getText();
+  const ext = path.extname(document.uri);
+  const extraction = extractST(text, ext);
+  const mapper = new PositionMapper(extraction);
+  const { ast } = parse(extraction.source);
+  return buildSymbols(ast, mapper);
 }
 
-function astRangeToLsp(range: import('../parser/ast').Range): Range {
+function astRangeToLsp(range: import('../parser/ast').Range, mapper: PositionMapper): Range {
   return {
-    start: { line: range.start.line, character: range.start.character },
-    end: { line: range.end.line, character: range.end.character },
+    start: mapper.extractedToOriginal(range.start.line, range.start.character),
+    end: mapper.extractedToOriginal(range.end.line, range.end.character),
   };
 }
 
@@ -45,40 +51,40 @@ function formatTypeName(type: import('../parser/ast').TypeRef): string {
   return type.name;
 }
 
-function varBlocksToSymbols(varBlocks: VarBlock[]): DocumentSymbol[] {
+function varBlocksToSymbols(varBlocks: VarBlock[], mapper: PositionMapper): DocumentSymbol[] {
   const symbols: DocumentSymbol[] = [];
   for (const vb of varBlocks) {
     if (vb.declarations.length === 0) continue;
     const children: DocumentSymbol[] = vb.declarations.map(vd => ({
       name: vd.name,
       kind: SymbolKind.Variable,
-      range: astRangeToLsp(vd.range),
-      selectionRange: astRangeToLsp(vd.range),
+      range: astRangeToLsp(vd.range, mapper),
+      selectionRange: astRangeToLsp(vd.range, mapper),
       detail: formatTypeName(vd.type),
     }));
     symbols.push({
       name: vb.varKind,
       kind: SymbolKind.Variable,
-      range: astRangeToLsp(vb.range),
-      selectionRange: astRangeToLsp(vb.range),
+      range: astRangeToLsp(vb.range, mapper),
+      selectionRange: astRangeToLsp(vb.range, mapper),
       children,
     });
   }
   return symbols;
 }
 
-function buildSymbols(ast: SourceFile): DocumentSymbol[] {
+function buildSymbols(ast: SourceFile, mapper: PositionMapper): DocumentSymbol[] {
   const result: DocumentSymbol[] = [];
 
   for (const decl of ast.declarations) {
     if (decl.kind === 'ProgramDeclaration') {
       const prog = decl as ProgramDeclaration;
-      const varSymbols = varBlocksToSymbols(prog.varBlocks);
+      const varSymbols = varBlocksToSymbols(prog.varBlocks, mapper);
       result.push({
         name: prog.name,
         kind: SymbolKind.Module,
-        range: astRangeToLsp(prog.range),
-        selectionRange: astRangeToLsp(prog.range),
+        range: astRangeToLsp(prog.range, mapper),
+        selectionRange: astRangeToLsp(prog.range, mapper),
         children: varSymbols.length > 0 ? varSymbols : undefined,
       });
     } else if (decl.kind === 'FunctionBlockDeclaration') {
@@ -87,15 +93,15 @@ function buildSymbols(ast: SourceFile): DocumentSymbol[] {
       const children: DocumentSymbol[] = [];
 
       // Var declarations
-      children.push(...varBlocksToSymbols(fb.varBlocks));
+      children.push(...varBlocksToSymbols(fb.varBlocks, mapper));
 
       // Methods
       for (const method of fb.methods) {
         children.push({
           name: method.name,
           kind: SymbolKind.Method,
-          range: astRangeToLsp(method.range),
-          selectionRange: astRangeToLsp(method.range),
+          range: astRangeToLsp(method.range, mapper),
+          selectionRange: astRangeToLsp(method.range, mapper),
           detail: method.returnType ? `: ${method.returnType.name}` : undefined,
         });
       }
@@ -105,8 +111,8 @@ function buildSymbols(ast: SourceFile): DocumentSymbol[] {
         children.push({
           name: action.name,
           kind: SymbolKind.Method,
-          range: astRangeToLsp(action.range),
-          selectionRange: astRangeToLsp(action.range),
+          range: astRangeToLsp(action.range, mapper),
+          selectionRange: astRangeToLsp(action.range, mapper),
         });
       }
 
@@ -115,8 +121,8 @@ function buildSymbols(ast: SourceFile): DocumentSymbol[] {
         children.push({
           name: prop.name,
           kind: SymbolKind.Property,
-          range: astRangeToLsp(prop.range),
-          selectionRange: astRangeToLsp(prop.range),
+          range: astRangeToLsp(prop.range, mapper),
+          selectionRange: astRangeToLsp(prop.range, mapper),
           detail: prop.type.name,
         });
       }
@@ -124,20 +130,20 @@ function buildSymbols(ast: SourceFile): DocumentSymbol[] {
       result.push({
         name: fb.name,
         kind: SymbolKind.Class,
-        range: astRangeToLsp(fb.range),
-        selectionRange: astRangeToLsp(fb.range),
+        range: astRangeToLsp(fb.range, mapper),
+        selectionRange: astRangeToLsp(fb.range, mapper),
         detail,
         children: children.length > 0 ? children : undefined,
       });
     } else if (decl.kind === 'FunctionDeclaration') {
       const fn = decl as FunctionDeclaration;
       const detail = fn.returnType ? `: ${fn.returnType.name}` : undefined;
-      const varSymbols = varBlocksToSymbols(fn.varBlocks);
+      const varSymbols = varBlocksToSymbols(fn.varBlocks, mapper);
       result.push({
         name: fn.name,
         kind: SymbolKind.Function,
-        range: astRangeToLsp(fn.range),
-        selectionRange: astRangeToLsp(fn.range),
+        range: astRangeToLsp(fn.range, mapper),
+        selectionRange: astRangeToLsp(fn.range, mapper),
         detail,
         children: varSymbols.length > 0 ? varSymbols : undefined,
       });
@@ -150,8 +156,8 @@ function buildSymbols(ast: SourceFile): DocumentSymbol[] {
         children.push({
           name: method.name,
           kind: SymbolKind.Method,
-          range: astRangeToLsp(method.range),
-          selectionRange: astRangeToLsp(method.range),
+          range: astRangeToLsp(method.range, mapper),
+          selectionRange: astRangeToLsp(method.range, mapper),
           detail: method.returnType ? `: ${method.returnType.name}` : undefined,
         });
       }
@@ -161,8 +167,8 @@ function buildSymbols(ast: SourceFile): DocumentSymbol[] {
         children.push({
           name: prop.name,
           kind: SymbolKind.Property,
-          range: astRangeToLsp(prop.range),
-          selectionRange: astRangeToLsp(prop.range),
+          range: astRangeToLsp(prop.range, mapper),
+          selectionRange: astRangeToLsp(prop.range, mapper),
           detail: prop.type.name,
         });
       }
@@ -170,8 +176,8 @@ function buildSymbols(ast: SourceFile): DocumentSymbol[] {
       result.push({
         name: iface.name,
         kind: SymbolKind.Interface,
-        range: astRangeToLsp(iface.range),
-        selectionRange: astRangeToLsp(iface.range),
+        range: astRangeToLsp(iface.range, mapper),
+        selectionRange: astRangeToLsp(iface.range, mapper),
         children: children.length > 0 ? children : undefined,
       });
     } else if (decl.kind === 'TypeDeclarationBlock') {
@@ -182,15 +188,15 @@ function buildSymbols(ast: SourceFile): DocumentSymbol[] {
           const fieldSymbols: DocumentSymbol[] = struct.fields.map(field => ({
             name: field.name,
             kind: SymbolKind.Field,
-            range: astRangeToLsp(field.range),
-            selectionRange: astRangeToLsp(field.range),
+            range: astRangeToLsp(field.range, mapper),
+            selectionRange: astRangeToLsp(field.range, mapper),
             detail: formatTypeName(field.type),
           }));
           result.push({
             name: struct.name,
             kind: SymbolKind.Struct,
-            range: astRangeToLsp(struct.range),
-            selectionRange: astRangeToLsp(struct.range),
+            range: astRangeToLsp(struct.range, mapper),
+            selectionRange: astRangeToLsp(struct.range, mapper),
             children: fieldSymbols.length > 0 ? fieldSymbols : undefined,
           });
         } else if (typeDecl.kind === 'EnumDeclaration') {
@@ -198,14 +204,14 @@ function buildSymbols(ast: SourceFile): DocumentSymbol[] {
           const enumMembers: DocumentSymbol[] = enumDecl.values.map(ev => ({
             name: ev.name,
             kind: SymbolKind.EnumMember,
-            range: astRangeToLsp(ev.range),
-            selectionRange: astRangeToLsp(ev.range),
+            range: astRangeToLsp(ev.range, mapper),
+            selectionRange: astRangeToLsp(ev.range, mapper),
           }));
           result.push({
             name: enumDecl.name,
             kind: SymbolKind.Enum,
-            range: astRangeToLsp(enumDecl.range),
-            selectionRange: astRangeToLsp(enumDecl.range),
+            range: astRangeToLsp(enumDecl.range, mapper),
+            selectionRange: astRangeToLsp(enumDecl.range, mapper),
             children: enumMembers.length > 0 ? enumMembers : undefined,
           });
         } else if (typeDecl.kind === 'AliasDeclaration') {
@@ -213,8 +219,8 @@ function buildSymbols(ast: SourceFile): DocumentSymbol[] {
           result.push({
             name: alias.name,
             kind: SymbolKind.TypeParameter,
-            range: astRangeToLsp(alias.range),
-            selectionRange: astRangeToLsp(alias.range),
+            range: astRangeToLsp(alias.range, mapper),
+            selectionRange: astRangeToLsp(alias.range, mapper),
             detail: `= ${alias.type.name}`,
           });
         } else if (typeDecl.kind === 'UnionDeclaration') {
@@ -222,15 +228,15 @@ function buildSymbols(ast: SourceFile): DocumentSymbol[] {
           const fieldSymbols: DocumentSymbol[] = union.fields.map(field => ({
             name: field.name,
             kind: SymbolKind.Field,
-            range: astRangeToLsp(field.range),
-            selectionRange: astRangeToLsp(field.range),
+            range: astRangeToLsp(field.range, mapper),
+            selectionRange: astRangeToLsp(field.range, mapper),
             detail: formatTypeName(field.type),
           }));
           result.push({
             name: union.name,
             kind: SymbolKind.Struct,
-            range: astRangeToLsp(union.range),
-            selectionRange: astRangeToLsp(union.range),
+            range: astRangeToLsp(union.range, mapper),
+            selectionRange: astRangeToLsp(union.range, mapper),
             children: fieldSymbols.length > 0 ? fieldSymbols : undefined,
           });
         }

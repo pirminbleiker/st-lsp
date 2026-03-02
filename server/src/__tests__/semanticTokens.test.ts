@@ -250,8 +250,8 @@ describe('handleSemanticTokens — TcPOU XML/CDATA files', () => {
     const doc = makeTcPouDoc(xmlPou);
     const { data } = handleSemanticTokens(doc);
     const tokens = decodeTokens(data);
-    // Lines 0-3 are pure XML — they should all get comment tokens
-    const commentTokens = tokens.filter(t => t.tokenType === 'comment');
+    // Lines 0-3 are pure XML — they should all get xmlMarkup tokens
+    const commentTokens = tokens.filter(t => t.tokenType === 'xmlMarkup');
     expect(commentTokens.some(t => t.line === 0)).toBe(true); // XML declaration line
     expect(commentTokens.some(t => t.line === 1)).toBe(true); // <TcPlcObject>
     expect(commentTokens.some(t => t.line === 2)).toBe(true); // <POU Name="Foo">

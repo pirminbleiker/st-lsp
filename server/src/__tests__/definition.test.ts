@@ -355,3 +355,65 @@ END_PROGRAM
     });
   });
 });
+
+describe('TcPOU position mapping', () => {
+  // Line numbers in this TcPOU (0-indexed):
+  //  0: <?xml version="1.0" encoding="utf-8"?>
+  //  1: <TcPlcObject>
+  //  2:   <POU Name="FB_DefTest">
+  //  3:     <Declaration><![CDATA[
+  //  4: FUNCTION_BLOCK FB_DefTest
+  //  5: VAR
+  //  6:   counter : INT;
+  //  7:   flag : BOOL;
+  //  8: END_VAR
+  //  9: ]]></Declaration>
+  // 10:     <Implementation>
+  // 11:       <ST><![CDATA[
+  // 12: counter := counter + 1;
+  // 13: ]]></ST>
+  // 14:     </Implementation>
+  // 15:   </POU>
+  // 16: </TcPlcObject>
+  const tcpouContent = [
+    '<?xml version="1.0" encoding="utf-8"?>',
+    '<TcPlcObject>',
+    '  <POU Name="FB_DefTest">',
+    '    <Declaration><![CDATA[',
+    'FUNCTION_BLOCK FB_DefTest',
+    'VAR',
+    '  counter : INT;',
+    '  flag : BOOL;',
+    'END_VAR',
+    ']]></Declaration>',
+    '    <Implementation>',
+    '      <ST><![CDATA[',
+    'counter := counter + 1;',
+    ']]></ST>',
+    '    </Implementation>',
+    '  </POU>',
+    '</TcPlcObject>',
+  ].join('\n');
+
+  function makeTcPouDoc(content: string): TextDocument {
+    return TextDocument.create('file:///test/test.TcPOU', 'iec-st', 1, content);
+  }
+
+  it('go-to-def on variable usage at original line 12 finds VarDeclaration at original line 6', () => {
+    const doc = makeTcPouDoc(tcpouContent);
+    // Line 12 (original): "counter := counter + 1;"
+    // "counter" (left-hand side) starts at character 0
+    const result = handleDefinition(makeParams(doc.uri, 12, 0), doc, undefined);
+    expect(result).not.toBeNull();
+    if (result) {
+      // The VarDeclaration for `counter` is at original line 6: "  counter : INT;"
+      expect(result.range.start.line).toBe(6);
+    }
+  });
+
+  it('returns null when go-to-def on XML-only line (line 0)', () => {
+    const doc = makeTcPouDoc(tcpouContent);
+    const result = handleDefinition(makeParams(doc.uri, 0, 5), doc, undefined);
+    expect(result).toBeNull();
+  });
+});

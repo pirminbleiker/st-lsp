@@ -49,6 +49,7 @@ export const TOKEN_TYPES = [
   'comment',      // 9
   'string',       // 10
   'number',       // 11
+  'xmlMarkup',    // 12
 ] as const;
 
 export const TOKEN_MODIFIERS = [
@@ -72,6 +73,7 @@ const TT_INTERFACE  = 8;
 const TT_COMMENT    = 9;
 const TT_STRING     = 10;
 const TT_NUMBER     = 11;
+const TT_XML_MARKUP = 12;
 
 // Modifier bit flags
 const MOD_DECLARATION  = 1 << 0;
@@ -507,7 +509,7 @@ function collectXmlCommentTokens(
     const endChar   = ln === xmlRange.end.line   ? xmlRange.end.character   : lineText.length;
     const len = endChar - startChar;
     if (len > 0) {
-      out.push({ line: ln, character: startChar, length: len, tokenType: TT_COMMENT, modifiers: 0 });
+      out.push({ line: ln, character: startChar, length: len, tokenType: TT_XML_MARKUP, modifiers: 0 });
     }
   }
 }

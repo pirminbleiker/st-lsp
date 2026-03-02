@@ -985,6 +985,10 @@ class Parser {
           index,
           range: this.endRange(start),
         } as SubscriptExpression;
+      } else if (this.check(TokenKind.CARET)) {
+        // Pointer dereference — consume '^' transparently.
+        // The LSP treats `ptr^.member` the same as `ptr.member` for navigation.
+        this.advance();
       } else if (this.check(TokenKind.DOT)) {
         // Member access
         const start = expr.range.start;
@@ -1090,10 +1094,21 @@ class Parser {
         // Consume SUPER and the optional '^' that follows it so that
         // the postfix loop can then handle the trailing '.member' access.
         this.advance(); // SUPER
-        if (this.peek().kind === TokenKind.IDENTIFIER && this.peek().text === '^') {
+        if (this.peek().kind === TokenKind.CARET) {
           this.advance(); // ^
         }
         return { kind: 'NameExpression', name: 'SUPER', range: tok.range } as NameExpression;
+      }
+
+      case TokenKind.THIS: {
+        // THIS^ — pointer dereference of the current FB instance.
+        // Works identically to SUPER^: consume THIS (and optional ^) so the
+        // postfix loop handles the trailing '.member' / '(...)' access.
+        this.advance(); // THIS
+        if (this.peek().kind === TokenKind.CARET) {
+          this.advance(); // ^
+        }
+        return { kind: 'NameExpression', name: 'THIS', range: tok.range } as NameExpression;
       }
 
       default:

@@ -25,8 +25,9 @@ import {
 import { parse } from '../parser/parser';
 import { STANDARD_FBS } from '../twincat/stdlib';
 import { WorkspaceIndex } from '../twincat/workspaceIndex';
-import { extractStFromTwinCAT } from '../twincat/tcExtractor';
+import { extractST, PositionMapper } from '../twincat/tcExtractor';
 import * as fs from 'fs';
+import * as path from 'path';
 
 // ---------------------------------------------------------------------------
 // Parameter resolution helpers (mirroring signatureHelp logic)
@@ -145,8 +146,9 @@ function lookupInWorkspace(
           ? decodeURIComponent(fileUri.replace(/^file:\/\//, ''))
           : fileUri;
         const rawText = fs.readFileSync(filePath, 'utf8');
-        const extracted = extractStFromTwinCAT(filePath, rawText);
-        fileAst = parse(extracted.stCode).ast;
+        const otherExt = path.extname(filePath);
+        const otherExtraction = extractST(rawText, otherExt);
+        fileAst = parse(otherExtraction.source).ast;
       } catch {
         continue;
       }
@@ -347,10 +349,22 @@ export function handleInlayHints(
   if (!document) return [];
 
   const text = document.getText();
-  const extraction = extractStFromTwinCAT(document.uri, text);
-  const { ast } = parse(extraction.stCode);
+  const ext = path.extname(document.uri);
+  const extraction = extractST(text, ext);
+  const mapper = new PositionMapper(extraction);
+  const { ast } = parse(extraction.source);
 
-  const callExprs = collectCallExpressionsInRange(ast, range);
+  // Convert the incoming visible range from original-file to extracted-source coordinates.
+  const extractedRangeStart = mapper.originalToExtracted(range.start.line, range.start.character)
+    ?? { line: range.start.line, character: range.start.character };
+  const extractedRangeEnd = mapper.originalToExtracted(range.end.line, range.end.character)
+    ?? { line: range.end.line, character: range.end.character };
+  const extractedRange: LspRange = {
+    start: { line: extractedRangeStart.line, character: extractedRangeStart.character },
+    end: { line: extractedRangeEnd.line, character: extractedRangeEnd.character },
+  };
+
+  const callExprs = collectCallExpressionsInRange(ast, extractedRange);
   const hints: InlayHint[] = [];
 
   for (const ce of callExprs) {
@@ -369,8 +383,13 @@ export function handleInlayHints(
       }
       const paramName = params.names[positionalIdx];
       if (paramName !== undefined) {
+        // Map hint position from extracted-source back to original-file coordinates.
+        const hintPos = mapper.extractedToOriginal(
+          arg.value.range.start.line,
+          arg.value.range.start.character,
+        );
         hints.push({
-          position: arg.value.range.start,
+          position: hintPos,
           label: `${paramName}:`,
           kind: InlayHintKind.Parameter,
           paddingRight: true,

@@ -36,7 +36,24 @@
         ],
         "configuration": "./language-configuration.json"
       }
-    ]
+    ],
+    "semanticTokenTypes": [
+      {
+        "id": "xmlMarkup",
+        "superType": "comment",
+        "description": "XML wrapper markup in TwinCAT source files"
+      }
+    ],
+    "configurationDefaults": {
+      "[iec-st]": {
+        "editor.foldingImportsByDefault": true,
+        "editor.semanticTokenColorCustomizations": {
+          "rules": {
+            "xmlMarkup": "#404040"
+          }
+        }
+      }
+    }
   },
   "scripts": {
     "compile": "tsc -p tsconfig.json",

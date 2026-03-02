@@ -26,7 +26,7 @@ import {
   SourceFile,
 } from '../parser/ast';
 import { parse } from '../parser/parser';
-import { extractST, getXmlRanges } from '../twincat/tcExtractor';
+import { extractST, getXmlRanges, XmlRange } from '../twincat/tcExtractor';
 
 // TwinCAT XML file extensions that need the XML-aware folding handler
 const XML_EXT_SET = new Set(['.tcpou', '.tcgvl', '.tcdut', '.tcio', '.tctask']);
@@ -112,6 +112,34 @@ function countNewlinesBefore(text: string, pos: number): number {
   return count;
 }
 
+function positionToOffset(text: string, pos: { line: number; character: number }): number {
+  let line = 0;
+  let i = 0;
+  while (i < text.length && line < pos.line) {
+    if (text[i] === '\n') line++;
+    i++;
+  }
+  return i + pos.character;
+}
+
+function mergeAdjacentXmlRanges(text: string, xmlRanges: XmlRange[]): XmlRange[] {
+  if (xmlRanges.length <= 1) return xmlRanges;
+  const merged: XmlRange[] = [{ ...xmlRanges[0] }];
+  for (let i = 1; i < xmlRanges.length; i++) {
+    const prev = merged[merged.length - 1];
+    const curr = xmlRanges[i];
+    const gapStart = positionToOffset(text, prev.end);
+    const gapEnd   = positionToOffset(text, curr.start);
+    const gapText  = text.slice(gapStart, gapEnd);
+    if (gapText.trim() === '') {
+      merged[merged.length - 1] = { start: prev.start, end: curr.end };
+    } else {
+      merged.push({ ...curr });
+    }
+  }
+  return merged;
+}
+
 /** Collect all ST folding ranges from a parsed AST + source text. */
 function collectAstFoldingRanges(ast: SourceFile, text: string): FoldingRange[] {
   const ranges: FoldingRange[] = [];
@@ -159,12 +187,12 @@ function collectAstFoldingRanges(ast: SourceFile, text: string): FoldingRange[] 
   return ranges;
 }
 
-export function handleFoldingRanges(document: TextDocument | undefined): FoldingRange[] {
+export function handleFoldingRanges(document: TextDocument | undefined, lineFoldingOnly = false): FoldingRange[] {
   if (!document) return [];
 
   const ext = path.extname(document.uri).toLowerCase();
   if (XML_EXT_SET.has(ext)) {
-    return handleFoldingRangesXml(document, ext);
+    return handleFoldingRangesXml(document, ext, lineFoldingOnly);
   }
 
   const text = document.getText();
@@ -173,21 +201,36 @@ export function handleFoldingRanges(document: TextDocument | undefined): Folding
 }
 
 /** Folding range handler for TwinCAT XML files (.TcPOU, .TcGVL, etc.). */
-function handleFoldingRangesXml(document: TextDocument, ext: string): FoldingRange[] {
+function handleFoldingRangesXml(document: TextDocument, ext: string, lineFoldingOnly = false): FoldingRange[] {
   const text = document.getText();
   const extraction = extractST(text, ext);
   const { ast } = parse(extraction.source);
   const lm = extraction.lineMap;
   const ranges: FoldingRange[] = [];
 
-  // 1. XML wrapper section folds — fold regions that are entirely XML.
-  //    Use end.line - 1 to exclude lines that contain CDATA content starts,
-  //    and only add when the fold spans more than one line.
-  for (const xmlRange of getXmlRanges(text)) {
-    const foldStart = xmlRange.start.line;
-    const foldEnd   = xmlRange.end.line - 1;
-    if (foldEnd > foldStart) {
-      ranges.push({ startLine: foldStart, endLine: foldEnd, kind: FoldingRangeKind.Region });
+  // 1. XML wrapper section folds (Imports kind → auto-collapsed by foldingImportsByDefault)
+  const mergedXmlRanges = mergeAdjacentXmlRanges(text, getXmlRanges(text));
+  for (const xmlRange of mergedXmlRanges) {
+    const { start, end } = xmlRange;
+    if (lineFoldingOnly) {
+      // Fallback: line-level fold for clients that don't support character-level
+      const foldStart = start.line;
+      const foldEnd   = end.line - 1;
+      if (foldEnd > foldStart) {
+        ranges.push({ startLine: foldStart, endLine: foldEnd, kind: FoldingRangeKind.Imports });
+      }
+    } else {
+      // Character-level fold: fold exactly the XML portion
+      if (start.line < end.line || (start.line === end.line && start.character < end.character)) {
+        ranges.push({
+          startLine: start.line,
+          startCharacter: start.character,
+          endLine: end.line,
+          endCharacter: end.character,
+          kind: FoldingRangeKind.Imports,
+          collapsedText: '…',
+        });
+      }
     }
   }
 

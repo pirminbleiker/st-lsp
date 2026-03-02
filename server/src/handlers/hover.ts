@@ -31,7 +31,8 @@ import {
 import { parse } from '../parser/parser';
 import { builtinTypeHover, findBuiltinType } from '../twincat/types';
 import { findStandardFB, standardFBHover } from '../twincat/stdlib';
-import { extractStFromTwinCAT } from '../twincat/tcExtractor';
+import * as path from 'path';
+import { extractST, PositionMapper } from '../twincat/tcExtractor';
 import { findPragmaDoc, pragmaHover } from '../twincat/pragmas';
 import { WorkspaceIndex } from '../twincat/workspaceIndex';
 import { formatConstantValue } from './utils';
@@ -360,12 +361,22 @@ export function handleHover(
   if (!document) return null;
 
   const text = document.getText();
-  const extraction = extractStFromTwinCAT(document.uri, text);
-  const { ast } = parse(extraction.stCode);
+  const ext = path.extname(document.uri);
+  const extraction = extractST(text, ext);
+  const mapper = new PositionMapper(extraction);
+  const { ast } = parse(extraction.source);
 
   const { line, character } = params.position;
-  const node = findNodeAtPosition(ast, line, character);
+  const extractedPos = mapper.originalToExtracted(line, character);
+  if (!extractedPos) return null; // cursor on XML-only line
+  const node = findNodeAtPosition(ast, extractedPos.line, extractedPos.character);
   if (!node) return null;
+
+  /** Map an extracted-source node range to original-file coordinates. */
+  const nodeRange = () => ({
+    start: mapper.extractedToOriginal(node.range.start.line, node.range.start.character),
+    end: mapper.extractedToOriginal(node.range.end.line, node.range.end.character),
+  });
 
   // We handle Pragma nodes and NameExpression nodes
   if (node.kind === 'Pragma') {
@@ -374,7 +385,25 @@ export function handleHover(
     const value = doc ? pragmaHover(doc) : `**\`${pragma.raw}\`**`;
     return {
       contents: { kind: MarkupKind.Markdown, value },
-      range: { start: node.range.start, end: node.range.end },
+      range: nodeRange(),
+    };
+  }
+
+  // Handle hovering directly on a variable declaration (inside a VAR block)
+  if (node.kind === 'VarDeclaration') {
+    const vd = node as VarDeclaration;
+    // Determine which var block kind this declaration belongs to
+    const varBlock = ast.declarations.flatMap(decl => {
+      const pou = decl as { varBlocks?: import('../parser/ast').VarBlock[] };
+      return pou.varBlocks ?? [];
+    }).find(vb => vb.declarations.some((d: VarDeclaration) => d === vd));
+    const varKind = varBlock?.varKind ?? 'VAR';
+    return {
+      contents: { kind: MarkupKind.Markdown, value: varDeclHover(vd, varKind, undefined) },
+      range: {
+        start: mapper.extractedToOriginal(vd.nameRange.start.line, vd.nameRange.start.character),
+        end: mapper.extractedToOriginal(vd.nameRange.end.line, vd.nameRange.end.character),
+      },
     };
   }
 
@@ -388,7 +417,7 @@ export function handleHover(
   if (builtinType) {
     return {
       contents: { kind: MarkupKind.Markdown, value: builtinTypeHover(builtinType) },
-      range: { start: node.range.start, end: node.range.end },
+      range: nodeRange(),
     };
   }
 
@@ -414,17 +443,17 @@ export function handleHover(
     }
     return {
       contents: { kind: MarkupKind.Markdown, value: hoverText },
-      range: { start: node.range.start, end: node.range.end },
+      range: nodeRange(),
     };
   }
 
   // 3. VarDeclaration in scope?
-  const vars = collectVarDeclarations(ast, { line, character });
+  const vars = collectVarDeclarations(ast, extractedPos);
   const varMatch = vars.find(v => v.vd.name.toUpperCase() === name.toUpperCase());
   if (varMatch) {
     return {
       contents: { kind: MarkupKind.Markdown, value: varDeclHover(varMatch.vd, varMatch.varKind, varMatch.qualifier) },
-      range: { start: node.range.start, end: node.range.end },
+      range: nodeRange(),
     };
   }
 
@@ -435,7 +464,7 @@ export function handleHover(
   if (pouDecl) {
     return {
       contents: { kind: MarkupKind.Markdown, value: pouHover(pouDecl) },
-      range: { start: node.range.start, end: node.range.end },
+      range: nodeRange(),
     };
   }
 
@@ -451,7 +480,7 @@ export function handleHover(
           kind: MarkupKind.Markdown,
           value: `**ACTION** \`${action.name}\` *(in ${fb.name})*`,
         },
-        range: { start: node.range.start, end: node.range.end },
+        range: nodeRange(),
       };
     }
   }
@@ -465,13 +494,13 @@ export function handleHover(
       if (typeDecl.kind === 'StructDeclaration') {
         return {
           contents: { kind: MarkupKind.Markdown, value: structHover(typeDecl as StructDeclaration) },
-          range: { start: node.range.start, end: node.range.end },
+          range: nodeRange(),
         };
       }
       if (typeDecl.kind === 'EnumDeclaration') {
         return {
           contents: { kind: MarkupKind.Markdown, value: enumHover(typeDecl as EnumDeclaration) },
-          range: { start: node.range.start, end: node.range.end },
+          range: nodeRange(),
         };
       }
     }

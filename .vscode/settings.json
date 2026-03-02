@@ -1,0 +1,8 @@
+{
+    "chat.tools.terminal.autoApprove": {
+        "/^cd /home/pirmin/gt/st_lsp/crew/pirmin/server && node -e \"\nconst \\{ extractST, PositionMapper \\} = require\\('\\./out/twincat/tcExtractor'\\);\nconst \\{ parse \\} = require\\('\\./out/parser/parser'\\);\nconst \\{ handleHover \\} = require\\('\\./out/handlers/hover'\\);\nconst \\{ TextDocument \\} = require\\('vscode-languageserver-textdocument'\\);\n\nconst content = \\[\n  '<\\?xml version=\\\\\"1\\.0\\\\\" encoding=\\\\\"utf-8\\\\\"\\?>',\n  '<TcPlcObject>',\n  '  <POU Name=\\\\\"FB_HoverTest\\\\\">',\n  '    <Declaration><!\\[CDATA\\[',\n  'FUNCTION_BLOCK FB_HoverTest',\n  'VAR',\n  '  counter : INT;',\n  '  flag : BOOL;',\n  'END_VAR',\n  '\\]\\]></Declaration>',\n  '    <Implementation>',\n  '      <ST><!\\[CDATA\\[',\n  'counter := counter \\+ 1;',\n  '\\]\\]></ST>',\n  '    </Implementation>',\n  '  </POU>',\n  '</TcPlcObject>',\n\\]\\.join\\('\\\\n'\\);\n\nconst doc = TextDocument\\.create\\('file:///test/test\\.TcPOU', 'iec-st', 1, content\\);\nconst result = handleHover\\(\\{textDocument:\\{uri:doc\\.uri\\}, position:\\{line:6, character:2\\}\\}, doc\\);\nconsole\\.log\\('result:', JSON\\.stringify\\(result\\)\\);\n\" 2>&1$/": {
+            "approve": true,
+            "matchCommandLine": true
+        }
+    }
+}

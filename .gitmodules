@@ -1,0 +1,3 @@
+[submodule "tests/fixtures/mobject-core-src"]
+    path = tests/fixtures/mobject-core-src
+    url = https://github.com/Mobject-Dev-Team/mobject-core.git

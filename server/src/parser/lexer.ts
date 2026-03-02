@@ -74,6 +74,7 @@ export enum TokenKind {
   UNION = 'UNION',
   END_UNION = 'END_UNION',
   SUPER = 'SUPER',
+  THIS = 'THIS',
   PUBLIC = 'PUBLIC',
   PRIVATE = 'PRIVATE',
   PROTECTED = 'PROTECTED',
@@ -117,6 +118,7 @@ export enum TokenKind {
   COLON = ':',
   DOT = '.',
   DOTDOT = '..',
+  CARET = '^',
 
   // Special
   EOF = 'EOF',
@@ -191,6 +193,7 @@ const KEYWORDS: ReadonlyMap<string, TokenKind> = new Map([
   ['UNION', TokenKind.UNION],
   ['END_UNION', TokenKind.END_UNION],
   ['SUPER', TokenKind.SUPER],
+  ['THIS', TokenKind.THIS],
   ['PUBLIC', TokenKind.PUBLIC],
   ['PRIVATE', TokenKind.PRIVATE],
   ['PROTECTED', TokenKind.PROTECTED],
@@ -507,12 +510,16 @@ export class Lexer {
         }
         return this.tok(TokenKind.LT, ch, startPos);
 
-      case '.':
+      case '.': {
         if (this.peek() === '.') {
           this.advance();
           return this.tok(TokenKind.DOTDOT, '..', startPos);
         }
         return this.tok(TokenKind.DOT, ch, startPos);
+      }
+
+      case '^':
+        return this.tok(TokenKind.CARET, ch, startPos);
 
       default:
         // Unknown character — emit as identifier to allow recovery

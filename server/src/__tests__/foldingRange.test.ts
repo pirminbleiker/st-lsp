@@ -274,34 +274,36 @@ describe('handleFoldingRanges — TcPOU XML/CDATA files', () => {
 
   it('produces folding ranges for XML sections', () => {
     const ranges = handleFoldingRanges(makeTcPouDoc(xmlPou));
-    // There should be at least one range covering the header XML (lines 0–2 or more)
     const headerFold = ranges.find(r => r.startLine === 0);
     expect(headerFold).toBeDefined();
-    expect(headerFold!.endLine).toBeGreaterThanOrEqual(2);
+    expect(headerFold!.endLine).toBeGreaterThanOrEqual(3);
   });
 
-  it('folds XML preamble (lines 0–2) as a Region', () => {
+  it('folds XML preamble as Imports (auto-collapsed) with character-level range', () => {
     const ranges = handleFoldingRanges(makeTcPouDoc(xmlPou));
-    // Preamble XML region: <?xml…> + <TcPlcObject> + <POU …>  (lines 0–2)
-    const preamble = ranges.find(r => r.startLine === 0 && r.endLine === 2);
+    // Preamble XML region: from file start to right after '<![CDATA[' on line 3
+    const preamble = ranges.find(r => r.startLine === 0 && r.startCharacter === 0 && r.endLine === 3 && r.endCharacter === 26);
     expect(preamble).toBeDefined();
-    expect(preamble!.kind).toBe(FoldingRangeKind.Region);
+    expect(preamble!.kind).toBe(FoldingRangeKind.Imports);
+    expect(preamble!.collapsedText).toBe('\u2026');
   });
 
-  it('folds XML inter-section (lines 8–9) between Declaration and Implementation', () => {
+  it('folds XML inter-section between Declaration and Implementation with character-level range', () => {
     const ranges = handleFoldingRanges(makeTcPouDoc(xmlPou));
-    // Inter-section: ]]></Declaration> through <Implementation>  (lines 8–9)
-    const interSection = ranges.find(r => r.startLine === 8 && r.endLine === 9);
+    // Inter-section: from ]]></Declaration> through <Implementation><ST><![CDATA[
+    const interSection = ranges.find(r => r.startLine === 8 && r.startCharacter === 0 && r.endLine === 10 && r.endCharacter === 19);
     expect(interSection).toBeDefined();
-    expect(interSection!.kind).toBe(FoldingRangeKind.Region);
+    expect(interSection!.kind).toBe(FoldingRangeKind.Imports);
+    expect(interSection!.collapsedText).toBe('\u2026');
   });
 
-  it('folds XML postamble (lines 10–12) after the last CDATA', () => {
+  it('folds XML postamble after the last CDATA with character-level range', () => {
     const ranges = handleFoldingRanges(makeTcPouDoc(xmlPou));
-    // Postamble: from ]]></ST> to </TcPlcObject>  (lines 10–12)
-    const postamble = ranges.find(r => r.startLine === 10 && r.endLine === 12);
+    // Postamble: from ]]></ST> to end of file
+    const postamble = ranges.find(r => r.startLine === 10 && r.startCharacter === 26 && r.endLine === 13 && r.endCharacter === 14);
     expect(postamble).toBeDefined();
-    expect(postamble!.kind).toBe(FoldingRangeKind.Region);
+    expect(postamble!.kind).toBe(FoldingRangeKind.Imports);
+    expect(postamble!.collapsedText).toBe('\u2026');
   });
 
   it('produces a folding range for the VAR block at correct original-file lines', () => {
@@ -325,11 +327,63 @@ describe('handleFoldingRanges — TcPOU XML/CDATA files', () => {
     }
   });
 
+  it('falls back to line-level folds when lineFoldingOnly is true', () => {
+    const ranges = handleFoldingRanges(makeTcPouDoc(xmlPou), true);
+    // In lineFoldingOnly mode, XML folds should have no startCharacter/endCharacter
+    const xmlFolds = ranges.filter(r => r.kind === FoldingRangeKind.Imports);
+    expect(xmlFolds.length).toBeGreaterThan(0);
+    for (const fold of xmlFolds) {
+      expect(fold.startCharacter).toBeUndefined();
+      expect(fold.endCharacter).toBeUndefined();
+      expect(fold.collapsedText).toBeUndefined();
+    }
+  });
+
   it('still works correctly for plain .st files (regression)', () => {
     const doc = TextDocument.create('file:///test.st', 'iec-st', 1,
       'PROGRAM Main\nVAR x : INT; END_VAR\nEND_PROGRAM');
     const ranges = handleFoldingRanges(doc);
     expect(ranges.length).toBeGreaterThan(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// TcPOU: merging adjacent XML ranges separated by empty CDATAs
+// ---------------------------------------------------------------------------
+
+describe('handleFoldingRanges — mergeAdjacentXmlRanges (empty CDATAs)', () => {
+  // A TcPOU with an empty CDATA section between two XML sections
+  const xmlWithEmptyCdata = [
+    '<?xml version="1.0" encoding="utf-8"?>',  // line 0
+    '<TcPlcObject>',                            // line 1
+    '  <POU Name="Empty">',                     // line 2
+    '    <Declaration><![CDATA[',               // line 3
+    'FUNCTION_BLOCK Empty',                     // line 4
+    'END_FUNCTION_BLOCK',                       // line 5
+    ']]></Declaration>',                        // line 6
+    '    <Implementation>',                     // line 7
+    '      <ST><![CDATA[]]></ST>',              // line 8 — empty CDATA
+    '    </Implementation>',                    // line 9
+    '  </POU>',                                 // line 10
+    '</TcPlcObject>',                           // line 11
+  ].join('\n');
+
+  it('merges adjacent XML ranges separated by empty CDATA into one fold', () => {
+    const ranges = handleFoldingRanges(makeTcPouDoc(xmlWithEmptyCdata));
+    const xmlFolds = ranges.filter(r => r.kind === FoldingRangeKind.Imports);
+    // The inter-section XML (]]></Declaration> ... <![CDATA[) and postamble
+    // (]]></ST></Implementation>...) share an empty CDATA gap → they merge
+    // into a single fold from ]]></Declaration> to end of file.
+    // Preamble: lines 0-3 (before first <![CDATA[)
+    // Merged inter+postamble: from ]]></Declaration> (line 6) to end
+    expect(xmlFolds.length).toBe(2); // preamble + merged inter+postamble
+  });
+
+  it('preamble fold is still separate (has non-empty CDATA content)', () => {
+    const ranges = handleFoldingRanges(makeTcPouDoc(xmlWithEmptyCdata));
+    const preamble = ranges.find(r => r.startLine === 0 && r.kind === FoldingRangeKind.Imports);
+    expect(preamble).toBeDefined();
+    expect(preamble!.endLine).toBe(3);
   });
 });
 

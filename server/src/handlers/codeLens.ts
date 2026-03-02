@@ -8,9 +8,11 @@
  */
 
 import * as fs from 'fs';
+import * as path from 'path';
 import { CodeLens, CodeLensParams, Range } from 'vscode-languageserver/node';
 import { TextDocument } from 'vscode-languageserver-textdocument';
 import { WorkspaceIndex } from '../twincat/workspaceIndex';
+import { extractST, PositionMapper } from '../twincat/tcExtractor';
 import { parse } from '../parser/parser';
 import {
   SourceFile,
@@ -23,10 +25,10 @@ import {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function toRange(node: { range: { start: { line: number; character: number }; end: { line: number; character: number } } }): Range {
+function toRange(node: { range: { start: { line: number; character: number }; end: { line: number; character: number } } }, mapper: PositionMapper): Range {
   return {
-    start: { line: node.range.start.line, character: node.range.start.character },
-    end: { line: node.range.end.line, character: node.range.end.character },
+    start: mapper.extractedToOriginal(node.range.start.line, node.range.start.character),
+    end: mapper.extractedToOriginal(node.range.end.line, node.range.end.character),
   };
 }
 
@@ -41,10 +43,12 @@ function getAst(uri: string, workspaceIndex?: WorkspaceIndex): SourceFile | unde
   }
   try {
     const filePath = uri.startsWith('file://')
-      ? decodeURIComponent(uri.replace(/^file:\/\//, ''))
+      ? decodeURIComponent(uri.replace(/^file:\/\//,''))
       : uri;
     const text = fs.readFileSync(filePath, 'utf8');
-    return parse(text).ast;
+    const ext = path.extname(filePath);
+    const extraction = extractST(text, ext);
+    return parse(extraction.source).ast;
   } catch {
     return undefined;
   }
@@ -148,7 +152,10 @@ export function handleCodeLens(
   if (!document) return [];
 
   const text = document.getText();
-  const { ast } = parse(text);
+  const ext = path.extname(document.uri);
+  const extraction = extractST(text, ext);
+  const mapper = new PositionMapper(extraction);
+  const { ast } = parse(extraction.source);
   const uri = params.textDocument.uri;
 
   const stats = buildWorkspaceStats(uri, ast, workspaceIndex);
@@ -160,7 +167,7 @@ export function handleCodeLens(
       const count = stats.implementors.get(iface.name.toUpperCase()) ?? 0;
       if (count > 0) {
         lenses.push({
-          range: toRange(iface),
+          range: toRange(iface, mapper),
           data: { type: 'implementations', name: iface.name },
           command: {
             title: count === 1 ? '1 implementation' : `${count} implementations`,
@@ -177,7 +184,7 @@ export function handleCodeLens(
       const childCount = stats.children.get(fb.name.toUpperCase()) ?? 0;
       if (childCount > 0) {
         lenses.push({
-          range: toRange(fb),
+          range: toRange(fb, mapper),
           data: { type: 'children', name: fb.name },
           command: {
             title: childCount === 1 ? '1 child' : `${childCount} children`,
@@ -192,7 +199,7 @@ export function handleCodeLens(
         const overrideCount = stats.methodOverrides.get(mapKey) ?? 0;
         if (overrideCount > 0) {
           lenses.push({
-            range: toRange(method as MethodDeclaration),
+            range: toRange(method as MethodDeclaration, mapper),
             data: { type: 'overrides', fbName: fb.name, methodName: method.name },
             command: {
               title: overrideCount === 1 ? 'overridden in 1 FB' : `overridden in ${overrideCount} FBs`,
