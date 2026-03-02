@@ -161,6 +161,27 @@ class Parser {
     return { kind: 'Pragma', name: inner, raw, range: tok.range };
   }
 
+  // ---- Qualified name helper ---------------------------------------------
+
+  /**
+   * Parse a qualified name of the form `IDENT(.IDENT)*` and return a NamedRef
+   * whose name is the dot-joined string (e.g. `__SYSTEM.IQueryInterface`).
+   */
+  private parseQualifiedName(errorMessage: string): NamedRef {
+    const firstTok = this.expect(TokenKind.IDENTIFIER, errorMessage);
+    let name = firstTok.text;
+    let endPos = firstTok.range.end;
+
+    while (this.check(TokenKind.DOT)) {
+      this.advance(); // consume '.'
+      const nextTok = this.expect(TokenKind.IDENTIFIER, "Expected identifier after '.'");
+      name += '.' + nextTok.text;
+      endPos = nextTok.range.end;
+    }
+
+    return { name, range: { start: firstTok.range.start, end: endPos } };
+  }
+
   // ---- Source file -------------------------------------------------------
 
   parseSourceFile(): SourceFile {
@@ -238,21 +259,19 @@ class Parser {
     const nameTok = this.expectName('Expected function block name');
     const name = nameTok.text;
 
-    // Optional EXTENDS <name>
+    // Optional EXTENDS <qualified-name>
     let extendsRef: NamedRef | undefined;
     if (this.check(TokenKind.EXTENDS)) {
       this.advance();
-      const extTok = this.expect(TokenKind.IDENTIFIER, 'Expected base function block name after EXTENDS');
-      extendsRef = { name: extTok.text, range: extTok.range };
+      extendsRef = this.parseQualifiedName('Expected base function block name after EXTENDS');
     }
 
-    // Optional IMPLEMENTS <name>, <name>, ...
+    // Optional IMPLEMENTS <qualified-name>, <qualified-name>, ...
     const implementsRefs: NamedRef[] = [];
     if (this.check(TokenKind.IMPLEMENTS)) {
       this.advance();
       do {
-        const implTok = this.expect(TokenKind.IDENTIFIER, 'Expected interface name after IMPLEMENTS');
-        implementsRefs.push({ name: implTok.text, range: implTok.range });
+        implementsRefs.push(this.parseQualifiedName('Expected interface name after IMPLEMENTS'));
       } while (this.match(TokenKind.COMMA));
     }
 
@@ -1240,8 +1259,7 @@ class Parser {
     let extendsRef: NamedRef | undefined;
     if (this.check(TokenKind.EXTENDS)) {
       this.advance();
-      const extTok = this.expect(TokenKind.IDENTIFIER, 'Expected base struct name after EXTENDS');
-      extendsRef = { name: extTok.text, range: extTok.range };
+      extendsRef = this.parseQualifiedName('Expected base struct name after EXTENDS');
     }
 
     const fields: VarDeclaration[] = [];
@@ -1413,13 +1431,12 @@ class Parser {
       };
     }
 
-    // Optional EXTENDS <name>, <name>, ...
+    // Optional EXTENDS <qualified-name>, <qualified-name>, ...
     const extendsRefs: NamedRef[] = [];
     if (this.check(TokenKind.EXTENDS)) {
       this.advance();
       do {
-        const extTok = this.expect(TokenKind.IDENTIFIER, 'Expected interface name after EXTENDS');
-        extendsRefs.push({ name: extTok.text, range: extTok.range });
+        extendsRefs.push(this.parseQualifiedName('Expected interface name after EXTENDS'));
       } while (this.match(TokenKind.COMMA));
     }
 

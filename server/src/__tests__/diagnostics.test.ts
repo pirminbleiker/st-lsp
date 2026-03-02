@@ -1064,6 +1064,58 @@ function makeEmptyWorkspaceIndex(): WorkspaceIndex {
   } as unknown as WorkspaceIndex;
 }
 
+// ---------------------------------------------------------------------------
+// Phase 2: __SYSTEM namespace + inline enum scoping + __INLINE_ENUM suppression
+// ---------------------------------------------------------------------------
+
+describe('__SYSTEM namespace and inline enum scoping', () => {
+  it('__SYSTEM_not_flagged: __SYSTEM usage in CASE does not produce undefined-identifier error', () => {
+    const src = `PROGRAM Main
+VAR
+  x : INT;
+END_VAR
+CASE x OF
+  __SYSTEM.TYPE_CLASS.TYPE_BOOL:
+    x := 1;
+END_CASE
+END_PROGRAM`;
+    const diags = getDiagnostics(src);
+    const errors = diags.filter(d => d.severity === 1 && d.message.includes('__SYSTEM'));
+    expect(errors).toHaveLength(0);
+  });
+
+  it('inlineEnum_membersInScope: inline enum member names do not produce undefined-identifier errors', () => {
+    const src = `PROGRAM Main
+VAR
+  state : (IDLE, RUNNING, DONE);
+END_VAR
+CASE state OF
+  IDLE:
+    state := RUNNING;
+  RUNNING:
+    state := DONE;
+END_CASE
+END_PROGRAM`;
+    const diags = getDiagnostics(src);
+    const errors = diags.filter(d => d.severity === 1);
+    const enumMemberErrors = errors.filter(
+      d => d.message.includes('IDLE') || d.message.includes('RUNNING') || d.message.includes('DONE'),
+    );
+    expect(enumMemberErrors).toHaveLength(0);
+  });
+
+  it('__INLINE_ENUM_suppressed: variable with inline enum type does not produce Unknown type warning', () => {
+    const src = `PROGRAM Main
+VAR
+  mode : (AUTO, MANUAL, OFF);
+END_VAR
+END_PROGRAM`;
+    const diags = getDiagnostics(src);
+    const inlineEnumWarnings = diags.filter(d => d.message.includes('__INLINE_ENUM'));
+    expect(inlineEnumWarnings).toHaveLength(0);
+  });
+});
+
 describe('EXTENDS/IMPLEMENTS validation', () => {
   it('EXTENDS with unknown type produces Error diagnostic', () => {
     const src = `FUNCTION_BLOCK MyFB EXTENDS GhostBase

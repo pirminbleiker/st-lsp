@@ -976,4 +976,70 @@ END_FUNCTION_BLOCK`;
       expect(prop.setAccessor.body).toHaveLength(1);
     });
   });
+
+  describe('INTERFACE/FB EXTENDS qualified names', () => {
+    it('parses INTERFACE EXTENDS with dotted qualified name', () => {
+      const src = `INTERFACE I_Foo EXTENDS __SYSTEM.IQueryInterface
+END_INTERFACE`;
+
+      const { ast, errors } = parse(src);
+      expect(errors).toHaveLength(0);
+
+      const iface = ast.declarations[0] as InterfaceDeclaration;
+      expect(iface.name).toBe('I_Foo');
+      expect(iface.extendsRefs).toHaveLength(1);
+      expect(iface.extendsRefs[0].name).toBe('__SYSTEM.IQueryInterface');
+    });
+
+    it('parses INTERFACE EXTENDS with multiple qualified names', () => {
+      const src = `INTERFACE I_Foo EXTENDS A.B, C.D.E
+END_INTERFACE`;
+
+      const { ast, errors } = parse(src);
+      expect(errors).toHaveLength(0);
+
+      const iface = ast.declarations[0] as InterfaceDeclaration;
+      expect(iface.extendsRefs).toHaveLength(2);
+      expect(iface.extendsRefs[0].name).toBe('A.B');
+      expect(iface.extendsRefs[1].name).toBe('C.D.E');
+    });
+
+    it('still parses simple INTERFACE EXTENDS without dots (regression)', () => {
+      const src = `INTERFACE I_Foo EXTENDS I_Bar
+END_INTERFACE`;
+
+      const { ast, errors } = parse(src);
+      expect(errors).toHaveLength(0);
+
+      const iface = ast.declarations[0] as InterfaceDeclaration;
+      expect(iface.extendsRefs).toHaveLength(1);
+      expect(iface.extendsRefs[0].name).toBe('I_Bar');
+    });
+
+    it('parses FUNCTION_BLOCK IMPLEMENTS with qualified name', () => {
+      const src = `FUNCTION_BLOCK FB_Foo IMPLEMENTS NS.I_Bar
+END_FUNCTION_BLOCK`;
+
+      const { ast, errors } = parse(src);
+      expect(errors).toHaveLength(0);
+
+      const fb = ast.declarations[0] as FunctionBlockDeclaration;
+      expect(fb.name).toBe('FB_Foo');
+      expect(fb.implementsRefs).toHaveLength(1);
+      expect(fb.implementsRefs[0].name).toBe('NS.I_Bar');
+    });
+
+    it('parses FUNCTION_BLOCK EXTENDS with qualified name', () => {
+      const src = `FUNCTION_BLOCK FB_Child EXTENDS NS.FB_Parent
+END_FUNCTION_BLOCK`;
+
+      const { ast, errors } = parse(src);
+      expect(errors).toHaveLength(0);
+
+      const fb = ast.declarations[0] as FunctionBlockDeclaration;
+      expect(fb.name).toBe('FB_Child');
+      expect(fb.extendsRef).toBeDefined();
+      expect(fb.extendsRef!.name).toBe('NS.FB_Parent');
+    });
+  });
 });

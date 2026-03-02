@@ -6,6 +6,7 @@ import {
 import { TextDocument } from 'vscode-languageserver-textdocument';
 import {
 	ActionDeclaration,
+	ArrayLiteral,
 	AssignmentStatement,
 	BinaryExpression,
 	CallArgument,
@@ -50,6 +51,7 @@ import type { LibraryRef } from '../twincat/projectReader';
 const ALWAYS_ALLOWED = new Set([
 	'TRUE', 'FALSE', 'NULL',
 	'SUPER', 'THIS',
+	'__SYSTEM',
 ]);
 
 // Pre-build sets of builtin type names and standard FB names (uppercase)
@@ -172,6 +174,11 @@ function walkExpression(expr: Expression, onName: (n: NameExpression) => void): 
 			for (const arg of e.args) {
 				walkCallArgument(arg, onName);
 			}
+			break;
+		}
+		case 'ArrayLiteral': {
+			const e = expr as ArrayLiteral;
+			for (const elem of e.elements) walkExpression(elem, onName);
 			break;
 		}
 		// Literals: IntegerLiteral, RealLiteral, StringLiteral, BoolLiteral — no names
@@ -648,6 +655,7 @@ function runSemanticAnalysis(
 		for (const vb of pou.varBlocks) {
 			for (const vd of vb.declarations) {
 				const typeName = vd.type.name.toUpperCase();
+				if (typeName === '__INLINE_ENUM') continue;
 				if (!knownTypes.has(typeName)) {
 					diagnostics.push({
 						severity: DiagnosticSeverity.Warning,
@@ -684,6 +692,17 @@ function runSemanticAnalysis(
 		// Add POU's own var names
 		for (const name of collectPouVarNames(pou)) {
 			scope.add(name);
+		}
+
+		// Add inline enum member names from var declarations into scope
+		for (const vb of pou.varBlocks) {
+			for (const vd of vb.declarations) {
+				if (vd.type.inlineEnumValues) {
+					for (const ev of vd.type.inlineEnumValues) {
+						scope.add(ev.name.toUpperCase());
+					}
+				}
+			}
 		}
 
 		// Add the POU's own name (acts as return variable for FUNCTION)
