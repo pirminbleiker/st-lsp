@@ -25,6 +25,7 @@ import { parse } from '../parser/parser';
 import { SourceFile, ParseError } from '../parser/ast';
 import { extractST, ExtractionResult } from './tcExtractor';
 import { findFilesSync } from './fsUtils';
+import { isLibraryFile, readLibraryIndex, LibraryIndex, LibrarySymbol } from './libraryZipReader';
 export { findFilesSync } from './fsUtils';
 
 // ---------------------------------------------------------------------------
@@ -114,6 +115,12 @@ export class WorkspaceIndex extends EventEmitter {
 
   /** Map from project file path → library refs declared in that project. */
   private readonly projectLibraryRefs = new Map<string, LibraryRef[]>();
+
+  /**
+   * Map from project file path → library indexes extracted from the library
+   * files (.library / .compiled-library*) referenced by that project.
+   */
+  private readonly projectLibraryIndexes = new Map<string, LibraryIndex[]>();
 
   /** Map from source file URI → the project file path that owns it. */
   private readonly fileToProject = new Map<string, string>();
@@ -222,6 +229,43 @@ export class WorkspaceIndex extends EventEmitter {
   }
 
   /**
+   * Return all library symbols for the project that owns the given source file.
+   * Includes full signature information (inputs, outputs, extends, etc.) for
+   * source libraries, and stub symbols for compiled libraries.
+   */
+  getLibrarySymbols(fileUri: string): LibrarySymbol[] {
+    if (!this.initialised) this.initialize();
+    const normalised = fileUri.startsWith('file://') ? fileUri : pathToUri(fileUri);
+    const projectPath = this.fileToProject.get(normalised);
+    if (!projectPath) return [];
+    const indexes = this.projectLibraryIndexes.get(projectPath) ?? [];
+    return indexes.flatMap(idx => idx.symbols);
+  }
+
+  /**
+   * Return the set of type/identifier names extracted from the library files
+   * referenced by the project that owns the given source file URI.
+   *
+   * Returns an empty Set if the file is not part of any indexed project, the
+   * project references no library files, or no library files were found on disk.
+   */
+  getLibraryTypeNames(fileUri: string): ReadonlySet<string> {
+    if (!this.initialised) this.initialize();
+    const normalised = fileUri.startsWith('file://') ? fileUri : pathToUri(fileUri);
+    const projectPath = this.fileToProject.get(normalised);
+    if (!projectPath) return new Set();
+    const indexes = this.projectLibraryIndexes.get(projectPath) ?? [];
+    const names = new Set<string>();
+    for (const idx of indexes) {
+      names.add(idx.name.toUpperCase()); // namespace name
+      for (const sym of idx.symbols) {
+        names.add(sym.name.toUpperCase());
+      }
+    }
+    return names;
+  }
+
+  /**
    * Invalidate the cached AST for a URI.  Call this when a document's content
    * changes (e.g. from `documents.onDidChangeContent`).
    */
@@ -241,6 +285,7 @@ export class WorkspaceIndex extends EventEmitter {
     }
     this.watchers.clear();
     this.astCache.clear();
+    this.projectLibraryIndexes.clear();
     this.removeAllListeners();
   }
 
@@ -267,10 +312,14 @@ export class WorkspaceIndex extends EventEmitter {
       for (const w of result.warnings) {
         this.emit('error', new Error(w));
       }
+      // Scan _Libraries/ directories for .library / .compiled-library* files
+      // and extract type names from each one.
+      this.indexLibraryFiles(projectFilePath);
     } catch (err) {
       this.emit('error', err instanceof Error ? err : new Error(String(err)));
       this.projectSources.delete(projectFilePath);
       this.projectLibraryRefs.delete(projectFilePath);
+      this.projectLibraryIndexes.delete(projectFilePath);
     }
     this.rebuildAllSources();
   }
@@ -281,7 +330,78 @@ export class WorkspaceIndex extends EventEmitter {
   private removeProjectFile(projectFilePath: string): void {
     this.projectSources.delete(projectFilePath);
     this.projectLibraryRefs.delete(projectFilePath);
+    this.projectLibraryIndexes.delete(projectFilePath);
     this.rebuildAllSources();
+  }
+
+  /**
+   * Scan `_Libraries/` directories for TwinCAT library files and extract type
+   * names for the given project.
+   *
+   * TwinCAT always places the `_Libraries/` folder as a **sibling of the
+   * `.plcproj`** file that references those libraries:
+   *
+   *   <plcproj-dir>/_Libraries/<vendor>/<libName>/<version>/<libName>.<ext>
+   *
+   * For TcSmProject files (`.tsproj` / `.tspproj`) the Compile items live in
+   * sibling `.plcproj` files, so we must find those `.plcproj` files first and
+   * look for `_Libraries/` next to each of them.
+   *
+   * Both .library and .compiled-library* formats are supported.
+   */
+  private indexLibraryFiles(projectFilePath: string): void {
+    // Determine which directories to scan for _Libraries/.
+    const plcprojDirs = this.resolvePlcprojDirs(projectFilePath);
+
+    const indexes: LibraryIndex[] = [];
+
+    for (const dir of plcprojDirs) {
+      const libsDir = path.join(dir, '_Libraries');
+      let libraryFiles: string[];
+      try {
+        libraryFiles = findFilesSync(libsDir, isLibraryFile);
+      } catch {
+        continue; // _Libraries does not exist for this project — skip.
+      }
+
+      for (const libFile of libraryFiles) {
+        try {
+          const idx = readLibraryIndex(libFile);
+          indexes.push(idx);
+        } catch {
+          // Skip unreadable library files silently.
+        }
+      }
+    }
+
+    this.projectLibraryIndexes.set(projectFilePath, indexes);
+  }
+
+  /**
+   * Return the set of directories that own `.plcproj` files for the given
+   * project entry point.
+   *
+   * - For a `.plcproj`: returns `[dirname(projectFilePath)]`.
+   * - For a `.tsproj` / `.tspproj`: scans the project directory for sibling
+   *   `.plcproj` files (as `readProjectFile` does) and returns their directories.
+   */
+  private resolvePlcprojDirs(projectFilePath: string): string[] {
+    const ext = path.extname(projectFilePath).toLowerCase();
+    if (ext === '.plcproj') {
+      return [path.dirname(projectFilePath)];
+    }
+
+    // TcSmProject (.tsproj / .tspproj) — find sibling .plcproj files.
+    const tsprojDir = path.dirname(projectFilePath);
+    try {
+      const plcprojFiles = findFilesSync(
+        tsprojDir,
+        (f) => path.extname(f).toLowerCase() === '.plcproj',
+      );
+      return plcprojFiles.map((f) => path.dirname(f));
+    } catch {
+      return [];
+    }
   }
 
   /**

@@ -24,8 +24,8 @@ import {
 } from '../parser/ast';
 import { BUILTIN_TYPES } from '../twincat/types';
 import { STANDARD_FBS, findStandardFB } from '../twincat/stdlib';
-import { getLibraryFBs } from '../twincat/libraryRegistry';
 import { WorkspaceIndex } from '../twincat/workspaceIndex';
+import { LibrarySymbol } from '../twincat/libraryZipReader';
 import { extractStFromTwinCAT } from '../twincat/tcExtractor';
 import { formatConstantValue } from './utils';
 import { getOrParse } from './shared';
@@ -787,6 +787,17 @@ function getDotAccessMembers(
   return getMembersFromDeclarations(typeName, declarations, currentUri, workspaceIndex);
 }
 
+function buildLibrarySymbolDoc(symbol: LibrarySymbol): string {
+  const parts: string[] = [];
+  if (symbol.extends) parts.push(`EXTENDS ${symbol.extends}`);
+  if (symbol.implements?.length) parts.push(`IMPLEMENTS ${symbol.implements.join(', ')}`);
+  if (symbol.returnType) parts.push(`Returns: ${symbol.returnType}`);
+  if (symbol.inputs?.length) {
+    parts.push('VAR_INPUT: ' + symbol.inputs.map(p => `${p.name}: ${p.type}`).join(', '));
+  }
+  return parts.join('\n');
+}
+
 export function handleCompletion(
   params: TextDocumentPositionParams,
   document: TextDocument | undefined,
@@ -909,19 +920,31 @@ export function handleCompletion(
     });
   }
 
-  // 3. Standard FBs — filtered to libraries referenced by the document's project.
-  //    If no project is found (standalone file), fall back to all stdlib symbols.
-  const libRefs = workspaceIndex?.getLibraryRefs?.(params.textDocument.uri) ?? [];
-  const fbsToOffer =
-    libRefs.length > 0
-      ? libRefs.flatMap((ref) => getLibraryFBs(ref.name))
-      : STANDARD_FBS;
-  for (const fb of fbsToOffer) {
-    items.push({
-      label: fb.name,
-      kind: CompletionItemKind.Class,
-      detail: fb.namespace ? `(${fb.namespace}) ${fb.description}` : fb.description,
-    });
+  // 3. Library symbols — from the workspace index (dynamic extraction from
+  //    .library / .compiled-library* files).  Falls back to STANDARD_FBS for
+  //    standalone files that are not part of any TwinCAT project.
+  const libSymbols = workspaceIndex?.getLibrarySymbols(params.textDocument.uri) ?? [];
+  const fbsToOffer = libSymbols.filter(s =>
+    s.kind === 'functionBlock' || s.kind === 'function' || s.kind === 'interface'
+  );
+  if (fbsToOffer.length > 0) {
+    for (const symbol of fbsToOffer) {
+      items.push({
+        label: symbol.name,
+        kind: symbol.kind === 'function' ? CompletionItemKind.Function : CompletionItemKind.Class,
+        detail: `(${symbol.namespace}) ${symbol.kind}`,
+        documentation: buildLibrarySymbolDoc(symbol),
+      });
+    }
+  } else {
+    // Fallback: standalone file outside a project — use hardcoded stdlib
+    for (const fb of STANDARD_FBS) {
+      items.push({
+        label: fb.name,
+        kind: CompletionItemKind.Class,
+        detail: fb.namespace ? `(${fb.namespace}) ${fb.description}` : fb.description,
+      });
+    }
   }
 
   // 4. Variables in scope

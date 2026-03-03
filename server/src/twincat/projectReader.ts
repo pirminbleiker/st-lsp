@@ -200,8 +200,8 @@ function parseLibraryRefString(s: string): LibraryRef | null {
 }
 
 /**
- * Extract library references from MSBuild-style <PlcLibraryReference Include="…" /> elements
- * and from XmlArchive <v>…</v> encoded library lists.
+ * Extract library references from MSBuild-style <PlcLibraryReference Include="…" /> elements,
+ * <PlaceholderReference Include="…"> elements, and XmlArchive <v>…</v> encoded library lists.
  */
 function extractLibraryRefs(xml: string): LibraryRef[] {
   const refs: LibraryRef[] = [];
@@ -218,6 +218,20 @@ function extractLibraryRefs(xml: string): LibraryRef[] {
         seen.add(ref.name);
         refs.push(ref);
       }
+    }
+  }
+
+  // MSBuild placeholder: <PlaceholderReference Include="Tc2_Standard">
+  //   <DefaultResolution>Tc2_Standard, 3.4.3.0 (Beckhoff Automation GmbH)</DefaultResolution>
+  //   <Namespace>Tc2_Standard</Namespace>
+  // </PlaceholderReference>
+  // Used by TwinCAT XAE projects (e.g. mobject-core.plcproj).
+  const placeholderRe = /<PlaceholderReference\s([^>]*?)>/gi;
+  while ((m = placeholderRe.exec(xml)) !== null) {
+    const include = extractAttribute(m[1], 'Include');
+    if (include && !seen.has(include)) {
+      seen.add(include);
+      refs.push({ name: include });
     }
   }
 

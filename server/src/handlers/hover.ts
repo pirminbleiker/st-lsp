@@ -36,6 +36,7 @@ import { findStandardFB, standardFBHover } from '../twincat/stdlib';
 
 import { findPragmaDoc, pragmaHover } from '../twincat/pragmas';
 import { WorkspaceIndex } from '../twincat/workspaceIndex';
+import { LibrarySymbol, LibraryParam } from '../twincat/libraryZipReader';
 import { formatConstantValue } from './utils';
 
 // ---------------------------------------------------------------------------
@@ -432,6 +433,33 @@ function enumHover(decl: EnumDeclaration): string {
   return `**ENUM** \`${decl.name}${baseTypeSuffix}\`\n\`\`\`\n(\n${values}\n)\n\`\`\``;
 }
 
+function renderLibrarySymbolHover(symbol: LibrarySymbol): string {
+  const lines: string[] = [];
+  lines.push(`**(${symbol.kind})** \`${symbol.name}\``);
+  lines.push(`*Namespace:* ${symbol.namespace}`);
+  if (symbol.extends) lines.push(`*Extends:* \`${symbol.extends}\``);
+  if (symbol.implements?.length) {
+    lines.push(`*Implements:* ${symbol.implements.map(i => `\`${i}\``).join(', ')}`);
+  }
+  if (symbol.returnType) lines.push(`*Returns:* \`${symbol.returnType}\``);
+
+  function renderParamTable(params: LibraryParam[], heading: string): void {
+    lines.push('');
+    lines.push(`**${heading}**`);
+    lines.push('| Name | Type |');
+    lines.push('|------|------|');
+    for (const p of params) {
+      lines.push(`| ${p.name} | ${p.type} |`);
+    }
+  }
+
+  if (symbol.inputs?.length) renderParamTable(symbol.inputs, 'VAR_INPUT');
+  if (symbol.outputs?.length) renderParamTable(symbol.outputs, 'VAR_OUTPUT');
+  if (symbol.inOuts?.length) renderParamTable(symbol.inOuts, 'VAR_IN_OUT');
+
+  return lines.join('\n');
+}
+
 // ---------------------------------------------------------------------------
 // Main hover handler
 // ---------------------------------------------------------------------------
@@ -491,7 +519,20 @@ export function handleHover(
   const name = (node as NameExpression).name;
   if (!name) return null;
 
-  // 1. Built-in type?
+  // 1. Check library symbols from workspace index
+  if (workspaceIndex) {
+    const libSymbols = workspaceIndex.getLibrarySymbols(params.textDocument.uri);
+    const upperName = name.toUpperCase();
+    const libSym = libSymbols.find(s => s.name.toUpperCase() === upperName);
+    if (libSym) {
+      return {
+        contents: { kind: MarkupKind.Markdown, value: renderLibrarySymbolHover(libSym) },
+        range: nodeRange(),
+      };
+    }
+  }
+
+  // 2. Built-in type?
   const builtinType = findBuiltinType(name);
   if (builtinType) {
     return {
@@ -500,7 +541,7 @@ export function handleHover(
     };
   }
 
-  // 2. Standard function block?
+  // 3. Standard function block?
   const stdFB = findStandardFB(name);
   if (stdFB) {
     let hoverText = standardFBHover(stdFB);
@@ -526,7 +567,7 @@ export function handleHover(
     };
   }
 
-  // 3. VarDeclaration in scope?
+  // 4. VarDeclaration in scope?
   const vars = collectVarDeclarations(ast, extractedPos);
   const varMatch = vars.find(v => v.vd.name.toUpperCase() === name.toUpperCase());
   if (varMatch) {
@@ -536,7 +577,7 @@ export function handleHover(
     };
   }
 
-  // 4. POU declaration?
+  // 5. POU declaration?
   const pouDecl = ast.declarations.find(
     d => 'name' in d && (d as { name: string }).name.toUpperCase() === name.toUpperCase(),
   );
@@ -547,7 +588,7 @@ export function handleHover(
     };
   }
 
-  // 4a. Action declaration inside a FUNCTION_BLOCK?
+  // 5a. Action declaration inside a FUNCTION_BLOCK?
   const nameUpper = name.toUpperCase();
   for (const decl of ast.declarations) {
     if (decl.kind !== 'FunctionBlockDeclaration') continue;
@@ -564,7 +605,7 @@ export function handleHover(
     }
   }
 
-  // 5. Struct or enum declaration inside TYPE...END_TYPE blocks?
+  // 6. Struct or enum declaration inside TYPE...END_TYPE blocks?
   for (const decl of ast.declarations) {
     if (decl.kind !== 'TypeDeclarationBlock') continue;
     const typeBlock = decl as TypeDeclarationBlock;

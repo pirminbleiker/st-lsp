@@ -5,6 +5,7 @@ import { parse } from '../parser/parser';
 import type { GvlDeclaration } from '../parser/ast';
 import { WorkspaceIndex } from '../twincat/workspaceIndex';
 import type { LibraryRef } from '../twincat/projectReader';
+import type { LibrarySymbol } from '../twincat/libraryZipReader';
 
 function makeDoc(content: string): TextDocument {
   return TextDocument.create('file:///test.st', 'st', 1, content);
@@ -616,10 +617,12 @@ END_FUNCTION_BLOCK`;
 // Missing library reference diagnostics
 // ---------------------------------------------------------------------------
 
-function makeMockIndexWithLibs(libraryRefs: LibraryRef[]): WorkspaceIndex {
+function makeMockIndexWithLibs(libraryRefs: LibraryRef[], librarySymbols: LibrarySymbol[] = []): WorkspaceIndex {
   return {
     getProjectFiles: () => [],
     getLibraryRefs: () => libraryRefs,
+    getLibraryTypeNames: () => new Set<string>(),
+    getLibrarySymbols: () => librarySymbols,
   } as unknown as WorkspaceIndex;
 }
 
@@ -642,7 +645,10 @@ VAR
 END_VAR
 END_PROGRAM`;
     // TON is in Tc2_Standard; only Tc2_MC2 is referenced
-    const mockIndex = makeMockIndexWithLibs([{ name: 'Tc2_MC2' }]);
+    const mockIndex = makeMockIndexWithLibs(
+      [{ name: 'Tc2_MC2' }],
+      [{ name: 'TON', kind: 'functionBlock', namespace: 'Tc2_Standard' }],
+    );
     const diags = getDiagnosticsWithIndex(src, mockIndex);
     const warnings = diags.filter(d => d.severity === 2);
     expect(warnings.some(d => d.message.includes('Tc2_Standard'))).toBe(true);
@@ -655,7 +661,10 @@ VAR
   myTimer : TON;
 END_VAR
 END_PROGRAM`;
-    const mockIndex = makeMockIndexWithLibs([{ name: 'Tc2_Standard' }]);
+    const mockIndex = makeMockIndexWithLibs(
+      [{ name: 'Tc2_Standard' }],
+      [{ name: 'TON', kind: 'functionBlock', namespace: 'Tc2_Standard' }],
+    );
     const diags = getDiagnosticsWithIndex(src, mockIndex);
     const libWarnings = diags.filter(
       d => d.severity === 2 && d.message.includes('requires library'),
@@ -704,6 +713,8 @@ describe('cross-file type and identifier resolution', () => {
       getProjectFiles: () => ['file:///other.tcpou'],
       getAst: (uri: string) => uri === 'file:///other.tcpou' ? { ast: otherAst, errors: [] } : undefined,
       getLibraryRefs: () => [],
+      getLibraryTypeNames: () => new Set<string>(),
+      getLibrarySymbols: () => [],
       initialize: () => {},
       isProjectFile: () => false,
       invalidateAst: () => {},
@@ -734,6 +745,8 @@ describe('cross-file type and identifier resolution', () => {
       getProjectFiles: () => ['file:///interfaces.tcpou'],
       getAst: (uri: string) => uri === 'file:///interfaces.tcpou' ? { ast: otherAst, errors: [] } : undefined,
       getLibraryRefs: () => [],
+      getLibraryTypeNames: () => new Set<string>(),
+      getLibrarySymbols: () => [],
       initialize: () => {},
       isProjectFile: () => false,
       invalidateAst: () => {},
@@ -760,6 +773,8 @@ describe('cross-file type and identifier resolution', () => {
       getProjectFiles: () => ['file:///types.tcdut'],
       getAst: (uri: string) => uri === 'file:///types.tcdut' ? { ast: otherAst, errors: [] } : undefined,
       getLibraryRefs: () => [],
+      getLibraryTypeNames: () => new Set<string>(),
+      getLibrarySymbols: () => [],
       initialize: () => {},
       isProjectFile: () => false,
       invalidateAst: () => {},
@@ -790,6 +805,8 @@ describe('cross-file type and identifier resolution', () => {
       getProjectFiles: () => ['file:///DatatypeLimits.TcGVL'],
       getAst: (uri: string) => uri === 'file:///DatatypeLimits.TcGVL' ? { ast: gvlAst, errors: gvlErrors } : undefined,
       getLibraryRefs: () => [],
+      getLibraryTypeNames: () => new Set<string>(),
+      getLibrarySymbols: () => [],
       initialize: () => {},
       isProjectFile: () => false,
       invalidateAst: () => {},
@@ -862,6 +879,8 @@ END_PROGRAM
       getProjectFiles: () => ['file:///test.st'],
       getAst: (uri: string) => uri === 'file:///test.st' ? { ast: ownAst, errors: [] } : undefined,
       getLibraryRefs: () => [],
+      getLibraryTypeNames: () => new Set<string>(),
+      getLibrarySymbols: () => [],
       initialize: () => {},
       isProjectFile: () => false,
       invalidateAst: () => {},
@@ -1061,6 +1080,8 @@ function makeEmptyWorkspaceIndex(): WorkspaceIndex {
     getProjectFiles: () => [],
     getAst: () => undefined,
     getLibraryRefs: () => [],
+    getLibraryTypeNames: () => new Set<string>(),
+    getLibrarySymbols: () => [],
   } as unknown as WorkspaceIndex;
 }
 
@@ -1252,6 +1273,8 @@ END_FUNCTION_BLOCK`;
       getProjectFiles: () => ['file:///lib.st'],
       getAst: (uri: string) => uri === 'file:///lib.st' ? { ast: libAst } : undefined,
       getLibraryRefs: () => [],
+      getLibraryTypeNames: () => new Set<string>(),
+      getLibrarySymbols: () => [],
     } as unknown as WorkspaceIndex;
     const diags = getDiagnosticsWithIndex(src, mockIndex);
     const warnings = diags.filter(d => d.message.includes('MyLibraryFB'));

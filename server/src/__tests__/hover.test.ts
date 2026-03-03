@@ -351,6 +351,7 @@ function makeMockIndexWithLibs(libraryRefs: LibraryRef[]): WorkspaceIndex {
   return {
     getProjectFiles: () => [],
     getLibraryRefs: () => libraryRefs,
+    getLibrarySymbols: () => [],
   } as unknown as WorkspaceIndex;
 }
 

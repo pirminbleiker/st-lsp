@@ -40,6 +40,7 @@ function makeMockIndex(fileUris: string[]): WorkspaceIndex {
   return {
     getProjectFiles: () => fileUris,
     getLibraryRefs: () => [],
+    getLibrarySymbols: () => [],
   } as unknown as WorkspaceIndex;
 }
 
@@ -54,6 +55,7 @@ function makeCachingMockIndex(
     getProjectFiles: () => Array.from(cachedAsts.keys()),
     getAst: (uri: string) => cachedAsts.get(uri),
     getLibraryRefs: () => [],
+    getLibrarySymbols: () => [],
   } as unknown as WorkspaceIndex;
 }
 
@@ -403,6 +405,7 @@ describe('handleCompletion — cross-file via WorkspaceIndex', () => {
         getProjectFiles: () => [otherUri],
         getAst: (_uri: string) => undefined,
         getLibraryRefs: () => [],
+        getLibrarySymbols: () => [],
       } as unknown as WorkspaceIndex;
 
       const currentUri = writeTmpFile('disk_fallback_current.st', CURRENT_FILE_SRC);

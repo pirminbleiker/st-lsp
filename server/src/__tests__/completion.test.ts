@@ -4,6 +4,7 @@ import { handleCompletion } from '../handlers/completion';
 import { CompletionItemKind } from 'vscode-languageserver/node';
 import { WorkspaceIndex } from '../twincat/workspaceIndex';
 import type { LibraryRef } from '../twincat/projectReader';
+import type { LibrarySymbol } from '../twincat/libraryZipReader';
 
 function makeDoc(content: string): TextDocument {
   return TextDocument.create('file:///test.st', 'st', 1, content);
@@ -767,10 +768,11 @@ END_VAR
 // Library-aware FB completion
 // ---------------------------------------------------------------------------
 
-function makeMockIndexWithLibs(libraryRefs: LibraryRef[]): WorkspaceIndex {
+function makeMockIndexWithLibs(libraryRefs: LibraryRef[], librarySymbols: LibrarySymbol[] = []): WorkspaceIndex {
   return {
     getProjectFiles: () => [],
     getLibraryRefs: () => libraryRefs,
+    getLibrarySymbols: () => librarySymbols,
   } as unknown as WorkspaceIndex;
 }
 
@@ -778,7 +780,13 @@ describe('Library-aware FB completion', () => {
   const src = `PROGRAM Main\nVAR\nEND_VAR\nEND_PROGRAM`;
 
   it('includes Tc2_Standard FBs when Tc2_Standard is referenced', () => {
-    const mockIndex = makeMockIndexWithLibs([{ name: 'Tc2_Standard' }]);
+    const mockIndex = makeMockIndexWithLibs(
+      [{ name: 'Tc2_Standard' }],
+      [
+        { name: 'TON', kind: 'functionBlock', namespace: 'Tc2_Standard' },
+        { name: 'TOF', kind: 'functionBlock', namespace: 'Tc2_Standard' },
+      ],
+    );
     const doc = makeDoc(src);
     const items = handleCompletion(makeParams(doc.uri, 3, 0), doc, mockIndex);
     const labels = items.map(i => i.label);
@@ -787,7 +795,10 @@ describe('Library-aware FB completion', () => {
   });
 
   it('includes Tc2_MC2 FBs when Tc2_MC2 is referenced', () => {
-    const mockIndex = makeMockIndexWithLibs([{ name: 'Tc2_MC2' }]);
+    const mockIndex = makeMockIndexWithLibs(
+      [{ name: 'Tc2_MC2' }],
+      [{ name: 'MC_Power', kind: 'functionBlock', namespace: 'Tc2_MC2' }],
+    );
     const doc = makeDoc(src);
     const items = handleCompletion(makeParams(doc.uri, 3, 0), doc, mockIndex);
     const labels = items.map(i => i.label);
@@ -795,7 +806,13 @@ describe('Library-aware FB completion', () => {
   });
 
   it('does NOT include Tc2_MC2 FBs when only Tc2_Standard is referenced', () => {
-    const mockIndex = makeMockIndexWithLibs([{ name: 'Tc2_Standard' }]);
+    const mockIndex = makeMockIndexWithLibs(
+      [{ name: 'Tc2_Standard' }],
+      [
+        { name: 'TON', kind: 'functionBlock', namespace: 'Tc2_Standard' },
+        { name: 'TOF', kind: 'functionBlock', namespace: 'Tc2_Standard' },
+      ],
+    );
     const doc = makeDoc(src);
     const items = handleCompletion(makeParams(doc.uri, 3, 0), doc, mockIndex);
     const labels = items.map(i => i.label);

@@ -367,7 +367,7 @@ describe('Scenario 4: Cross-file navigation', () => {
   it('cross-file completion includes type names from all workspace files', () => {
     const src = 'PROGRAM UseAll\nVAR\n  x : INT;\nEND_VAR\nEND_PROGRAM';
     const doc = TextDocument.create('file:///useall.st', 'iec-st', 1, src);
-    const mockIndex = { getProjectFiles: () => extractedUris } as unknown as WorkspaceIndex;
+    const mockIndex = { getProjectFiles: () => extractedUris, getLibrarySymbols: () => [] } as unknown as WorkspaceIndex;
     const items = handleCompletion(
       { textDocument: { uri: doc.uri }, position: { line: 4, character: 0 } },
       doc,

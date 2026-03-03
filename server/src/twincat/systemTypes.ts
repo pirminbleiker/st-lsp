@@ -86,6 +86,25 @@ export const SYSTEM_FUNCTIONS: readonly SystemFunction[] = [
   { name: 'MEMCMP', description: 'Compares n bytes of two memory areas; returns 0 if equal.' },
   // Type-query helpers
   { name: 'ISEMPTY', description: 'Checks if a string is empty.' },
+  // IEC 61131-3 standard functions (always available in TwinCAT via Tc2_Standard)
+  { name: 'MIN', description: 'Returns the lesser of IN0 and IN1.' },
+  { name: 'MAX', description: 'Returns the greater of IN0 and IN1.' },
+  { name: 'ABS', description: 'Returns the absolute value of IN.' },
+  { name: 'TRUNC', description: 'Truncates a floating-point number toward zero.' },
+  { name: 'MOVE', description: 'Returns the value of IN unchanged.' },
+  { name: 'LIMIT', description: 'Clamps IN between MN and MX.' },
+  { name: 'SEL', description: 'Binary selector: returns IN0 if G=FALSE, IN1 if G=TRUE.' },
+  { name: 'MUX', description: 'Multiplexer: selects one of multiple inputs based on K.' },
+  // String functions
+  { name: 'LEN', description: 'Returns the current length (number of characters) of STR.' },
+  { name: 'LEFT', description: 'Returns the leftmost SIZE characters of STR.' },
+  { name: 'RIGHT', description: 'Returns the rightmost SIZE characters of STR.' },
+  { name: 'MID', description: 'Returns LEN characters from STR starting at position POS.' },
+  { name: 'CONCAT', description: 'Concatenates two or more strings.' },
+  { name: 'INSERT', description: 'Inserts STR2 into STR1 at position POS.' },
+  { name: 'DELETE', description: 'Deletes LEN characters from STR starting at position POS.' },
+  { name: 'REPLACE', description: 'Replaces LEN characters in STR1 starting at POS with STR2.' },
+  { name: 'FIND', description: 'Returns the position of STR2 within STR1, or 0 if not found.' },
 ];
 
 // ── Pre-built lookup sets (uppercase for case-insensitive matching) ─────────

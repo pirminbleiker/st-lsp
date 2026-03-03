@@ -37,7 +37,6 @@ import {
 } from '../parser/ast';
 import { BUILTIN_TYPES } from '../twincat/types';
 import { STANDARD_FBS } from '../twincat/stdlib';
-import { getLibraryFBs, getLibraryFunctions, getLibraryGVL } from '../twincat/libraryRegistry';
 import { SYSTEM_TYPE_NAMES, SYSTEM_FUNCTION_NAMES, TYPE_CONVERSION_NAMES } from '../twincat/systemTypes';
 import { OffsetMap } from '../twincat/tcExtractor';
 import { getOrParse } from './shared';
@@ -57,16 +56,6 @@ const ALWAYS_ALLOWED = new Set([
 // Pre-build sets of builtin type names and standard FB names (uppercase)
 const BUILTIN_TYPE_NAMES = new Set(BUILTIN_TYPES.map(t => t.name.toUpperCase()));
 const STANDARD_FB_NAMES = new Set(STANDARD_FBS.map(fb => fb.name.toUpperCase()));
-const LIBRARY_FUNCTION_NAMES = new Set(getLibraryFunctions().map(f => f.name.toUpperCase()));
-// Library namespace qualifier names (e.g. 'Tc2_Standard', 'Tc2_System') —
-// used as the base of MemberExpressions like Tc2_Standard.TON(...)
-const LIBRARY_NAMESPACE_NAMES = new Set(
-	[...getLibraryFBs(), ...getLibraryFunctions(), ...getLibraryGVL()]
-		.map(e => e.namespace.toUpperCase()),
-);
-// Library GVL container names (e.g. 'TcGENSYS', 'TcTask') used as
-// MemberExpression bases like TcGENSYS.MAIN_CYCLE_COUNT
-const LIBRARY_GVL_NAMES = new Set(getLibraryGVL().map(g => g.name.toUpperCase()));
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -79,10 +68,7 @@ function isAllowedName(name: string): boolean {
 		|| STANDARD_FB_NAMES.has(upper)
 		|| SYSTEM_TYPE_NAMES.has(upper)
 		|| SYSTEM_FUNCTION_NAMES.has(upper)
-		|| TYPE_CONVERSION_NAMES.has(upper)
-		|| LIBRARY_FUNCTION_NAMES.has(upper)
-		|| LIBRARY_NAMESPACE_NAMES.has(upper)
-		|| LIBRARY_GVL_NAMES.has(upper);
+		|| TYPE_CONVERSION_NAMES.has(upper);
 }
 
 /**
@@ -600,25 +586,30 @@ function runSemanticAnalysis(
 	}
 
 	// Set of all known types for Part A checks
+	const libraryTypeNames = currentUri && workspaceIndex
+		? workspaceIndex.getLibraryTypeNames(currentUri)
+		: new Set<string>();
 	const knownTypes = new Set<string>([
 		...BUILTIN_TYPE_NAMES,
 		...STANDARD_FB_NAMES,
 		...SYSTEM_TYPE_NAMES,
 		...globalNames,
+		...libraryTypeNames,
 	]);
 
-	// Build map from uppercase FB name → library name for missing-library diagnostics.
-	// Only populated when libraryRefs are available (file belongs to a project).
+	// Build map from uppercase symbol name → namespace for missing-library diagnostics.
+	// Uses the dynamic library index from workspaceIndex instead of the static registry.
 	const libFbToLib = new Map<string, string>();
 	const referencedLibNames = new Set<string>();
-	if (libraryRefs && libraryRefs.length > 0) {
+	const libSymbols = currentUri && workspaceIndex
+		? workspaceIndex.getLibrarySymbols(currentUri)
+		: [];
+	if (libraryRefs && libraryRefs.length > 0 && libSymbols.length > 0) {
 		for (const ref of libraryRefs) {
 			referencedLibNames.add(ref.name.toUpperCase());
 		}
-		for (const fb of getLibraryFBs()) {
-			if (fb.namespace) {
-				libFbToLib.set(fb.name.toUpperCase(), fb.namespace);
-			}
+		for (const sym of libSymbols) {
+			libFbToLib.set(sym.name.toUpperCase(), sym.namespace);
 		}
 	}
 

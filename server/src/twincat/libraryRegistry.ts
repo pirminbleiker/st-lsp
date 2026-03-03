@@ -7,6 +7,9 @@
  *   - Tc2_MC2        (motion control)
  *   - Tc2_Utilities  (conversion utilities)
  */
+// TODO: remove once all references are project-based.
+// This file is kept as a standalone-file fallback only; it is used only when
+// workspaceIndex.getLibrarySymbols() returns an empty array (no project context).
 
 // ── Shared parameter type ─────────────────────────────────────────────────────
 
