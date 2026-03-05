@@ -1,0 +1,72 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "IEC 61131-3 Structured Text",
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#strings" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.block.iec-st",
+          "begin": "\\(\\*",
+          "end": "\\*\\)",
+          "beginCaptures": {
+            "0": { "name": "punctuation.definition.comment.iec-st" }
+          },
+          "endCaptures": {
+            "0": { "name": "punctuation.definition.comment.iec-st" }
+          }
+        },
+        {
+          "name": "comment.line.double-slash.iec-st",
+          "begin": "//",
+          "end": "$",
+          "beginCaptures": {
+            "0": { "name": "punctuation.definition.comment.iec-st" }
+          }
+        }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.single.iec-st",
+          "begin": "'",
+          "end": "'",
+          "beginCaptures": {
+            "0": { "name": "punctuation.definition.string.begin.iec-st" }
+          },
+          "endCaptures": {
+            "0": { "name": "punctuation.definition.string.end.iec-st" }
+          },
+          "patterns": [
+            {
+              "name": "constant.character.escape.iec-st",
+              "match": "''|\\\\."
+            }
+          ]
+        },
+        {
+          "name": "string.quoted.double.iec-st",
+          "begin": "\"",
+          "end": "\"",
+          "beginCaptures": {
+            "0": { "name": "punctuation.definition.string.begin.iec-st" }
+          },
+          "endCaptures": {
+            "0": { "name": "punctuation.definition.string.end.iec-st" }
+          },
+          "patterns": [
+            {
+              "name": "constant.character.escape.iec-st",
+              "match": "\"\"|\\\\"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "scopeName": "source.iec-st"
+}

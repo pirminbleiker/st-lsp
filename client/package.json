@@ -37,6 +37,13 @@
         "configuration": "./language-configuration.json"
       }
     ],
+    "grammars": [
+      {
+        "language": "iec-st",
+        "scopeName": "source.iec-st",
+        "path": "./syntaxes/iec-st.tmLanguage.json"
+      }
+    ],
     "semanticTokenTypes": [
       {
         "id": "xmlMarkup",
