@@ -732,7 +732,7 @@ function runSemanticAnalysis(
 			if (extendsUnresolvable) return;
 
 			diagnostics.push({
-				severity: DiagnosticSeverity.Error,
+				severity: DiagnosticSeverity.Warning,
 				range: {
 					start: { line: nameExpr.range.start.line, character: nameExpr.range.start.character },
 					end:   { line: nameExpr.range.end.line,   character: nameExpr.range.end.character },
@@ -799,7 +799,7 @@ function runSemanticAnalysis(
 					if (actionScope.has(upper)) return;
 					if (extendsUnresolvable) return;
 					diagnostics.push({
-						severity: DiagnosticSeverity.Error,
+						severity: DiagnosticSeverity.Warning,
 						range: {
 							start: { line: nameExpr.range.start.line, character: nameExpr.range.start.character },
 							end:   { line: nameExpr.range.end.line,   character: nameExpr.range.end.character },
@@ -848,7 +848,7 @@ function runSemanticAnalysis(
 					if (methodScope.has(upper)) return;
 					if (extendsUnresolvable) return;
 					diagnostics.push({
-						severity: DiagnosticSeverity.Error,
+						severity: DiagnosticSeverity.Warning,
 						range: {
 							start: { line: nameExpr.range.start.line, character: nameExpr.range.start.character },
 							end:   { line: nameExpr.range.end.line,   character: nameExpr.range.end.character },

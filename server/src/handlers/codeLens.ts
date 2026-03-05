@@ -15,11 +15,16 @@ import { WorkspaceIndex } from '../twincat/workspaceIndex';
 import { extractST, PositionMapper } from '../twincat/tcExtractor';
 import { getOrParse } from './shared';
 import { parse } from '../parser/parser';
+import { collectNameExpressions } from './references';
 import {
   SourceFile,
   FunctionBlockDeclaration,
   InterfaceDeclaration,
   MethodDeclaration,
+  FunctionDeclaration,
+  ProgramDeclaration,
+  TypeDeclarationBlock,
+  AstNode,
 } from '../parser/ast';
 
 // ---------------------------------------------------------------------------
@@ -142,6 +147,32 @@ function buildWorkspaceStats(
 }
 
 // ---------------------------------------------------------------------------
+// Reference counting helper
+// ---------------------------------------------------------------------------
+
+/**
+ * Count references to a symbol in the current document.
+ * Excludes the declaration itself (position check).
+ */
+function countReferencesInDocument(
+  ast: SourceFile,
+  symbolName: string,
+  uri: string,
+  declRange: { start: { line: number; character: number }; end: { line: number; character: number } },
+): number {
+  const locations = collectNameExpressions(ast, symbolName, uri);
+  // Filter out the declaration itself by checking if the location matches the declRange
+  const usageCount = locations.filter(loc => {
+    const isSameStart = loc.range.start.line === declRange.start.line &&
+                        loc.range.start.character === declRange.start.character;
+    const isSameEnd = loc.range.end.line === declRange.end.line &&
+                      loc.range.end.character === declRange.end.character;
+    return !(isSameStart && isSameEnd);
+  }).length;
+  return usageCount;
+}
+
+// ---------------------------------------------------------------------------
 // Main handler
 // ---------------------------------------------------------------------------
 
@@ -172,6 +203,19 @@ export function handleCodeLens(
           },
         });
       }
+
+      // Reference count lens
+      const refCount = countReferencesInDocument(ast, iface.name, uri, iface.range);
+      if (refCount > 0) {
+        lenses.push({
+          range: toRange(iface, mapper),
+          data: { type: 'references', name: iface.name },
+          command: {
+            title: refCount === 1 ? '1 reference' : `${refCount} references`,
+            command: '',
+          },
+        });
+      }
     }
 
     if (decl.kind === 'FunctionBlockDeclaration') {
@@ -190,6 +234,19 @@ export function handleCodeLens(
         });
       }
 
+      // Reference count lens
+      const refCount = countReferencesInDocument(ast, fb.name, uri, fb.range);
+      if (refCount > 0) {
+        lenses.push({
+          range: toRange(fb, mapper),
+          data: { type: 'references', name: fb.name },
+          command: {
+            title: refCount === 1 ? '1 reference' : `${refCount} references`,
+            command: '',
+          },
+        });
+      }
+
       // Method override lenses
       for (const method of fb.methods) {
         const mapKey = `${fb.name.toUpperCase()}.${method.name.toUpperCase()}`;
@@ -200,6 +257,59 @@ export function handleCodeLens(
             data: { type: 'overrides', fbName: fb.name, methodName: method.name },
             command: {
               title: overrideCount === 1 ? 'overridden in 1 FB' : `overridden in ${overrideCount} FBs`,
+              command: '',
+            },
+          });
+        }
+      }
+    }
+
+    if (decl.kind === 'FunctionDeclaration') {
+      const fn = decl as FunctionDeclaration;
+
+      // Reference count lens
+      const refCount = countReferencesInDocument(ast, fn.name, uri, fn.range);
+      if (refCount > 0) {
+        lenses.push({
+          range: toRange(fn, mapper),
+          data: { type: 'references', name: fn.name },
+          command: {
+            title: refCount === 1 ? '1 reference' : `${refCount} references`,
+            command: '',
+          },
+        });
+      }
+    }
+
+    if (decl.kind === 'ProgramDeclaration') {
+      const prog = decl as ProgramDeclaration;
+
+      // Reference count lens
+      const refCount = countReferencesInDocument(ast, prog.name, uri, prog.range);
+      if (refCount > 0) {
+        lenses.push({
+          range: toRange(prog, mapper),
+          data: { type: 'references', name: prog.name },
+          command: {
+            title: refCount === 1 ? '1 reference' : `${refCount} references`,
+            command: '',
+          },
+        });
+      }
+    }
+
+    if (decl.kind === 'TypeDeclarationBlock') {
+      const typeBlock = decl as TypeDeclarationBlock;
+
+      // For each type declaration in the block
+      for (const typeDecl of typeBlock.declarations) {
+        const refCount = countReferencesInDocument(ast, typeDecl.name, uri, typeDecl.range);
+        if (refCount > 0) {
+          lenses.push({
+            range: toRange(typeDecl, mapper),
+            data: { type: 'references', name: typeDecl.name },
+            command: {
+              title: refCount === 1 ? '1 reference' : `${refCount} references`,
               command: '',
             },
           });

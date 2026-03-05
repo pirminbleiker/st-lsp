@@ -97,7 +97,7 @@ describe('validateDocument', () => {
   // -------------------------------------------------------------------------
 
   describe('semantic: undefined identifier errors', () => {
-    it('produces Error for an undefined variable used in assignment RHS', () => {
+    it('produces Warning for an undefined variable used in assignment RHS', () => {
       const src = `PROGRAM P
 VAR
   x : INT;
@@ -105,21 +105,21 @@ END_VAR
 x := undeclaredVar;
 END_PROGRAM`;
       const diags = getDiagnostics(src);
-      const errors = diags.filter(d => d.severity === 1); // Error = 1
-      expect(errors.some(d => d.message.includes('undeclaredVar'))).toBe(true);
+      const warnings = diags.filter(d => d.severity === 2); // Warning = 2
+      expect(warnings.some(d => d.message.includes('undeclaredVar'))).toBe(true);
     });
 
-    it('undeclared identifier produces Error severity (not Warning)', () => {
+    it('undeclared identifier produces Warning severity (not Error)', () => {
       const src = `FUNCTION_BLOCK TestFB
 VAR x : INT; END_VAR
   undeclaredVar := 42;
 END_FUNCTION_BLOCK`;
       const diags = getDiagnostics(src);
-      const errors = diags.filter(d => d.severity === 1); // Error = 1
-      expect(errors.some(d => d.message.includes('Undefined') || d.message.includes('ndeclared'))).toBe(true);
-      // Confirm it is NOT emitted as a Warning
-      const warnings = diags.filter(d => d.severity === 2 && (d.message.includes('Undefined') || d.message.includes('ndeclared')));
-      expect(warnings).toHaveLength(0);
+      const warnings = diags.filter(d => d.severity === 2); // Warning = 2
+      expect(warnings.some(d => d.message.includes('Undefined') || d.message.includes('ndeclared'))).toBe(true);
+      // Confirm it is NOT emitted as an Error
+      const errors = diags.filter(d => d.severity === 1 && (d.message.includes('Undefined') || d.message.includes('ndeclared')));
+      expect(errors).toHaveLength(0);
     });
 
     it('does not warn for a declared variable used in assignment', () => {
@@ -223,15 +223,15 @@ END_PROGRAM`;
       expect(warnings).toHaveLength(0);
     });
 
-    it('produces Error for undefined base of a MemberExpression', () => {
+    it('produces Warning for undefined base of a MemberExpression', () => {
       const src = `PROGRAM P
 VAR
 END_VAR
 unknownVar.field := 1;
 END_PROGRAM`;
       const diags = getDiagnostics(src);
-      const errors = diags.filter(d => d.severity === 1);
-      expect(errors.some(d => d.message.includes('unknownVar'))).toBe(true);
+      const warnings = diags.filter(d => d.severity === 2);
+      expect(warnings.some(d => d.message.includes('unknownVar'))).toBe(true);
     });
 
     it('does not warn when identifier is a VAR_INPUT variable', () => {
@@ -366,7 +366,8 @@ END_PROGRAM`;
       const diags = getDiagnostics(src);
       const errors = diags.filter(d => d.severity === 1);
       expect(errors.some(d => d.message.includes('Duplicate'))).toBe(true);
-      expect(errors.some(d => d.message.includes('y'))).toBe(true);
+      const warnings = diags.filter(d => d.severity === 2);
+      expect(warnings.some(d => d.message.includes('y'))).toBe(true);
     });
 
     it('a valid program with vars, assignments, and IF produces no diagnostics', () => {
@@ -1219,7 +1220,7 @@ END_FUNCTION_BLOCK`;
     expect(undefinedErrors).toHaveLength(0);
   });
 
-  it('extendsResolvable_stillError: genuine undefined identifier with resolvable parent → still Error', () => {
+  it('extendsResolvable_stillError: genuine undefined identifier with resolvable parent → now Warning', () => {
     const src = `PROGRAM P
 VAR x : INT; END_VAR
   y := 42;
@@ -1227,7 +1228,7 @@ END_PROGRAM`;
     const diags = getDiagnosticsWithIndex(src, makeEmptyWorkspaceIndex());
     const undefinedErrors = diags.filter(d => d.message.includes("Undefined identifier 'y'"));
     expect(undefinedErrors).toHaveLength(1);
-    expect(undefinedErrors[0].severity).toBe(1); // DiagnosticSeverity.Error
+    expect(undefinedErrors[0].severity).toBe(2); // DiagnosticSeverity.Warning
   });
 });
 
