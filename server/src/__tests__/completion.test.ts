@@ -1154,3 +1154,76 @@ describe('INTERFACE EXTENDS chain dot-member completion', () => {
     expect(labels).not.toContain('IF');
   });
 });
+
+describe('Library symbol member dot-completion', () => {
+  const fbSrc = `PROGRAM Main
+VAR
+  myTimer : TON;
+END_VAR
+myTimer.`;
+  // cursor at line 4, character 8 (after '  myTimer.')
+
+  it('returns library FB inputs via dot-access (TON.IN)', () => {
+    const doc = makeDoc(fbSrc);
+    const items = handleCompletion(makeParams(doc.uri, 4, 8), doc);
+    const labels = items.map(i => i.label);
+    expect(labels).toContain('IN');
+  });
+
+  it('returns library FB inputs via dot-access (TON.PT)', () => {
+    const doc = makeDoc(fbSrc);
+    const items = handleCompletion(makeParams(doc.uri, 4, 8), doc);
+    const labels = items.map(i => i.label);
+    expect(labels).toContain('PT');
+  });
+
+  it('returns library FB outputs via dot-access (TON.Q)', () => {
+    const doc = makeDoc(fbSrc);
+    const items = handleCompletion(makeParams(doc.uri, 4, 8), doc);
+    const labels = items.map(i => i.label);
+    expect(labels).toContain('Q');
+  });
+
+  it('returns library FB outputs via dot-access (TON.ET)', () => {
+    const doc = makeDoc(fbSrc);
+    const items = handleCompletion(makeParams(doc.uri, 4, 8), doc);
+    const labels = items.map(i => i.label);
+    expect(labels).toContain('ET');
+  });
+
+  it('library FB member items have Field kind', () => {
+    const doc = makeDoc(fbSrc);
+    const items = handleCompletion(makeParams(doc.uri, 4, 8), doc);
+    const qItem = items.find(i => i.label === 'Q');
+    expect(qItem).toBeDefined();
+    expect(qItem?.kind).toBe(CompletionItemKind.Field);
+  });
+
+  it('library FB member items include type detail', () => {
+    const doc = makeDoc(fbSrc);
+    const items = handleCompletion(makeParams(doc.uri, 4, 8), doc);
+    const qItem = items.find(i => i.label === 'Q');
+    expect(qItem).toBeDefined();
+    expect(qItem?.detail).toBe('BOOL');
+  });
+
+  it('does not return flat keywords when accessing library FB members', () => {
+    const doc = makeDoc(fbSrc);
+    const items = handleCompletion(makeParams(doc.uri, 4, 8), doc);
+    const labels = items.map(i => i.label);
+    expect(labels).not.toContain('IF');
+    expect(labels).not.toContain('WHILE');
+  });
+
+  it('sorts inputs before outputs by sortText', () => {
+    const doc = makeDoc(fbSrc);
+    const items = handleCompletion(makeParams(doc.uri, 4, 8), doc);
+    const inItem = items.find(i => i.label === 'IN');
+    const qItem = items.find(i => i.label === 'Q');
+    expect(inItem?.sortText).toBeDefined();
+    expect(qItem?.sortText).toBeDefined();
+    if (inItem?.sortText && qItem?.sortText) {
+      expect(inItem.sortText < qItem.sortText).toBe(true);
+    }
+  });
+});

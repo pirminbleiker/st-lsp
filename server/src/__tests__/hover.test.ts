@@ -3,6 +3,7 @@ import { TextDocument } from 'vscode-languageserver-textdocument';
 import { handleHover } from '../handlers/hover';
 import { WorkspaceIndex } from '../twincat/workspaceIndex';
 import type { LibraryRef } from '../twincat/projectReader';
+import type { LibrarySymbol } from '../twincat/libraryZipReader';
 
 function makeDoc(content: string): TextDocument {
   return TextDocument.create('file:///test.st', 'st', 1, content);
@@ -600,5 +601,199 @@ describe('TcPOU position mapping', () => {
     // Line 0: "<?xml version=\"1.0\" encoding=\"utf-8\"?>"
     const result = handleHover(makeParams(doc.uri, 0, 5), doc);
     expect(result).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Library symbol hover with metadata (version, vendor, description)
+// ---------------------------------------------------------------------------
+
+function makeMockIndexWithSymbols(
+  symbols: LibrarySymbol[],
+  libraryRefs: LibraryRef[] = [],
+): WorkspaceIndex {
+  return {
+    getProjectFiles: () => [],
+    getLibraryRefs: () => libraryRefs,
+    getLibrarySymbols: () => symbols,
+  } as unknown as WorkspaceIndex;
+}
+
+describe('hover over library symbol with metadata', () => {
+  it('displays library version and vendor in hover text', () => {
+    const symbol: LibrarySymbol = {
+      name: 'TOF',
+      kind: 'functionBlock',
+      namespace: 'Tc2_Standard',
+      description: 'Off-delay timer (PLCopen). The output Q stays TRUE for the duration PT after the input IN goes FALSE.',
+      inputs: [
+        {
+          name: 'IN',
+          type: 'BOOL',
+          direction: 'input',
+          comment: 'Timer input; rising edge starts Q, falling edge starts delay.',
+        },
+        {
+          name: 'PT',
+          type: 'TIME',
+          direction: 'input',
+          comment: 'Preset time (delay duration).',
+        },
+      ],
+      outputs: [
+        {
+          name: 'Q',
+          type: 'BOOL',
+          direction: 'output',
+          comment: 'Output: TRUE when ET ≥ PT.',
+        },
+        {
+          name: 'ET',
+          type: 'TIME',
+          direction: 'output',
+          comment: 'Elapsed time since IN went TRUE.',
+        },
+      ],
+    };
+
+    const libRef: LibraryRef = {
+      name: 'Tc2_Standard',
+      version: '3.4.5.0',
+      vendor: 'Beckhoff Automation GmbH',
+    };
+
+    const mockIndex = makeMockIndexWithSymbols([symbol], [libRef]);
+    const src = [
+      'PROGRAM Main',
+      'VAR t : INT; END_VAR',
+      '  TOF();',
+      'END_PROGRAM',
+    ].join('\n');
+
+    const doc = makeDoc(src);
+    // Line 2: "  TOF();" — "TOF" starts at character 2
+    // This is a NameExpression call expression
+    const result = handleHover(makeParams(doc.uri, 2, 2), doc, mockIndex);
+    expect(result).not.toBeNull();
+    if (result) {
+      const contents = result.contents as { kind: string; value: string };
+      expect(contents.value).toContain('TOF');
+      expect(contents.value).toContain('Tc2_Standard');
+      expect(contents.value).toContain('3.4.5.0');
+      expect(contents.value).toContain('Beckhoff Automation GmbH');
+      expect(contents.value).toContain('Off-delay timer');
+    }
+  });
+
+  it('shows parameter table with comments when available', () => {
+    const symbol: LibrarySymbol = {
+      name: 'MyFB',
+      kind: 'functionBlock',
+      namespace: 'MyLib',
+      description: 'A test function block.',
+      inputs: [
+        {
+          name: 'Input1',
+          type: 'INT',
+          direction: 'input',
+          comment: 'First input parameter',
+        },
+      ],
+      outputs: [
+        {
+          name: 'Output1',
+          type: 'BOOL',
+          direction: 'output',
+          comment: 'First output parameter',
+        },
+      ],
+    };
+
+    const mockIndex = makeMockIndexWithSymbols([symbol]);
+    const src = [
+      'PROGRAM Main',
+      'VAR x : INT; END_VAR',
+      '  MyFB();',
+      'END_PROGRAM',
+    ].join('\n');
+
+    const doc = makeDoc(src);
+    // Line 2: "  MyFB();" — "MyFB" starts at character 2
+    const result = handleHover(makeParams(doc.uri, 2, 2), doc, mockIndex);
+    expect(result).not.toBeNull();
+    if (result) {
+      const contents = result.contents as { kind: string; value: string };
+      expect(contents.value).toContain('VAR_INPUT');
+      expect(contents.value).toContain('Input1');
+      expect(contents.value).toContain('INT');
+      expect(contents.value).toContain('First input parameter');
+      expect(contents.value).toContain('VAR_OUTPUT');
+      expect(contents.value).toContain('Output1');
+      expect(contents.value).toContain('BOOL');
+      expect(contents.value).toContain('First output parameter');
+    }
+  });
+
+  it('shows FUNCTION_BLOCK kind header correctly formatted', () => {
+    const symbol: LibrarySymbol = {
+      name: 'TestFB',
+      kind: 'functionBlock',
+      namespace: 'TestLib',
+    };
+
+    const mockIndex = makeMockIndexWithSymbols([symbol]);
+    const src = [
+      'PROGRAM Main',
+      'VAR x : INT; END_VAR',
+      '  TestFB();',
+      'END_PROGRAM',
+    ].join('\n');
+
+    const doc = makeDoc(src);
+    // Line 2: "  TestFB();" — "TestFB" starts at character 2
+    const result = handleHover(makeParams(doc.uri, 2, 2), doc, mockIndex);
+    expect(result).not.toBeNull();
+    if (result) {
+      const contents = result.contents as { kind: string; value: string };
+      // Should use FUNCTION_BLOCK, not 'functionBlock'
+      expect(contents.value).toContain('FUNCTION_BLOCK');
+      expect(contents.value).toContain('TestFB');
+    }
+  });
+
+  it('handles parameters without type info gracefully', () => {
+    const symbol: LibrarySymbol = {
+      name: 'PartialFB',
+      kind: 'functionBlock',
+      namespace: 'TestLib',
+      inputs: [
+        {
+          name: 'Param1',
+          type: '', // Empty type from compiled lib
+          direction: 'input',
+          comment: 'Parameter with no type',
+        },
+      ],
+    };
+
+    const mockIndex = makeMockIndexWithSymbols([symbol]);
+    const src = [
+      'PROGRAM Main',
+      'VAR x : INT; END_VAR',
+      '  PartialFB();',
+      'END_PROGRAM',
+    ].join('\n');
+
+    const doc = makeDoc(src);
+    // Line 2: "  PartialFB();" — "PartialFB" starts at character 2
+    const result = handleHover(makeParams(doc.uri, 2, 2), doc, mockIndex);
+    expect(result).not.toBeNull();
+    if (result) {
+      const contents = result.contents as { kind: string; value: string };
+      expect(contents.value).toContain('Param1');
+      expect(contents.value).toContain('Parameter with no type');
+      // When type is empty, should show '—' or omit type column
+      expect(contents.value).not.toContain('`  `'); // Avoid empty backticks
+    }
   });
 });

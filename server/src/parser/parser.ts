@@ -414,6 +414,19 @@ class Parser {
 
     const declarations: VarDeclaration[] = [];
     while (!this.check(TokenKind.END_VAR) && !this.check(TokenKind.EOF)) {
+      // Check for trailing/unnecessary semicolon before END_VAR
+      if (this.check(TokenKind.SEMICOLON)) {
+        const semiTok = this.advance();
+        // Consume the extra semicolon and log a warning
+        this.errors.push({
+          message: 'Unnecessary semicolon in VAR block',
+          range: semiTok.range,
+          severity: 'warning',
+        });
+        // Continue the loop to check for more issues
+        continue;
+      }
+
       const before = this.pos;
       try {
         declarations.push(this.parseVarDeclaration());

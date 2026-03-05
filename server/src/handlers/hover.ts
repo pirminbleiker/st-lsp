@@ -433,29 +433,103 @@ function enumHover(decl: EnumDeclaration): string {
   return `**ENUM** \`${decl.name}${baseTypeSuffix}\`\n\`\`\`\n(\n${values}\n)\n\`\`\``;
 }
 
-function renderLibrarySymbolHover(symbol: LibrarySymbol): string {
+function renderLibrarySymbolHover(
+  symbol: LibrarySymbol,
+  libraryVersion?: string,
+  libraryVendor?: string,
+): string {
   const lines: string[] = [];
-  lines.push(`**(${symbol.kind})** \`${symbol.name}\``);
-  lines.push(`*Namespace:* ${symbol.namespace}`);
-  if (symbol.extends) lines.push(`*Extends:* \`${symbol.extends}\``);
-  if (symbol.implements?.length) {
-    lines.push(`*Implements:* ${symbol.implements.map(i => `\`${i}\``).join(', ')}`);
+
+  // Title with symbol kind and name
+  lines.push(`**${symbol.kind === 'functionBlock' ? 'FUNCTION_BLOCK' : symbol.kind.toUpperCase()}** \`${symbol.name}\``);
+
+  // Library metadata header
+  if (libraryVersion || libraryVendor) {
+    const parts = [];
+    if (libraryVersion) parts.push(symbol.namespace);
+    if (libraryVersion) parts.push(libraryVersion);
+    const headerPart = parts.join(' ');
+    const vendorPart = libraryVendor ? ` — ${libraryVendor}` : '';
+    lines.push(`*${headerPart}${vendorPart}*`);
+  } else if (symbol.namespace) {
+    lines.push(`*${symbol.namespace}*`);
   }
-  if (symbol.returnType) lines.push(`*Returns:* \`${symbol.returnType}\``);
+
+  // Description
+  if (symbol.description) {
+    lines.push('');
+    lines.push(symbol.description);
+  }
+
+  // Inheritance info
+  if (symbol.extends || symbol.implements?.length) {
+    lines.push('');
+    if (symbol.extends) lines.push(`*Extends:* \`${symbol.extends}\``);
+    if (symbol.implements?.length) {
+      lines.push(`*Implements:* ${symbol.implements.map(i => `\`${i}\``).join(', ')}`);
+    }
+  }
+
+  if (symbol.returnType) {
+    lines.push(`*Returns:* \`${symbol.returnType}\``);
+  }
 
   function renderParamTable(params: LibraryParam[], heading: string): void {
     lines.push('');
     lines.push(`**${heading}**`);
-    lines.push('| Name | Type |');
-    lines.push('|------|------|');
-    for (const p of params) {
-      lines.push(`| ${p.name} | ${p.type} |`);
+
+    // Check if any params have comments or if types are present
+    const hasComments = params.some(p => p.comment);
+    const hasTypes = params.some(p => p.type);
+
+    if (hasComments && hasTypes) {
+      lines.push('| Name | Type | Description |');
+      lines.push('|------|------|-------------|');
+      for (const p of params) {
+        const type = p.type || '—';
+        const comment = p.comment || '';
+        lines.push(`| \`${p.name}\` | \`${type}\` | ${comment} |`);
+      }
+    } else if (hasComments) {
+      lines.push('| Name | Description |');
+      lines.push('|------|-------------|');
+      for (const p of params) {
+        const comment = p.comment || '';
+        lines.push(`| \`${p.name}\` | ${comment} |`);
+      }
+    } else if (hasTypes) {
+      lines.push('| Name | Type |');
+      lines.push('|------|------|');
+      for (const p of params) {
+        const type = p.type || '—';
+        lines.push(`| \`${p.name}\` | \`${type}\` |`);
+      }
+    } else {
+      lines.push('| Name |');
+      lines.push('|------|');
+      for (const p of params) {
+        lines.push(`| \`${p.name}\` |`);
+      }
     }
   }
 
   if (symbol.inputs?.length) renderParamTable(symbol.inputs, 'VAR_INPUT');
   if (symbol.outputs?.length) renderParamTable(symbol.outputs, 'VAR_OUTPUT');
   if (symbol.inOuts?.length) renderParamTable(symbol.inOuts, 'VAR_IN_OUT');
+
+  // Methods
+  if (symbol.methods?.length) {
+    lines.push('');
+    lines.push(`**Methods** (${symbol.methods.length})`);
+    // Show up to 15 methods, then truncate
+    const shown = symbol.methods.slice(0, 15);
+    for (const m of shown) {
+      lines.push(`- \`${m.name}()\``);
+    }
+    if (symbol.methods.length > 15) {
+      lines.push(`- *... and ${symbol.methods.length - 15} more*`);
+    }
+  }
 
   return lines.join('\n');
 }
@@ -525,8 +599,23 @@ export function handleHover(
     const upperName = name.toUpperCase();
     const libSym = libSymbols.find(s => s.name.toUpperCase() === upperName);
     if (libSym) {
+      // Look up library version and vendor from the document's library references
+      let libVersion: string | undefined;
+      let libVendor: string | undefined;
+      const libRefs = workspaceIndex.getLibraryRefs(params.textDocument.uri);
+      const libRef = libRefs.find(
+        r => r.name.toUpperCase() === libSym.namespace.toUpperCase(),
+      );
+      if (libRef) {
+        libVersion = libRef.version;
+        libVendor = libRef.vendor;
+      }
+
       return {
-        contents: { kind: MarkupKind.Markdown, value: renderLibrarySymbolHover(libSym) },
+        contents: {
+          kind: MarkupKind.Markdown,
+          value: renderLibrarySymbolHover(libSym, libVersion, libVendor),
+        },
         range: nodeRange(),
       };
     }
@@ -544,25 +633,60 @@ export function handleHover(
   // 3. Standard function block?
   const stdFB = findStandardFB(name);
   if (stdFB) {
-    let hoverText = standardFBHover(stdFB);
-    // Prepend library namespace to the title line
-    if (stdFB.namespace) {
-      hoverText = `*(${stdFB.namespace})*\n\n` + hoverText;
-    }
-    // Warn if the library is not referenced by the document's project
+    // Look up library version and vendor for standard FBs
+    let libVersion: string | undefined;
+    let libVendor: string | undefined;
     if (workspaceIndex) {
+      const libRefs = workspaceIndex.getLibraryRefs(params.textDocument.uri);
+      const libRef = libRefs.find(
+        r => r.name.toUpperCase() === stdFB.namespace.toUpperCase(),
+      );
+      if (libRef) {
+        libVersion = libRef.version;
+        libVendor = libRef.vendor;
+      }
+    }
+
+    // Convert StandardFB to hover format (shape-compatible with renderLibrarySymbolHover)
+    const hoverText = renderLibrarySymbolHover(
+      {
+        name: stdFB.name,
+        kind: 'functionBlock' as const,
+        namespace: stdFB.namespace,
+        description: stdFB.description,
+        inputs: stdFB.inputs.map(p => ({
+          name: p.name,
+          type: p.type,
+          direction: 'input' as const,
+          comment: p.description,
+        })),
+        outputs: stdFB.outputs.map(p => ({
+          name: p.name,
+          type: p.type,
+          direction: 'output' as const,
+          comment: p.description,
+        })),
+      },
+      libVersion,
+      libVendor,
+    );
+
+    // Warn if the library is not referenced by the document's project
+    let finalText = hoverText;
+    if (workspaceIndex && libVersion === undefined) {
       const libRefs = workspaceIndex.getLibraryRefs(params.textDocument.uri);
       if (libRefs.length > 0 && stdFB.namespace) {
         const referenced = libRefs.some(
           (r) => r.name.toUpperCase() === stdFB.namespace.toUpperCase(),
         );
         if (!referenced) {
-          hoverText += `\n\n> ⚠️ Library \`${stdFB.namespace}\` is not referenced in this project.`;
+          finalText += `\n\n> ⚠️ Library \`${stdFB.namespace}\` is not referenced in this project.`;
         }
       }
     }
+
     return {
-      contents: { kind: MarkupKind.Markdown, value: hoverText },
+      contents: { kind: MarkupKind.Markdown, value: finalText },
       range: nodeRange(),
     };
   }

@@ -13,6 +13,7 @@ import {
 	CallExpression,
 	CallStatement,
 	CaseStatement,
+	EmptyStatement,
 	EnumDeclaration,
 	Expression,
 	ForStatement,
@@ -298,6 +299,62 @@ function collectForLoopVars(stmts: Statement[]): Set<string> {
 		}
 	}
 	return names;
+}
+
+// ---------------------------------------------------------------------------
+// Trailing and unnecessary semicolon checks
+// ---------------------------------------------------------------------------
+
+
+/**
+ * Collect EmptyStatement nodes that indicate unnecessary semicolons.
+ * These include:
+ * - Double semicolons (;;) which parse as EmptyStatement after another statement
+ * - Standalone leading semicolons in statement blocks (bad practice)
+ *
+ * NOTE: We skip the LAST EmptyStatement only if it's the sole statement at the end
+ * of a top-level POU body, as this often comes from trailing semicolons after
+ * control structures like END_IF which are allowed in IEC 61131-3 ST.
+ */
+function findUnnecessarySemicolons(stmts: Statement[], isTopLevel: boolean = false): EmptyStatement[] {
+	const empty: EmptyStatement[] = [];
+	for (let i = 0; i < stmts.length; i++) {
+		const stmt = stmts[i];
+		if (stmt.kind === 'EmptyStatement') {
+			// Special case: Skip the last EmptyStatement at the top level of a POU body,
+			// ONLY if it's truly the sole last statement (not followed by other statements).
+			// This allows "END_IF;" but still catches "x := 5;;".
+			const isLastAtTopLevel = isTopLevel && i === stmts.length - 1;
+			if (!isLastAtTopLevel) {
+				empty.push(stmt as EmptyStatement);
+			}
+		}
+		// Recurse into nested statement lists (not top-level)
+		if (stmt.kind === 'IfStatement') {
+			const s = stmt as IfStatement;
+			empty.push(...findUnnecessarySemicolons(s.then, false));
+			for (const elsif of s.elsifs) {
+				empty.push(...findUnnecessarySemicolons(elsif.body, false));
+			}
+			if (s.else) empty.push(...findUnnecessarySemicolons(s.else, false));
+		} else if (stmt.kind === 'ForStatement') {
+			const s = stmt as ForStatement;
+			empty.push(...findUnnecessarySemicolons(s.body, false));
+		} else if (stmt.kind === 'WhileStatement') {
+			const s = stmt as WhileStatement;
+			empty.push(...findUnnecessarySemicolons(s.body, false));
+		} else if (stmt.kind === 'RepeatStatement') {
+			const s = stmt as RepeatStatement;
+			empty.push(...findUnnecessarySemicolons(s.body, false));
+		} else if (stmt.kind === 'CaseStatement') {
+			const s = stmt as CaseStatement;
+			for (const clause of s.cases) {
+				empty.push(...findUnnecessarySemicolons(clause.body, false));
+			}
+			if (s.else) empty.push(...findUnnecessarySemicolons(s.else, false));
+		}
+	}
+	return empty;
 }
 
 // ---------------------------------------------------------------------------
@@ -742,6 +799,126 @@ function runSemanticAnalysis(
 			});
 		});
 
+		// --- Variable initialization validation ---
+		// For each VarDeclaration with an initialValue, check:
+		// 1. All identifiers in the initializer are in scope
+		// 2. Type compatibility between initializer and declared type
+		for (const vb of pou.varBlocks) {
+			for (const vd of vb.declarations) {
+				if (!vd.initialValue) continue;
+
+				// Build a scope that includes only variables declared BEFORE this one
+				// (in earlier VAR blocks or the same block up to this declaration)
+				const initScope = new Set<string>(globalNames);
+
+				// Add POU vars from blocks appearing BEFORE this block
+				let foundThisBlock = false;
+				for (const vbPrev of pou.varBlocks) {
+					if (foundThisBlock) break;
+					if (vbPrev === vb) {
+						foundThisBlock = true;
+						// For the current block, only add vars declared BEFORE this one
+						for (const vdPrev of vb.declarations) {
+							if (vdPrev === vd) break;
+							initScope.add(vdPrev.name.toUpperCase());
+						}
+					} else {
+						// For previous blocks, add all their vars
+						for (const vdPrev of vbPrev.declarations) {
+							initScope.add(vdPrev.name.toUpperCase());
+						}
+					}
+				}
+
+				// Also add inline enum member names from earlier declarations in the same block
+				for (const vdPrev of vb.declarations) {
+					if (vdPrev === vd) break;
+					if (vdPrev.type.inlineEnumValues) {
+						for (const ev of vdPrev.type.inlineEnumValues) {
+							initScope.add(ev.name.toUpperCase());
+						}
+					}
+				}
+
+				// Add inline enum members from THIS declaration (for self-reference in struct initializers)
+				if (vd.type.inlineEnumValues) {
+					for (const ev of vd.type.inlineEnumValues) {
+						initScope.add(ev.name.toUpperCase());
+					}
+				}
+
+				// Add POU's own name, methods, properties, actions, FOR loop vars
+				initScope.add(pou.name.toUpperCase());
+				if (decl.kind === 'FunctionBlockDeclaration') {
+					const fb = decl as FunctionBlockDeclaration;
+					for (const m of fb.methods) initScope.add(m.name.toUpperCase());
+					for (const p of fb.properties) initScope.add(p.name.toUpperCase());
+					for (const a of fb.actions) initScope.add(a.name.toUpperCase());
+					addInheritedMembers(fb, ast, workspaceIndex, initScope);
+				}
+
+				// Check identifiers in initializer
+				walkExpression(vd.initialValue, (nameExpr: NameExpression) => {
+					const upper = nameExpr.name.toUpperCase();
+
+					// Skip always-allowed names and scope-known names
+					if (isAllowedName(nameExpr.name)) return;
+					if (initScope.has(upper)) return;
+					// Skip if parent is unresolvable
+					if (extendsUnresolvable) return;
+
+					diagnostics.push({
+						severity: DiagnosticSeverity.Warning,
+						range: {
+							start: { line: nameExpr.range.start.line, character: nameExpr.range.start.character },
+							end:   { line: nameExpr.range.end.line,   character: nameExpr.range.end.character },
+						},
+						message: `Undefined identifier '${nameExpr.name}'`,
+						source: 'st-lsp',
+					});
+				});
+
+				// Type compatibility check: initializer type vs declared type
+				const declaredType = varTypeCategory(vd.type.name);
+				if (declaredType !== 'unknown') {
+					const initializerType = inferExprCategory(vd.initialValue, buildVarCategoryMap(pou));
+					if (initializerType !== 'unknown') {
+						if (declaredType === 'bool' && initializerType === 'numeric') {
+							diagnostics.push({
+								severity: DiagnosticSeverity.Warning,
+								range: {
+									start: { line: vd.initialValue.range.start.line, character: vd.initialValue.range.start.character },
+									end:   { line: vd.initialValue.range.end.line,   character: vd.initialValue.range.end.character },
+								},
+								message: `Type mismatch: cannot initialize BOOL variable with numeric expression`,
+								source: 'st-lsp',
+							});
+						} else if (declaredType === 'numeric' && initializerType === 'bool') {
+							diagnostics.push({
+								severity: DiagnosticSeverity.Warning,
+								range: {
+									start: { line: vd.initialValue.range.start.line, character: vd.initialValue.range.start.character },
+									end:   { line: vd.initialValue.range.end.line,   character: vd.initialValue.range.end.character },
+								},
+								message: `Type mismatch: cannot initialize numeric variable with BOOL expression`,
+								source: 'st-lsp',
+							});
+						} else if (declaredType === 'numeric' && initializerType === 'string') {
+							diagnostics.push({
+								severity: DiagnosticSeverity.Warning,
+								range: {
+									start: { line: vd.initialValue.range.start.line, character: vd.initialValue.range.start.character },
+									end:   { line: vd.initialValue.range.end.line,   character: vd.initialValue.range.end.character },
+								},
+								message: `Type mismatch: cannot initialize numeric variable with STRING expression`,
+								source: 'st-lsp',
+							});
+						}
+					}
+				}
+			}
+		}
+
 		// --- Part B: Type mismatch on assignments ---
 		const varCats = buildVarCategoryMap(pou);
 		walkAssignments(pou.body, (assign: AssignmentStatement) => {
@@ -916,6 +1093,96 @@ function runSemanticAnalysis(
 						});
 					}
 				});
+
+				// --- Method variable initialization validation ---
+				for (const vb of method.varBlocks) {
+					for (const vd of vb.declarations) {
+						if (!vd.initialValue) continue;
+
+						// Build scope for method initializer: includes FB scope + method vars before this one
+						const methodInitScope = new Set<string>(methodScope);
+
+						// Remove this declaration from scope (can't reference itself)
+						methodInitScope.delete(vd.name.toUpperCase());
+
+						// Only add method vars declared before this one
+						let foundThisBlock = false;
+						for (const vbPrev of method.varBlocks) {
+							if (foundThisBlock) break;
+							if (vbPrev === vb) {
+								foundThisBlock = true;
+								// For the current block, only add vars declared BEFORE this one
+								for (const vdPrev of vb.declarations) {
+									if (vdPrev === vd) break;
+									methodInitScope.add(vdPrev.name.toUpperCase());
+								}
+							} else {
+								// For previous blocks, add all their vars
+								for (const vdPrev of vbPrev.declarations) {
+									methodInitScope.add(vdPrev.name.toUpperCase());
+								}
+							}
+						}
+
+						// Check identifiers in initializer
+						walkExpression(vd.initialValue, (nameExpr: NameExpression) => {
+							const upper = nameExpr.name.toUpperCase();
+
+							if (isAllowedName(nameExpr.name)) return;
+							if (methodInitScope.has(upper)) return;
+							if (extendsUnresolvable) return;
+
+							diagnostics.push({
+								severity: DiagnosticSeverity.Warning,
+								range: {
+									start: { line: nameExpr.range.start.line, character: nameExpr.range.start.character },
+									end:   { line: nameExpr.range.end.line,   character: nameExpr.range.end.character },
+								},
+								message: `Undefined identifier '${nameExpr.name}'`,
+								source: 'st-lsp',
+							});
+						});
+
+						// Type compatibility check for method var initializers
+						const declaredType = varTypeCategory(vd.type.name);
+						if (declaredType !== 'unknown') {
+							const initializerType = inferExprCategory(vd.initialValue, methodVarCats);
+							if (initializerType !== 'unknown') {
+								if (declaredType === 'bool' && initializerType === 'numeric') {
+									diagnostics.push({
+										severity: DiagnosticSeverity.Warning,
+										range: {
+											start: { line: vd.initialValue.range.start.line, character: vd.initialValue.range.start.character },
+											end:   { line: vd.initialValue.range.end.line,   character: vd.initialValue.range.end.character },
+										},
+										message: `Type mismatch: cannot initialize BOOL variable with numeric expression`,
+										source: 'st-lsp',
+									});
+								} else if (declaredType === 'numeric' && initializerType === 'bool') {
+									diagnostics.push({
+										severity: DiagnosticSeverity.Warning,
+										range: {
+											start: { line: vd.initialValue.range.start.line, character: vd.initialValue.range.start.character },
+											end:   { line: vd.initialValue.range.end.line,   character: vd.initialValue.range.end.character },
+										},
+										message: `Type mismatch: cannot initialize numeric variable with BOOL expression`,
+										source: 'st-lsp',
+									});
+								} else if (declaredType === 'numeric' && initializerType === 'string') {
+									diagnostics.push({
+										severity: DiagnosticSeverity.Warning,
+										range: {
+											start: { line: vd.initialValue.range.start.line, character: vd.initialValue.range.start.character },
+											end:   { line: vd.initialValue.range.end.line,   character: vd.initialValue.range.end.character },
+										},
+										message: `Type mismatch: cannot initialize numeric variable with STRING expression`,
+										source: 'st-lsp',
+									});
+								}
+							}
+						}
+					}
+				}
 			}
 		}
 	}
@@ -982,6 +1249,90 @@ function runSemanticAnalysis(
 						}
 					}
 				}
+			}
+		}
+	}
+
+	// --- Semicolon diagnostics ---
+	// Task #2: Warn on unnecessary/trailing semicolons in VAR blocks (via parser)
+	// Task #3: Warn on double/unnecessary semicolons in code
+	for (const decl of ast.declarations) {
+		if (decl.kind === 'ProgramDeclaration') {
+			const prog = decl as ProgramDeclaration;
+			// Check for unnecessary semicolons in statement bodies
+			for (const emptyStmt of findUnnecessarySemicolons(prog.body, true)) {
+				diagnostics.push({
+					severity: DiagnosticSeverity.Warning,
+					range: {
+						start: { line: emptyStmt.range.start.line, character: emptyStmt.range.start.character },
+						end:   { line: emptyStmt.range.end.line,   character: emptyStmt.range.end.character },
+					},
+					message: 'Unnecessary semicolon',
+					source: 'st-lsp',
+					code: 'unnecessary-semicolon',
+				});
+			}
+		} else if (decl.kind === 'FunctionBlockDeclaration') {
+			const fb = decl as FunctionBlockDeclaration;
+			// Check for unnecessary semicolons in statement bodies
+			for (const emptyStmt of findUnnecessarySemicolons(fb.body, true)) {
+				diagnostics.push({
+					severity: DiagnosticSeverity.Warning,
+					range: {
+						start: { line: emptyStmt.range.start.line, character: emptyStmt.range.start.character },
+						end:   { line: emptyStmt.range.end.line,   character: emptyStmt.range.end.character },
+					},
+					message: 'Unnecessary semicolon',
+					source: 'st-lsp',
+					code: 'unnecessary-semicolon',
+				});
+			}
+
+			// Check for methods
+			for (const method of fb.methods) {
+				for (const emptyStmt of findUnnecessarySemicolons(method.body, true)) {
+					diagnostics.push({
+						severity: DiagnosticSeverity.Warning,
+						range: {
+							start: { line: emptyStmt.range.start.line, character: emptyStmt.range.start.character },
+							end:   { line: emptyStmt.range.end.line,   character: emptyStmt.range.end.character },
+						},
+						message: 'Unnecessary semicolon',
+						source: 'st-lsp',
+						code: 'unnecessary-semicolon',
+					});
+				}
+			}
+
+			// Check for actions
+			for (const action of fb.actions) {
+				for (const emptyStmt of findUnnecessarySemicolons(action.body, true)) {
+					diagnostics.push({
+						severity: DiagnosticSeverity.Warning,
+						range: {
+							start: { line: emptyStmt.range.start.line, character: emptyStmt.range.start.character },
+							end:   { line: emptyStmt.range.end.line,   character: emptyStmt.range.end.character },
+						},
+						message: 'Unnecessary semicolon',
+						source: 'st-lsp',
+						code: 'unnecessary-semicolon',
+					});
+				}
+			}
+		} else if (decl.kind === 'FunctionDeclaration') {
+			const func = decl as FunctionDeclaration;
+			// Check for unnecessary semicolons in statement bodies
+			for (const emptyStmt of findUnnecessarySemicolons(func.body, true)) {
+				diagnostics.push({
+					severity: DiagnosticSeverity.Warning,
+					range: {
+						start: { line: emptyStmt.range.start.line, character: emptyStmt.range.start.character },
+						end:   { line: emptyStmt.range.end.line,   character: emptyStmt.range.end.character },
+					},
+					message: 'Unnecessary semicolon',
+					source: 'st-lsp',
+					code: 'unnecessary-semicolon',
+				});
 			}
 		}
 	}
@@ -1053,19 +1404,21 @@ export function validateDocument(connection: Connection, document: TextDocument,
 	});
 
 	const parseDiags: Diagnostic[] = errors.map(err => ({
-		severity: DiagnosticSeverity.Error,
+		severity: (err.severity ?? 'error') === 'warning' ? DiagnosticSeverity.Warning : DiagnosticSeverity.Error,
 		range: {
 			start: { line: err.range.start.line, character: err.range.start.character },
 			end:   { line: err.range.end.line,   character: err.range.end.character },
 		},
 		message: err.message,
 		source: 'st-lsp',
+		code: (err.severity ?? 'error') === 'warning' ? 'unnecessary-semicolon' : undefined,
 	}));
 
-	// Only run semantic analysis when there are no parse errors, to avoid
+	// Only run semantic analysis when there are no parse errors (excluding warnings), to avoid
 	// cascading false positives from partially parsed ASTs.
+	const hasParseErrors = errors.some(e => (e.severity ?? 'error') !== 'warning');
 	const libraryRefs = workspaceIndex?.getLibraryRefs(document.uri);
-	const semanticDiags = errors.length === 0
+	const semanticDiags = !hasParseErrors
 		? runSemanticAnalysis(ast, libraryRefs, workspaceIndex, document.uri)
 		: [];
 

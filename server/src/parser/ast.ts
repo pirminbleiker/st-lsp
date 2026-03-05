@@ -426,4 +426,5 @@ export interface Pragma extends AstNode {
 export interface ParseError {
   message: string;
   range: Range;
+  severity?: 'error' | 'warning';
 }

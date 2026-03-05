@@ -29,15 +29,25 @@ export interface LibraryParam {
   comment?: string;
 }
 
+export interface LibraryMethod {
+  name: string;
+  description?: string;
+  inputs?: LibraryParam[];
+  outputs?: LibraryParam[];
+  returnType?: string;
+}
+
 export interface LibrarySymbol {
   name: string;
   kind: 'functionBlock' | 'function' | 'interface' | 'struct' | 'type';
   namespace: string;
+  description?: string;
   extends?: string;
   implements?: string[];
   inputs?: LibraryParam[];
   outputs?: LibraryParam[];
   inOuts?: LibraryParam[];
+  methods?: LibraryMethod[];
   returnType?: string;
 }
 
@@ -139,25 +149,357 @@ function readEntry(buf: Buffer, entry: ZipEntry): Buffer {
 }
 
 // ---------------------------------------------------------------------------
-// String / identifier extraction
+// LEB128 varint + indexed string table parsing
+// ---------------------------------------------------------------------------
+
+/** Read a LEB128 varint from data at pos. Returns [value, newPos]. */
+function readVarint(data: Buffer, pos: number): [number, number] {
+  let result = 0;
+  let shift = 0;
+  while (pos < data.length) {
+    const b = data[pos++];
+    result |= (b & 0x7f) << shift;
+    if ((b & 0x80) === 0) break;
+    shift += 7;
+  }
+  return [result, pos];
+}
+
+/**
+ * Parse the indexed string table format used in TwinCAT library files.
+ * Format: varint(count) + repeated[varint(index), varint(length), bytes[length]]
+ * Returns a Map from index to string value.
+ */
+function parseIndexedStringTable(data: Buffer): Map<number, string> {
+  const entries = new Map<number, string>();
+  let pos = 0;
+  let count: number;
+  [count, pos] = readVarint(data, pos);
+
+  for (let i = 0; i < count; i++) {
+    if (pos >= data.length) break;
+    let idx: number, length: number;
+    [idx, pos] = readVarint(data, pos);
+    [length, pos] = readVarint(data, pos);
+    if (pos + length > data.length) break;
+    entries.set(idx, data.slice(pos, pos + length).toString('utf8'));
+    pos += length;
+  }
+  return entries;
+}
+
+// ---------------------------------------------------------------------------
+// Compiled library .meta file POU extraction
+// ---------------------------------------------------------------------------
+
+const META_MAGIC = 0x28092002;
+
+interface MetaEntry {
+  guidIndex: number;     // v[2] — self GUID string table index
+  ownerGuidIndex: number; // v[3] — owner UUID (0 or null-UUID index for top-level POUs)
+  name: string;          // string table entry at v[4]
+  size: number;          // .meta file size in bytes
+}
+
+/**
+ * Parse a .meta file and extract its varint-encoded metadata.
+ * Returns undefined for folders (≤38 bytes) or unrecognized files.
+ *
+ * Size classification:
+ * - ≤38 bytes: folder/category (skip)
+ * - 40 bytes: method (v[3] = owner FB UUID)
+ * - ~48 bytes: function or FB without BMP
+ * - >3954 bytes: FB with BMP diagram
+ */
+function parseMetaEntry(data: Buffer, stringTable: Map<number, string>): MetaEntry | undefined {
+  if (data.length <= 38) return undefined; // folders
+  if (data.length < 24) return undefined;
+  if (data.readUInt32LE(0) !== META_MAGIC) return undefined;
+
+  // Skip 20-byte header, read varints [0..4]
+  let pos = 20;
+  const varints: number[] = [];
+  for (let i = 0; i < 5; i++) {
+    if (pos >= data.length) return undefined;
+    let v: number;
+    [v, pos] = readVarint(data, pos);
+    varints.push(v);
+  }
+
+  const guidIndex = varints[2];      // self GUID string table index
+  const ownerGuidIndex = varints[3]; // owner UUID index (null-UUID for top-level)
+  const name = stringTable.get(varints[4]);
+  if (!name || name === 'Global_Version') return undefined;
+
+  return { guidIndex, ownerGuidIndex, name, size: data.length };
+}
+
+// ---------------------------------------------------------------------------
+// Compiled library parameter block detection + parsing
+// ---------------------------------------------------------------------------
+
+interface ParamBlockEntry {
+  index: number;
+  value: string;
+}
+
+/**
+ * Detect parameter block boundaries in the string table.
+ * Scans indices in [startIdx, endIdx] for block-start patterns.
+ *
+ * Rules:
+ * 1. Entry starts with "''DOCU" or "__COMMENT" → block start
+ * 2. Entry starts with "\r\n" → block start (multi-line POU description)
+ * 3. Entry starts with " " + contains "\r\n" + prev is NOT a param comment → block start
+ * 4. Entry starts with " " + prev starts with "<TEMPORARY>" → block start
+ */
+function detectParamBlocks(
+  stringTable: Map<number, string>,
+  startIdx: number,
+  endIdx: number,
+): ParamBlockEntry[][] {
+  const sortedIndices = [...stringTable.keys()]
+    .filter(i => i >= startIdx && i <= endIdx)
+    .sort((a, b) => a - b);
+
+  const blockStarts: number[] = [];
+
+  for (let k = 0; k < sortedIndices.length; k++) {
+    const idx = sortedIndices[k];
+    const entry = stringTable.get(idx)!;
+    const prev = k > 0 ? stringTable.get(sortedIndices[k - 1])! : '';
+
+    if (entry.startsWith("''DOCU") || entry.startsWith('__COMMENT')) {
+      blockStarts.push(idx);
+    } else if (entry.startsWith('\r\n')) {
+      blockStarts.push(idx);
+    } else if (entry.startsWith(' ') && entry.includes('\r\n')) {
+      const prevIsParamComment = prev.startsWith(' ') && !prev.includes('\r\n') && prev.length > 5;
+      if (!prevIsParamComment) {
+        blockStarts.push(idx);
+      }
+    } else if (entry.startsWith(' ') && prev.startsWith('<TEMPORARY>')) {
+      blockStarts.push(idx);
+    }
+  }
+
+  // Build blocks
+  const blocks: ParamBlockEntry[][] = [];
+  for (let i = 0; i < blockStarts.length; i++) {
+    const start = blockStarts[i];
+    const end = i + 1 < blockStarts.length ? blockStarts[i + 1] : endIdx + 1;
+    const block: ParamBlockEntry[] = [];
+    for (const idx of sortedIndices) {
+      if (idx >= start && idx < end) {
+        block.push({ index: idx, value: stringTable.get(idx)! });
+      }
+    }
+    blocks.push(block);
+  }
+
+  return blocks;
+}
+
+const DIRECTION_KEYWORDS: Record<string, string> = {
+  'Input': 'input',
+  'Output': 'output',
+};
+
+const SKIP_ENTRIES = new Set([
+  'NORMAL', 'FunctionBlock', 'Function',
+  'conditionalshow', 'conditionalshow_all_locals',
+]);
+
+/**
+ * Parse a parameter block into a description and parameter list.
+ */
+function parseParamBlock(entries: ParamBlockEntry[]): {
+  description: string | undefined;
+  params: { name: string; comment?: string; direction: 'input' | 'output' }[];
+} {
+  let description: string | undefined;
+  const params: { name: string; comment?: string; direction: 'input' | 'output' }[] = [];
+  let direction: 'input' | 'output' = 'input';
+  let pendingComment: string | undefined;
+
+  for (const { value } of entries) {
+    // Skip markers
+    if (value.startsWith("''DOCU") || value.startsWith("__COMMENT") || value.startsWith("''NORMAL")) continue;
+    if (value.startsWith('<TEMPORARY>') || value.startsWith('{attribute')) continue;
+    if (SKIP_ENTRIES.has(value)) continue;
+    if (value in DIRECTION_KEYWORDS) {
+      direction = DIRECTION_KEYWORDS[value] as 'input' | 'output';
+      continue;
+    }
+    // Skip 'Local', 'None' direction keywords
+    if (value === 'Local' || value === 'None') continue;
+
+    // Description (first entry with \r\n or long space-prefixed text)
+    if (description === undefined && (value.includes('\r\n') || (value.startsWith(' ') && value.length > 15))) {
+      description = value.trim();
+      continue;
+    }
+
+    // Comment (starts with space)
+    if (value.startsWith(' ')) {
+      pendingComment = value.trim();
+      continue;
+    }
+
+    // Identifier = parameter name
+    if (/^[A-Za-z_]/.test(value)) {
+      const param: { name: string; comment?: string; direction: 'input' | 'output' } = {
+        name: value,
+        direction,
+      };
+      if (pendingComment) {
+        param.comment = pendingComment;
+        pendingComment = undefined;
+      }
+      params.push(param);
+    }
+  }
+
+  return { description, params };
+}
+
+/**
+ * Extract POU symbols with parameters from a compiled library using the
+ * reverse-order GUID mapping algorithm.
+ *
+ * POUs sorted by GUID string table index DESCENDING map 1:1 to
+ * parameter blocks sorted by string table index ASCENDING.
+ */
+function extractCompiledSymbols(
+  zipBuf: Buffer,
+  zipEntries: ZipEntry[],
+  stringTable: Map<number, string>,
+  namespace: string,
+): LibrarySymbol[] {
+  // Step 1: Parse all .meta files
+  const allMeta: MetaEntry[] = [];
+  for (const entry of zipEntries) {
+    if (!entry.filename.endsWith('.meta')) continue;
+    const data = readEntry(zipBuf, entry);
+    const meta = parseMetaEntry(data, stringTable);
+    if (meta) allMeta.push(meta);
+  }
+
+  if (allMeta.length === 0) return [];
+
+  // Step 2: Identify the null-UUID index (used by top-level POUs as ownerGuidIndex)
+  // Find the most common ownerGuidIndex among larger entries (≥48 bytes = POUs)
+  const ownerCounts = new Map<number, number>();
+  for (const m of allMeta) {
+    if (m.size >= 48) {
+      ownerCounts.set(m.ownerGuidIndex, (ownerCounts.get(m.ownerGuidIndex) ?? 0) + 1);
+    }
+  }
+  // The null-UUID index is the most frequent owner among POUs
+  let nullUuidIndex = 1; // default
+  let maxCount = 0;
+  for (const [idx, count] of ownerCounts) {
+    if (count > maxCount) {
+      nullUuidIndex = idx;
+      maxCount = count;
+    }
+  }
+
+  // Step 3: Separate POUs (top-level, v[3]=null-UUID) from methods (v[3]=FB UUID)
+  const pous: MetaEntry[] = [];
+  const methodEntries: MetaEntry[] = [];
+
+  for (const m of allMeta) {
+    if (m.ownerGuidIndex === nullUuidIndex) {
+      pous.push(m);
+    } else {
+      methodEntries.push(m);
+    }
+  }
+
+  // Build method lookup: ownerGuidIndex → method names
+  const methodsByOwnerGuid = new Map<number, string[]>();
+  for (const m of methodEntries) {
+    const existing = methodsByOwnerGuid.get(m.ownerGuidIndex);
+    if (existing) {
+      existing.push(m.name);
+    } else {
+      methodsByOwnerGuid.set(m.ownerGuidIndex, [m.name]);
+    }
+  }
+
+  // Sort POUs by GUID index DESCENDING (for reverse-order mapping)
+  pous.sort((a, b) => b.guidIndex - a.guidIndex);
+
+  // Step 4: Determine string table index ranges for parameter section
+  const maxGuidIdx = Math.max(...pous.map(p => p.guidIndex));
+  const paramStartIdx = maxGuidIdx + 10;
+  const paramEndIdx = 400;
+
+  // Step 5: Detect parameter blocks
+  const blocks = detectParamBlocks(stringTable, paramStartIdx, paramEndIdx);
+
+  // Step 6: Link POUs to blocks via reverse-order mapping + attach methods
+  const symbols: LibrarySymbol[] = [];
+  for (let i = 0; i < pous.length; i++) {
+    const pou = pous[i];
+    const symbol: LibrarySymbol = {
+      name: pou.name,
+      kind: 'functionBlock',
+      namespace,
+    };
+
+    // Attach param block
+    if (i < blocks.length) {
+      const { description, params } = parseParamBlock(blocks[i]);
+      if (description) {
+        symbol.description = description;
+      }
+      const inputs = params.filter(p => p.direction === 'input');
+      const outputs = params.filter(p => p.direction === 'output');
+      if (inputs.length > 0) {
+        symbol.inputs = inputs.map(p => ({
+          name: p.name,
+          type: '',
+          direction: 'input' as const,
+          comment: p.comment,
+        }));
+      }
+      if (outputs.length > 0) {
+        symbol.outputs = outputs.map(p => ({
+          name: p.name,
+          type: '',
+          direction: 'output' as const,
+          comment: p.comment,
+        }));
+      }
+    }
+
+    // Attach methods (v[3] of method = v[2] of this POU)
+    const methodNames = methodsByOwnerGuid.get(pou.guidIndex);
+    if (methodNames && methodNames.length > 0) {
+      symbol.methods = methodNames.sort().map(name => ({ name }));
+    }
+
+    symbols.push(symbol);
+  }
+
+  return symbols;
+}
+
+// ---------------------------------------------------------------------------
+// String / identifier extraction (fallback for unrecognized formats)
 // ---------------------------------------------------------------------------
 
 /**
  * Extract identifier-like strings from TwinCAT binary string table data.
- *
- * The string table uses a length-prefix encoding: each string is preceded by
- * a 1-byte length field followed by that many ASCII bytes.  We scan for all
- * such sequences and keep only those that:
- *   - Match `[A-Za-z_][A-Za-z0-9_]*` (valid ST identifier)
- *   - Contain at least one uppercase letter (filters out local variable names
- *     such as `str`, `pv`, `cv` that appear in compiled bytecode metadata)
+ * Used as a fallback when the indexed string table format is not recognized.
  */
 function extractIdentifiers(data: Buffer): string[] {
   const result = new Set<string>();
 
   for (let pos = 0; pos < data.length - 1; pos++) {
     const len = data[pos];
-    // Skip implausible lengths (0-1 = too short, >80 = metadata/GUID strings)
     if (len < 2 || len > 80 || pos + 1 + len > data.length) continue;
 
     let isAscii = true;
@@ -443,7 +785,16 @@ export function readLibraryIndex(filePath: string): LibraryIndex {
     // Fallback: if no declarations found, treat as compiled
   }
 
-  // Compiled library (or source fallback): extract identifiers as stub symbols
+  // Compiled library: try indexed string table + .meta extraction
+  const stringTable = parseIndexedStringTable(stringTableData);
+  if (stringTable.size > 0) {
+    const symbols = extractCompiledSymbols(buf, entries, stringTable, libraryName);
+    if (symbols.length > 0) {
+      return { name: libraryName, symbols, hasSignatures: symbols.some(s => (s.inputs?.length ?? 0) > 0 || (s.outputs?.length ?? 0) > 0) };
+    }
+  }
+
+  // Fallback: extract identifiers as stub symbols
   const identifiers = extractIdentifiers(stringTableData);
   const symbols: LibrarySymbol[] = identifiers.map(name => ({
     name,

@@ -511,6 +511,68 @@ function findMemberType(
 }
 
 /**
+ * Return completion items for a library symbol's parameters.
+ * Handles inputs, outputs, and inOut parameters from LibrarySymbol.
+ */
+function getMembersFromLibrarySymbol(symbol: LibrarySymbol): CompletionItem[] {
+  const items: CompletionItem[] = [];
+
+  // Input parameters
+  if (symbol.inputs) {
+    for (const param of symbol.inputs) {
+      items.push({
+        label: param.name,
+        kind: CompletionItemKind.Field,
+        detail: param.type || undefined,
+        documentation: param.comment || undefined,
+        sortText: `1_${param.name}`, // Sort inputs first
+      });
+    }
+  }
+
+  // Output parameters
+  if (symbol.outputs) {
+    for (const param of symbol.outputs) {
+      items.push({
+        label: param.name,
+        kind: CompletionItemKind.Field,
+        detail: param.type || undefined,
+        documentation: param.comment || undefined,
+        sortText: `2_${param.name}`, // Sort outputs after inputs
+      });
+    }
+  }
+
+  // In/Out parameters
+  if (symbol.inOuts) {
+    for (const param of symbol.inOuts) {
+      items.push({
+        label: param.name,
+        kind: CompletionItemKind.Field,
+        detail: param.type || undefined,
+        documentation: param.comment || undefined,
+        sortText: `3_${param.name}`, // Sort inOuts last
+      });
+    }
+  }
+
+  // Methods
+  if (symbol.methods) {
+    for (const method of symbol.methods) {
+      items.push({
+        label: method.name,
+        kind: CompletionItemKind.Method,
+        detail: method.returnType || undefined,
+        documentation: method.description || undefined,
+        sortText: `4_${method.name}`, // Sort methods after params
+      });
+    }
+  }
+
+  return items;
+}
+
+/**
  * Return completion items for all members exposed by `typeName`.
  * Handles FUNCTION_BLOCK (all var sections, methods, properties, EXTENDS chain),
  * STRUCT (fields, EXTENDS chain), INTERFACE (methods, properties, EXTENDS chain),
@@ -723,15 +785,28 @@ function getDotAccessMembers(
               kind: CompletionItemKind.Field,
               detail: i.type,
               documentation: i.description,
+              sortText: `1_${i.name}`, // Sort inputs first
             })),
             ...innerStdFb.outputs.map(o => ({
               label: o.name,
               kind: CompletionItemKind.Field,
               detail: o.type,
               documentation: o.description,
+              sortText: `2_${o.name}`, // Sort outputs after inputs
             })),
           ];
         }
+
+        // Check library symbols from workspace index
+        if (workspaceIndex) {
+          const upperInnerTypeName = innerTypeName.toUpperCase();
+          const libSymbols = workspaceIndex.getLibrarySymbols(currentUri);
+          const libSymbol = libSymbols.find(s => s.name.toUpperCase() === upperInnerTypeName);
+          if (libSymbol) {
+            return getMembersFromLibrarySymbol(libSymbol);
+          }
+        }
+
         return getMembersFromDeclarations(innerTypeName, declarations, currentUri, workspaceIndex);
       }
     }
@@ -760,6 +835,21 @@ function getDotAccessMembers(
       typeName = param.type;
       continue;
     }
+
+    // Check library symbols for member type resolution
+    if (workspaceIndex) {
+      const upperTypeName = typeName.toUpperCase();
+      const libSymbols = workspaceIndex.getLibrarySymbols(currentUri);
+      const libSymbol = libSymbols.find(s => s.name.toUpperCase() === upperTypeName);
+      if (libSymbol) {
+        const allParams = [...(libSymbol.inputs ?? []), ...(libSymbol.outputs ?? []), ...(libSymbol.inOuts ?? [])];
+        const param = allParams.find(p => p.name.toUpperCase() === memberName.toUpperCase());
+        if (!param?.type) return null;
+        typeName = param.type;
+        continue;
+      }
+    }
+
     const memberType = findMemberType(typeName, memberName, declarations, currentUri, workspaceIndex);
     if (!memberType) return null;
     typeName = memberType;
@@ -774,14 +864,26 @@ function getDotAccessMembers(
         kind: CompletionItemKind.Field,
         detail: i.type,
         documentation: i.description,
+        sortText: `1_${i.name}`, // Sort inputs first
       })),
       ...stdFb.outputs.map(o => ({
         label: o.name,
         kind: CompletionItemKind.Field,
         detail: o.type,
         documentation: o.description,
+        sortText: `2_${o.name}`, // Sort outputs after inputs
       })),
     ];
+  }
+
+  // Check library symbols from workspace index
+  if (workspaceIndex) {
+    const upperTypeName = typeName.toUpperCase();
+    const libSymbols = workspaceIndex.getLibrarySymbols(currentUri);
+    const libSymbol = libSymbols.find(s => s.name.toUpperCase() === upperTypeName);
+    if (libSymbol) {
+      return getMembersFromLibrarySymbol(libSymbol);
+    }
   }
 
   return getMembersFromDeclarations(typeName, declarations, currentUri, workspaceIndex);
