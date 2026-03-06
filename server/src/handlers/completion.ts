@@ -1139,7 +1139,35 @@ export function handleCompletion(
     });
   }
 
-  // 4a. Global variables from GVL blocks in the current file
+  // 4a. Own methods, properties, actions of enclosing FB (+ inherited members)
+  for (const decl of ast.declarations) {
+    if (decl.kind !== 'FunctionBlockDeclaration') continue;
+    const fb = decl as FunctionBlockDeclaration;
+    if (!positionContains(fb.range.start, fb.range.end, pos)) continue;
+
+    for (const method of fb.methods) {
+      items.push({ label: method.name, kind: CompletionItemKind.Method });
+    }
+    for (const prop of fb.properties) {
+      items.push({ label: prop.name, kind: CompletionItemKind.Property });
+    }
+    for (const action of fb.actions) {
+      items.push({ label: action.name, kind: CompletionItemKind.Method, detail: 'ACTION' });
+    }
+
+    // Inherited members via EXTENDS chain — 'super' context (PUBLIC+PROTECTED, not PRIVATE)
+    if (fb.extendsRef) {
+      const inheritedItems = getSuperMembers(
+        fb.extendsRef.name, ast.declarations, params.textDocument.uri, workspaceIndex, 10,
+      );
+      for (const ii of inheritedItems) {
+        if (!items.some(i => i.label === ii.label)) items.push(ii);
+      }
+    }
+    break;
+  }
+
+  // 4b. Global variables from GVL blocks in the current file
   for (const decl of ast.declarations) {
     if (decl.kind !== 'GvlDeclaration') continue;
     const gvl = decl as GvlDeclaration;

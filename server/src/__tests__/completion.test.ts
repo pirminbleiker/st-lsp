@@ -915,6 +915,170 @@ END_VAR
   });
 });
 
+describe('unqualified local completion for own methods/properties/actions', () => {
+  const fbSrc = `FUNCTION_BLOCK FB_Motor
+VAR
+  speed : INT;
+END_VAR
+
+METHOD PUBLIC Start : BOOL
+END_METHOD
+METHOD PRIVATE InternalCheck : BOOL
+END_METHOD
+PROPERTY RPM : INT
+END_PROPERTY
+ACTION ResetCounters
+END_ACTION
+END_FUNCTION_BLOCK`;
+  // cursor at line 4, char 0 (empty line inside FB body, between END_VAR and METHOD)
+
+  it('includes own methods in unqualified completion', () => {
+    const doc = makeDoc(fbSrc);
+    const items = handleCompletion(makeParams(doc.uri, 4, 0), doc);
+    const labels = items.map(i => i.label);
+    expect(labels).toContain('Start');
+    expect(labels).toContain('InternalCheck');
+  });
+
+  it('includes own properties in unqualified completion', () => {
+    const doc = makeDoc(fbSrc);
+    const items = handleCompletion(makeParams(doc.uri, 4, 0), doc);
+    const labels = items.map(i => i.label);
+    expect(labels).toContain('RPM');
+  });
+
+  it('includes own actions in unqualified completion', () => {
+    const doc = makeDoc(fbSrc);
+    const items = handleCompletion(makeParams(doc.uri, 4, 0), doc);
+    const labels = items.map(i => i.label);
+    expect(labels).toContain('ResetCounters');
+  });
+
+  it('methods have Method kind', () => {
+    const doc = makeDoc(fbSrc);
+    const items = handleCompletion(makeParams(doc.uri, 4, 0), doc);
+    const item = items.find(i => i.label === 'Start');
+    expect(item?.kind).toBe(CompletionItemKind.Method);
+  });
+
+  it('properties have Property kind', () => {
+    const doc = makeDoc(fbSrc);
+    const items = handleCompletion(makeParams(doc.uri, 4, 0), doc);
+    const item = items.find(i => i.label === 'RPM');
+    expect(item?.kind).toBe(CompletionItemKind.Property);
+  });
+
+  it('actions have Method kind with ACTION detail', () => {
+    const doc = makeDoc(fbSrc);
+    const items = handleCompletion(makeParams(doc.uri, 4, 0), doc);
+    const item = items.find(i => i.label === 'ResetCounters');
+    expect(item?.kind).toBe(CompletionItemKind.Method);
+    expect(item?.detail).toBe('ACTION');
+  });
+
+  it('still includes keywords alongside own members', () => {
+    const doc = makeDoc(fbSrc);
+    const items = handleCompletion(makeParams(doc.uri, 4, 0), doc);
+    const labels = items.map(i => i.label);
+    expect(labels).toContain('IF');
+    expect(labels).toContain('WHILE');
+  });
+
+  it('still includes local variables', () => {
+    const doc = makeDoc(fbSrc);
+    const items = handleCompletion(makeParams(doc.uri, 4, 0), doc);
+    const labels = items.map(i => i.label);
+    expect(labels).toContain('speed');
+  });
+});
+
+describe('unqualified local completion with inheritance', () => {
+  const inheritSrc = `FUNCTION_BLOCK FB_Base
+VAR
+  baseVar : INT;
+END_VAR
+METHOD PUBLIC BasePublic : BOOL
+END_METHOD
+METHOD PRIVATE BasePrivate : BOOL
+END_METHOD
+METHOD PROTECTED BaseProtected : BOOL
+END_METHOD
+PROPERTY BaseProp : INT
+END_PROPERTY
+PROPERTY PRIVATE HiddenBaseProp : INT
+END_PROPERTY
+END_FUNCTION_BLOCK
+
+FUNCTION_BLOCK FB_Child EXTENDS FB_Base
+VAR
+  childVar : BOOL;
+END_VAR
+METHOD ChildMethod : BOOL
+END_METHOD
+
+END_FUNCTION_BLOCK`;
+
+  const getItems = () => {
+    const doc = makeDoc(inheritSrc);
+    const lines = inheritSrc.split('\n');
+    // cursor on the empty line (line 22) inside FB_Child body
+    return handleCompletion(makeParams(doc.uri, 22, 2), doc);
+  };
+
+  it('includes own methods', () => {
+    const labels = getItems().map(i => i.label);
+    expect(labels).toContain('ChildMethod');
+  });
+
+  it('includes inherited PUBLIC methods', () => {
+    const labels = getItems().map(i => i.label);
+    expect(labels).toContain('BasePublic');
+  });
+
+  it('includes inherited PROTECTED methods', () => {
+    const labels = getItems().map(i => i.label);
+    expect(labels).toContain('BaseProtected');
+  });
+
+  it('excludes inherited PRIVATE methods', () => {
+    const labels = getItems().map(i => i.label);
+    expect(labels).not.toContain('BasePrivate');
+  });
+
+  it('includes inherited properties (PUBLIC)', () => {
+    const labels = getItems().map(i => i.label);
+    expect(labels).toContain('BaseProp');
+  });
+
+  it('excludes inherited PRIVATE properties', () => {
+    const labels = getItems().map(i => i.label);
+    expect(labels).not.toContain('HiddenBaseProp');
+  });
+
+  it('includes inherited vars', () => {
+    const labels = getItems().map(i => i.label);
+    expect(labels).toContain('baseVar');
+  });
+});
+
+describe('unqualified completion inside PROGRAM (no methods/properties)', () => {
+  const progSrc = `PROGRAM Main
+VAR
+  x : INT;
+END_VAR
+
+END_PROGRAM`;
+  // cursor at line 4
+
+  it('does not crash and includes vars and keywords', () => {
+    const doc = makeDoc(progSrc);
+    const items = handleCompletion(makeParams(doc.uri, 4, 0), doc);
+    const labels = items.map(i => i.label);
+    expect(labels).toContain('x');
+    expect(labels).toContain('IF');
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Library-aware FB completion
 // ---------------------------------------------------------------------------
