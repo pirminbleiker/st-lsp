@@ -75,6 +75,34 @@ describe('compiled library extraction (Tc2_Standard)', () => {
       expect(sym.methods).toBeUndefined();
     }
   });
+
+  it('F_TRIG CLK input has type BOOL', () => {
+    const ftrig = index.symbols.find(s => s.name === 'F_TRIG');
+    const clk = ftrig!.inputs!.find(p => p.name === 'CLK');
+    expect(clk!.type).toBe('BOOL');
+  });
+
+  it('F_TRIG Q output has type BOOL', () => {
+    const ftrig = index.symbols.find(s => s.name === 'F_TRIG');
+    const q = ftrig!.outputs!.find(p => p.name === 'Q');
+    expect(q!.type).toBe('BOOL');
+  });
+
+  it('TON has TIME types for PT and ET', () => {
+    const ton = index.symbols.find(s => s.name === 'TON');
+    const pt = ton!.inputs!.find(p => p.name === 'PT');
+    const et = ton!.outputs!.find(p => p.name === 'ET');
+    expect(pt!.type).toBe('TIME');
+    expect(et!.type).toBe('TIME');
+  });
+
+  it('CTU has WORD type for PV and CV', () => {
+    const ctu = index.symbols.find(s => s.name === 'CTU');
+    const pv = ctu!.inputs!.find(p => p.name === 'PV');
+    const cv = ctu!.outputs!.find(p => p.name === 'CV');
+    expect(pv!.type).toBe('WORD');
+    expect(cv!.type).toBe('WORD');
+  });
 });
 
 // ---------------------------------------------------------------------------

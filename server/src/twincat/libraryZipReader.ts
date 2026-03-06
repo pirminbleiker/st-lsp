@@ -17,6 +17,7 @@
 import * as zlib from 'zlib';
 import * as fs from 'fs';
 import * as path from 'path';
+import { resolveParamType } from './typeRegistry';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -460,7 +461,7 @@ function extractCompiledSymbols(
       if (inputs.length > 0) {
         symbol.inputs = inputs.map(p => ({
           name: p.name,
-          type: '',
+          type: resolveParamType(pou.name, p.name),
           direction: 'input' as const,
           comment: p.comment,
         }));
@@ -468,7 +469,7 @@ function extractCompiledSymbols(
       if (outputs.length > 0) {
         symbol.outputs = outputs.map(p => ({
           name: p.name,
-          type: '',
+          type: resolveParamType(pou.name, p.name),
           direction: 'output' as const,
           comment: p.comment,
         }));

@@ -10,3 +10,7 @@ client/server-out/
 .gemini/
 .copilot/
 server/bundle/
+
+# Gas Town (added by gt)
+.claude/
+__pycache__/
