@@ -723,6 +723,68 @@ END_FUNCTION_BLOCK`;
         expect(labels).not.toContain('IF');
       });
     });
+
+    describe('THIS^. with inheritance', () => {
+      const inheritSrc = `FUNCTION_BLOCK FB_Base
+VAR
+  baseVar : INT;
+END_VAR
+METHOD PUBLIC BasePublic : BOOL
+END_METHOD
+METHOD PRIVATE BasePrivate : BOOL
+END_METHOD
+METHOD PROTECTED BaseProtected : BOOL
+END_METHOD
+PROPERTY BaseProp : INT
+END_PROPERTY
+PROPERTY PRIVATE HiddenBaseProp : INT
+END_PROPERTY
+END_FUNCTION_BLOCK
+
+FUNCTION_BLOCK FB_Child EXTENDS FB_Base
+VAR
+  childVar : BOOL;
+END_VAR
+METHOD ChildMethod : BOOL
+END_METHOD
+  THIS^.
+END_FUNCTION_BLOCK`;
+
+      const getItems = () => {
+        const doc = makeDoc(inheritSrc);
+        const lines = inheritSrc.split('\n');
+        const triggerLine = lines.findIndex(l => l.includes('THIS^.'));
+        return handleCompletion(makeParams(doc.uri, triggerLine, lines[triggerLine].length), doc);
+      };
+
+      it('returns own members on THIS^.', () => {
+        const labels = getItems().map(i => i.label);
+        expect(labels).toContain('childVar');
+        expect(labels).toContain('ChildMethod');
+      });
+
+      it('returns inherited PUBLIC members on THIS^.', () => {
+        const labels = getItems().map(i => i.label);
+        expect(labels).toContain('BasePublic');
+        expect(labels).toContain('BaseProp');
+      });
+
+      it('returns inherited PROTECTED members on THIS^.', () => {
+        const labels = getItems().map(i => i.label);
+        expect(labels).toContain('BaseProtected');
+      });
+
+      it('excludes inherited PRIVATE members on THIS^.', () => {
+        const labels = getItems().map(i => i.label);
+        expect(labels).not.toContain('BasePrivate');
+        expect(labels).not.toContain('HiddenBaseProp');
+      });
+
+      it('returns inherited vars on THIS^.', () => {
+        const labels = getItems().map(i => i.label);
+        expect(labels).toContain('baseVar');
+      });
+    });
   });
 
   describe('SUPER^. member completion', () => {
@@ -792,14 +854,14 @@ END_VAR
       expect(labels).not.toContain('HideMe');
     });
 
-    it('excludes FINAL methods from SUPER^. completion', () => {
+    it('includes FINAL methods in SUPER^. completion (FINAL means non-overridable, still callable)', () => {
       const src = parentSrc + `  SUPER^.`;
       const doc = makeDoc(src);
       const lines = src.split('\n');
       const lastLine = lines.length - 1;
       const items = handleCompletion(makeParams(doc.uri, lastLine, lines[lastLine].length), doc);
       const labels = items.map(i => i.label);
-      expect(labels).not.toContain('SealMe');
+      expect(labels).toContain('SealMe');
     });
 
     it('returns accessible parent properties on SUPER^. trigger', () => {

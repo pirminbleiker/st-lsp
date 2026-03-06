@@ -309,19 +309,16 @@ function getSuperMembers(
 
       const items: CompletionItem[] = [];
 
-      // VAR_OUTPUT and VAR_IN_OUT
+      // All var kinds are accessible via SUPER^ (inherited state)
       for (const vb of fb.varBlocks) {
-        if (vb.varKind === 'VAR_OUTPUT' || vb.varKind === 'VAR_IN_OUT') {
-          for (const vd of vb.declarations) {
-            items.push({ label: vd.name, kind: CompletionItemKind.Field, detail: vd.type.name });
-          }
+        for (const vd of vb.declarations) {
+          items.push({ label: vd.name, kind: CompletionItemKind.Field, detail: vd.type.name });
         }
       }
 
-      // Methods — exclude PRIVATE and FINAL
+      // Methods — filter by 'super' visibility (excludes PRIVATE)
       for (const method of fb.methods) {
-        const mods = method.modifiers.map(m => m.toUpperCase());
-        if (mods.includes('PRIVATE') || mods.includes('FINAL')) continue;
+        if (!isMemberVisible(method.modifiers, 'super')) continue;
         items.push({
           label: method.name,
           kind: CompletionItemKind.Method,
@@ -329,10 +326,9 @@ function getSuperMembers(
         });
       }
 
-      // Properties — exclude PRIVATE and FINAL
+      // Properties — filter by 'super' visibility (excludes PRIVATE)
       for (const prop of fb.properties) {
-        const mods = prop.modifiers.map(m => m.toUpperCase());
-        if (mods.includes('PRIVATE') || mods.includes('FINAL')) continue;
+        if (!isMemberVisible(prop.modifiers, 'super')) continue;
         items.push({ label: prop.name, kind: CompletionItemKind.Property, detail: prop.type.name });
       }
 
@@ -1013,13 +1009,15 @@ export function handleCompletion(
   // the members of the resolved type rather than the flat keyword/type list.
   const identBeforeDot = getIdentifierBeforeDotInLines(stLines, stCodeLine.line, stCodeLine.char);
   if (identBeforeDot !== null) {
-    // Special case: THIS (or THIS^ after caret-stripping) — return all members of the enclosing FB.
+    // Special case: THIS (or THIS^ after caret-stripping) — return all members of the enclosing FB
+    // plus inherited members from the EXTENDS chain.
     if (identBeforeDot.toUpperCase() === 'THIS') {
       for (const decl of ast.declarations) {
         if (decl.kind !== 'FunctionBlockDeclaration') continue;
         const fb = decl as FunctionBlockDeclaration;
         if (!positionContains(fb.range.start, fb.range.end, pos)) continue;
         const thisItems: CompletionItem[] = [];
+        // Own members — 'this' context (all visible)
         for (const vb of fb.varBlocks) {
           for (const vd of vb.declarations) {
             thisItems.push({ label: vd.name, kind: CompletionItemKind.Variable, detail: vd.type.name });
@@ -1033,6 +1031,15 @@ export function handleCompletion(
         }
         for (const action of fb.actions) {
           thisItems.push({ label: action.name, kind: CompletionItemKind.Method, detail: 'ACTION' });
+        }
+        // Inherited members via EXTENDS chain — 'super' context (PUBLIC+PROTECTED, not PRIVATE)
+        if (fb.extendsRef) {
+          const inheritedItems = getSuperMembers(
+            fb.extendsRef.name, ast.declarations, params.textDocument.uri, workspaceIndex, 10,
+          );
+          for (const ii of inheritedItems) {
+            if (!thisItems.some(i => i.label === ii.label)) thisItems.push(ii);
+          }
         }
         return thisItems;
       }
