@@ -21,13 +21,14 @@ import {
   WhileStatement,
 } from './ast';
 import { TokenKind } from './lexer';
-import { ExpressionParser, EXPRESSION_STOP_TOKENS } from './expressions';
+import { EXPRESSION_STOP_TOKENS } from './expressions';
+import { VariableParser } from './variables';
 
 // ---------------------------------------------------------------------------
 // StatementParser — recursive-descent statement parser
 // ---------------------------------------------------------------------------
 
-export class StatementParser extends ExpressionParser {
+export class StatementParser extends VariableParser {
 
   protected parseStatementList(...endKinds: TokenKind[]): Statement[] {
     const stmts: Statement[] = [];
