@@ -486,7 +486,7 @@ function renderLibrarySymbolHover(
       lines.push('| Name | Type | Description |');
       lines.push('|------|------|-------------|');
       for (const p of params) {
-        const type = p.type || '—';
+        const type = p.type || 'ANY';
         const comment = p.comment || '';
         lines.push(`| \`${p.name}\` | \`${type}\` | ${comment} |`);
       }
@@ -501,7 +501,7 @@ function renderLibrarySymbolHover(
       lines.push('| Name | Type |');
       lines.push('|------|------|');
       for (const p of params) {
-        const type = p.type || '—';
+        const type = p.type || 'ANY';
         lines.push(`| \`${p.name}\` | \`${type}\` |`);
       }
     } else {
