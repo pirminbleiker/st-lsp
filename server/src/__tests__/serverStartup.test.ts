@@ -1,8 +1,16 @@
-import { describe, test, expect } from 'vitest';
-import { spawn } from 'child_process';
+import { describe, test, expect, beforeAll } from 'vitest';
+import { execFileSync, spawn } from 'child_process';
 import * as path from 'path';
+import * as fs from 'fs';
 
-const BUNDLE_PATH = path.resolve(__dirname, '../../bundle/server.js');
+const SERVER_DIR = path.resolve(__dirname, '../..');
+const BUNDLE_PATH = path.resolve(SERVER_DIR, 'bundle/server.js');
+
+beforeAll(() => {
+	if (!fs.existsSync(BUNDLE_PATH)) {
+		execFileSync('npx', ['esbuild', 'src/server.ts', '--bundle', '--outfile=bundle/server.js', '--platform=node', '--format=cjs'], { cwd: SERVER_DIR, stdio: 'pipe' });
+	}
+});
 
 function encodeMessage(method: string, id: number, params: unknown): Buffer {
 	const content = JSON.stringify({ jsonrpc: '2.0', id, method, params });
@@ -34,14 +42,16 @@ describe('Server Startup', () => {
 			try {
 				rawResponse = await new Promise<string>((resolve, reject) => {
 					let buf = '';
-					const timer = setTimeout(
-						() => reject(new Error('Server initialize timeout after 15s')),
-						15_000,
-					);
+					let settled = false;
+					const timer = setTimeout(() => {
+						settled = true;
+						reject(new Error('Server initialize timeout after 15s'));
+					}, 15_000);
 
 					proc.stdout.on('data', (chunk: Buffer) => {
 						buf += chunk.toString('utf8');
-						if (parseFirstMessage(buf) !== null) {
+						if (!settled && parseFirstMessage(buf) !== null) {
+							settled = true;
 							clearTimeout(timer);
 							resolve(buf);
 						}
@@ -52,8 +62,17 @@ describe('Server Startup', () => {
 					});
 
 					proc.on('error', (err) => {
+						if (settled) return;
+						settled = true;
 						clearTimeout(timer);
 						reject(err);
+					});
+
+					proc.on('close', (code) => {
+						if (settled) return;
+						settled = true;
+						clearTimeout(timer);
+						reject(new Error(`Server process exited with code ${code} before responding`));
 					});
 
 					proc.stdin.write(
