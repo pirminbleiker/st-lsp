@@ -524,7 +524,7 @@ function getMembersFromLibrarySymbol(symbol: LibrarySymbol): CompletionItem[] {
       items.push({
         label: param.name,
         kind: CompletionItemKind.Field,
-        detail: param.type || undefined,
+        detail: `${param.name} : ${param.type || 'ANY'}`,
         documentation: param.comment || undefined,
         sortText: `1_${param.name}`, // Sort inputs first
       });
@@ -537,7 +537,7 @@ function getMembersFromLibrarySymbol(symbol: LibrarySymbol): CompletionItem[] {
       items.push({
         label: param.name,
         kind: CompletionItemKind.Field,
-        detail: param.type || undefined,
+        detail: `${param.name} : ${param.type || 'ANY'}`,
         documentation: param.comment || undefined,
         sortText: `2_${param.name}`, // Sort outputs after inputs
       });
@@ -550,7 +550,7 @@ function getMembersFromLibrarySymbol(symbol: LibrarySymbol): CompletionItem[] {
       items.push({
         label: param.name,
         kind: CompletionItemKind.Field,
-        detail: param.type || undefined,
+        detail: `${param.name} : ${param.type || 'ANY'}`,
         documentation: param.comment || undefined,
         sortText: `3_${param.name}`, // Sort inOuts last
       });
@@ -931,7 +931,7 @@ function buildLibrarySymbolDoc(symbol: LibrarySymbol): string {
   if (symbol.implements?.length) parts.push(`IMPLEMENTS ${symbol.implements.join(', ')}`);
   if (symbol.returnType) parts.push(`Returns: ${symbol.returnType}`);
   if (symbol.inputs?.length) {
-    parts.push('VAR_INPUT: ' + symbol.inputs.map(p => `${p.name}: ${p.type}`).join(', '));
+    parts.push('VAR_INPUT: ' + symbol.inputs.map(p => `${p.name} : ${p.type || 'ANY'}`).join(', '));
   }
   return parts.join('\n');
 }

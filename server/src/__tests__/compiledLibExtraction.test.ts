@@ -88,6 +88,13 @@ describe('compiled library extraction (Tc2_Standard)', () => {
     expect(q!.type).toBe('BOOL');
   });
 
+  it('TON.IN has type BOOL', () => {
+    const ton = index.symbols.find(s => s.name === 'TON');
+    const inParam = ton!.inputs!.find(p => p.name === 'IN');
+    expect(inParam).toBeDefined();
+    expect(inParam!.type).toBe('BOOL');
+  });
+
   it('TON has TIME types for PT and ET', () => {
     const ton = index.symbols.find(s => s.name === 'TON');
     const pt = ton!.inputs!.find(p => p.name === 'PT');
