@@ -61,6 +61,29 @@ const KEYWORDS = [
 /** VAR kinds visible to external callers of a FUNCTION_BLOCK. */
 const EXTERNAL_VISIBLE_VAR_KINDS = new Set(['VAR_INPUT', 'VAR_OUTPUT', 'VAR_IN_OUT']);
 
+type VisibilityContext = 'external' | 'this' | 'super' | 'local';
+
+/**
+ * Check whether a method or property with the given modifiers is visible
+ * in the given access context.
+ *
+ * - `external`: Only PUBLIC / INTERNAL (default when no access modifier).
+ * - `super`:    PUBLIC / INTERNAL / PROTECTED.  Reject PRIVATE and FINAL.
+ * - `this` / `local`: Everything is visible.
+ */
+function isMemberVisible(modifiers: string[], context: VisibilityContext): boolean {
+  if (context === 'this' || context === 'local') return true;
+
+  const mods = modifiers.map(m => m.toUpperCase());
+
+  if (context === 'external') {
+    return !mods.includes('PRIVATE') && !mods.includes('PROTECTED');
+  }
+
+  // context === 'super'
+  return !mods.includes('PRIVATE') && !mods.includes('FINAL');
+}
+
 /**
  * Position helper: check if pos is within [start, end]
  */
@@ -287,8 +310,7 @@ function getSuperMembers(
 
       // Methods — exclude PRIVATE and FINAL
       for (const method of fb.methods) {
-        const mods = method.modifiers.map(m => m.toUpperCase());
-        if (mods.includes('PRIVATE') || mods.includes('FINAL')) continue;
+        if (!isMemberVisible(method.modifiers, 'super')) continue;
         items.push({
           label: method.name,
           kind: CompletionItemKind.Method,
@@ -298,8 +320,7 @@ function getSuperMembers(
 
       // Properties — exclude PRIVATE and FINAL
       for (const prop of fb.properties) {
-        const mods = prop.modifiers.map(m => m.toUpperCase());
-        if (mods.includes('PRIVATE') || mods.includes('FINAL')) continue;
+        if (!isMemberVisible(prop.modifiers, 'super')) continue;
         items.push({ label: prop.name, kind: CompletionItemKind.Property, detail: prop.type.name });
       }
 
@@ -606,6 +627,7 @@ function getMembersFromDeclarations(
           }
         }
         for (const method of fb.methods) {
+          if (!isMemberVisible(method.modifiers, 'external')) continue;
           items.push({
             label: method.name,
             kind: CompletionItemKind.Method,
@@ -613,6 +635,7 @@ function getMembersFromDeclarations(
           });
         }
         for (const prop of fb.properties) {
+          if (!isMemberVisible(prop.modifiers, 'external')) continue;
           items.push({ label: prop.name, kind: CompletionItemKind.Property, detail: prop.type.name });
         }
         if (fb.extendsRef) {

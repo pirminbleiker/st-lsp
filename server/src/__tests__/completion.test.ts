@@ -324,6 +324,85 @@ myInst.`;
       });
     });
 
+    describe('FUNCTION_BLOCK external visibility — method/property access modifiers', () => {
+      const fbSrc = `FUNCTION_BLOCK FB_Vis
+VAR_INPUT
+  bEnable : BOOL;
+END_VAR
+VAR
+  nInternal : INT;
+END_VAR
+METHOD PUBLIC DoPublic : BOOL
+END_METHOD
+METHOD PRIVATE DoPrivate : BOOL
+END_METHOD
+METHOD PROTECTED DoProtected : BOOL
+END_METHOD
+METHOD INTERNAL DoInternal : BOOL
+END_METHOD
+METHOD DoDefault : BOOL
+END_METHOD
+PROPERTY PUBLIC PubProp : INT
+END_PROPERTY
+PROPERTY PRIVATE PrivProp : INT
+END_PROPERTY
+PROPERTY PROTECTED ProtProp : INT
+END_PROPERTY
+END_FUNCTION_BLOCK
+
+PROGRAM Main
+VAR
+  inst : FB_Vis;
+END_VAR
+inst.`;
+      const lines = fbSrc.split('\n');
+      const lastLine = lines.length - 1;
+
+      function getLabels(): string[] {
+        const doc = makeDoc(fbSrc);
+        const items = handleCompletion(makeParams(doc.uri, lastLine, lines[lastLine].length), doc);
+        return items.map(i => i.label);
+      }
+
+      it('shows PUBLIC method', () => {
+        expect(getLabels()).toContain('DoPublic');
+      });
+
+      it('shows INTERNAL method', () => {
+        expect(getLabels()).toContain('DoInternal');
+      });
+
+      it('shows method with no modifier (default PUBLIC)', () => {
+        expect(getLabels()).toContain('DoDefault');
+      });
+
+      it('hides PRIVATE method', () => {
+        expect(getLabels()).not.toContain('DoPrivate');
+      });
+
+      it('hides PROTECTED method', () => {
+        expect(getLabels()).not.toContain('DoProtected');
+      });
+
+      it('shows PUBLIC property', () => {
+        expect(getLabels()).toContain('PubProp');
+      });
+
+      it('hides PRIVATE property', () => {
+        expect(getLabels()).not.toContain('PrivProp');
+      });
+
+      it('hides PROTECTED property', () => {
+        expect(getLabels()).not.toContain('ProtProp');
+      });
+
+      it('shows VAR_INPUT but hides internal VAR', () => {
+        const labels = getLabels();
+        expect(labels).toContain('bEnable');
+        expect(labels).not.toContain('nInternal');
+      });
+    });
+
     describe('STRUCT field access', () => {
       const structSrc = `TYPE
   ST_Motor : STRUCT
