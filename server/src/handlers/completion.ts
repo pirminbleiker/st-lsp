@@ -61,6 +61,39 @@ const KEYWORDS = [
 /** VAR kinds visible to external callers of a FUNCTION_BLOCK. */
 const EXTERNAL_VISIBLE_VAR_KINDS = new Set(['VAR_INPUT', 'VAR_OUTPUT', 'VAR_IN_OUT']);
 
+/** Access modifiers that block external visibility. */
+const PRIVATE_MODIFIERS = new Set(['PRIVATE', 'PROTECTED']);
+
+/**
+ * Check whether a method or property is visible from a given access context.
+ * In TwinCAT, the default visibility (no modifier) for methods/properties is PUBLIC.
+ */
+export function isMemberVisible(
+  modifiers: string[],
+  context: 'external' | 'this' | 'super' | 'local',
+): boolean {
+  switch (context) {
+    case 'external': {
+      // Reject PRIVATE and PROTECTED members
+      for (const m of modifiers) {
+        if (PRIVATE_MODIFIERS.has(m.toUpperCase())) return false;
+      }
+      return true;
+    }
+    case 'super': {
+      // Reject PRIVATE members; allow PROTECTED, PUBLIC, INTERNAL
+      for (const m of modifiers) {
+        if (m.toUpperCase() === 'PRIVATE') return false;
+      }
+      return true;
+    }
+    case 'this':
+    case 'local':
+      // All members visible from own scope
+      return true;
+  }
+}
+
 /**
  * Position helper: check if pos is within [start, end]
  */
@@ -606,6 +639,7 @@ function getMembersFromDeclarations(
           }
         }
         for (const method of fb.methods) {
+          if (!isMemberVisible(method.modifiers, 'external')) continue;
           items.push({
             label: method.name,
             kind: CompletionItemKind.Method,
@@ -613,6 +647,7 @@ function getMembersFromDeclarations(
           });
         }
         for (const prop of fb.properties) {
+          if (!isMemberVisible(prop.modifiers, 'external')) continue;
           items.push({ label: prop.name, kind: CompletionItemKind.Property, detail: prop.type.name });
         }
         if (fb.extendsRef) {

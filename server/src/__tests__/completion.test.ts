@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { TextDocument } from 'vscode-languageserver-textdocument';
-import { handleCompletion } from '../handlers/completion';
+import { handleCompletion, isMemberVisible } from '../handlers/completion';
 import { CompletionItemKind } from 'vscode-languageserver/node';
 import { WorkspaceIndex } from '../twincat/workspaceIndex';
 import type { LibraryRef } from '../twincat/projectReader';
@@ -289,6 +289,95 @@ END_VAR
         const items = handleCompletion(makeParams(doc.uri, 24, 11), doc);
         const labels = items.map(i => i.label);
         expect(labels).not.toContain('nTemp');
+      });
+    });
+
+    describe('FUNCTION_BLOCK external visibility — method/property modifiers', () => {
+      const src = `FUNCTION_BLOCK FB_Motor
+VAR_INPUT
+  bEnable : BOOL;
+END_VAR
+VAR
+  nInternal : INT;
+END_VAR
+METHOD PUBLIC DoStart : BOOL
+END_METHOD
+METHOD PRIVATE ResetInternal : BOOL
+END_METHOD
+METHOD PROTECTED OnStateChange : BOOL
+END_METHOD
+METHOD Run : BOOL
+END_METHOD
+PROPERTY PUBLIC Speed : REAL
+END_PROPERTY
+PROPERTY PRIVATE InternalTemp : REAL
+END_PROPERTY
+PROPERTY PROTECTED BaseConfig : INT
+END_PROPERTY
+END_FUNCTION_BLOCK
+
+PROGRAM MAIN
+VAR
+  myMotor : FB_Motor;
+END_VAR
+  myMotor.`;
+      // line 28, character 10
+
+      it('shows PUBLIC method DoStart', () => {
+        const doc = makeDoc(src);
+        const items = handleCompletion(makeParams(doc.uri, 27, 10), doc);
+        const labels = items.map(i => i.label);
+        expect(labels).toContain('DoStart');
+      });
+
+      it('shows method with no modifier (default PUBLIC) Run', () => {
+        const doc = makeDoc(src);
+        const items = handleCompletion(makeParams(doc.uri, 27, 10), doc);
+        const labels = items.map(i => i.label);
+        expect(labels).toContain('Run');
+      });
+
+      it('does NOT show PRIVATE method ResetInternal', () => {
+        const doc = makeDoc(src);
+        const items = handleCompletion(makeParams(doc.uri, 27, 10), doc);
+        const labels = items.map(i => i.label);
+        expect(labels).not.toContain('ResetInternal');
+      });
+
+      it('does NOT show PROTECTED method OnStateChange', () => {
+        const doc = makeDoc(src);
+        const items = handleCompletion(makeParams(doc.uri, 27, 10), doc);
+        const labels = items.map(i => i.label);
+        expect(labels).not.toContain('OnStateChange');
+      });
+
+      it('shows PUBLIC property Speed', () => {
+        const doc = makeDoc(src);
+        const items = handleCompletion(makeParams(doc.uri, 27, 10), doc);
+        const labels = items.map(i => i.label);
+        expect(labels).toContain('Speed');
+      });
+
+      it('does NOT show PRIVATE property InternalTemp', () => {
+        const doc = makeDoc(src);
+        const items = handleCompletion(makeParams(doc.uri, 27, 10), doc);
+        const labels = items.map(i => i.label);
+        expect(labels).not.toContain('InternalTemp');
+      });
+
+      it('does NOT show PROTECTED property BaseConfig', () => {
+        const doc = makeDoc(src);
+        const items = handleCompletion(makeParams(doc.uri, 27, 10), doc);
+        const labels = items.map(i => i.label);
+        expect(labels).not.toContain('BaseConfig');
+      });
+
+      it('shows VAR_INPUT but not internal VAR', () => {
+        const doc = makeDoc(src);
+        const items = handleCompletion(makeParams(doc.uri, 27, 10), doc);
+        const labels = items.map(i => i.label);
+        expect(labels).toContain('bEnable');
+        expect(labels).not.toContain('nInternal');
       });
     });
 
@@ -1249,5 +1338,52 @@ myTimer.`;
     const items = handleCompletion(makeParams(doc.uri, 4, 5), doc);
     const wYear = items.find(i => i.label === 'wYear');
     expect(wYear?.detail).toBe('WORD');
+  });
+});
+
+describe('isMemberVisible', () => {
+  it('external: allows PUBLIC', () => {
+    expect(isMemberVisible(['PUBLIC'], 'external')).toBe(true);
+  });
+
+  it('external: allows INTERNAL', () => {
+    expect(isMemberVisible(['INTERNAL'], 'external')).toBe(true);
+  });
+
+  it('external: allows empty modifiers (default PUBLIC)', () => {
+    expect(isMemberVisible([], 'external')).toBe(true);
+  });
+
+  it('external: rejects PRIVATE', () => {
+    expect(isMemberVisible(['PRIVATE'], 'external')).toBe(false);
+  });
+
+  it('external: rejects PROTECTED', () => {
+    expect(isMemberVisible(['PROTECTED'], 'external')).toBe(false);
+  });
+
+  it('super: allows PUBLIC', () => {
+    expect(isMemberVisible(['PUBLIC'], 'super')).toBe(true);
+  });
+
+  it('super: allows PROTECTED', () => {
+    expect(isMemberVisible(['PROTECTED'], 'super')).toBe(true);
+  });
+
+  it('super: rejects PRIVATE', () => {
+    expect(isMemberVisible(['PRIVATE'], 'super')).toBe(false);
+  });
+
+  it('this: allows PRIVATE', () => {
+    expect(isMemberVisible(['PRIVATE'], 'this')).toBe(true);
+  });
+
+  it('local: allows PRIVATE', () => {
+    expect(isMemberVisible(['PRIVATE'], 'local')).toBe(true);
+  });
+
+  it('is case-insensitive for modifiers', () => {
+    expect(isMemberVisible(['private'], 'external')).toBe(false);
+    expect(isMemberVisible(['Private'], 'external')).toBe(false);
   });
 });
