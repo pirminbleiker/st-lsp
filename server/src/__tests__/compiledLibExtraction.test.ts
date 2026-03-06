@@ -4,9 +4,9 @@ import { execFileSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 
-const LIB_PATH = path.resolve(__dirname, '../../../tests/fixtures/mobject-core-src/src/sln/lib/mobject-core/_Libraries/Beckhoff Automation GmbH/Tc2_Standard/3.4.5.0/Tc2_Standard.compiled-library-ge33');
+const LIB_PATH = path.resolve(__dirname, '../../../tests/fixtures/compiled-libs/Tc2_Standard/Tc2_Standard.compiled-library-ge33');
 
-const JSON_LIB_PATH = path.resolve(__dirname, '../../../tests/fixtures/mobject-core-src/src/sln/lib/mobject-core/_Libraries/Beckhoff Automation GmbH/Tc3_JsonXml/3.4.7.0/Tc3_JsonXml.compiled-library-ge33');
+const JSON_LIB_PATH = path.resolve(__dirname, '../../../tests/fixtures/compiled-libs/Tc3_JsonXml/Tc3_JsonXml.compiled-library-ge33');
 
 function ensureFixtures() {
   if (!fs.existsSync(LIB_PATH) || !fs.existsSync(JSON_LIB_PATH)) {

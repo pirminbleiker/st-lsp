@@ -474,10 +474,10 @@ function generateTc3JsonXml() {
 // Main
 // ---------------------------------------------------------------------------
 
-const FIXTURES_BASE = path.resolve(__dirname, '../tests/fixtures/mobject-core-src/src/sln/lib/mobject-core/_Libraries/Beckhoff Automation GmbH');
+const FIXTURES_BASE = path.resolve(__dirname, '../tests/fixtures/compiled-libs');
 
-const tc2Dir = path.join(FIXTURES_BASE, 'Tc2_Standard/3.4.5.0');
-const tc3Dir = path.join(FIXTURES_BASE, 'Tc3_JsonXml/3.4.7.0');
+const tc2Dir = path.join(FIXTURES_BASE, 'Tc2_Standard');
+const tc3Dir = path.join(FIXTURES_BASE, 'Tc3_JsonXml');
 
 fs.mkdirSync(tc2Dir, { recursive: true });
 fs.mkdirSync(tc3Dir, { recursive: true });
