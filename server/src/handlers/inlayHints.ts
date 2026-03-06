@@ -243,6 +243,9 @@ function collectCallExpressionsInRange(
       case 'ArrayLiteral':
         for (const elem of (expr as import('../parser/ast').ArrayLiteral).elements) visitExpr(elem);
         break;
+      case 'StructInitializer':
+        for (const field of (expr as import('../parser/ast').StructInitializer).fields) visitExpr(field.value);
+        break;
       default:
         break;
     }

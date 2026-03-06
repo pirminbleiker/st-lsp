@@ -1226,4 +1226,28 @@ myTimer.`;
       expect(inItem.sortText < qItem.sortText).toBe(true);
     }
   });
+
+  it('completes TIMESTRUCT struct fields after dot', () => {
+    const doc = makeDoc(
+      'PROGRAM P\nVAR\n  ts : TIMESTRUCT;\nEND_VAR\n  ts.\nEND_PROGRAM',
+    );
+    const items = handleCompletion(makeParams(doc.uri, 4, 5), doc);
+    const labels = items.map(i => i.label);
+    expect(labels).toContain('wYear');
+    expect(labels).toContain('wMonth');
+    expect(labels).toContain('wDay');
+    expect(labels).toContain('wHour');
+    expect(labels).toContain('wMinute');
+    expect(labels).toContain('wSecond');
+    expect(labels).toContain('wMilliseconds');
+  });
+
+  it('TIMESTRUCT field completion includes type detail', () => {
+    const doc = makeDoc(
+      'PROGRAM P\nVAR\n  ts : TIMESTRUCT;\nEND_VAR\n  ts.\nEND_PROGRAM',
+    );
+    const items = handleCompletion(makeParams(doc.uri, 4, 5), doc);
+    const wYear = items.find(i => i.label === 'wYear');
+    expect(wYear?.detail).toBe('WORD');
+  });
 });

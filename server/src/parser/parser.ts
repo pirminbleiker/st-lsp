@@ -45,6 +45,7 @@ import {
   Statement,
   StringLiteral,
   StructDeclaration,
+  StructInitializer,
   SubscriptExpression,
   TopLevelDeclaration,
   TypeDeclaration,
@@ -267,8 +268,16 @@ class Parser {
   private parseFunctionBlockDeclaration(pragmas: Pragma[] = []): FunctionBlockDeclaration {
     const start = pragmas.length > 0 ? pragmas[0].range.start : this.startRange();
     this.advance(); // FUNCTION_BLOCK
-    // Skip optional modifiers before the name (e.g. ABSTRACT, FINAL)
-    while (this.check(TokenKind.ABSTRACT) || this.check(TokenKind.FINAL_KW)) {
+    // Skip optional modifiers before the name (e.g. ABSTRACT, FINAL, INTERNAL, PUBLIC, etc.)
+    // Only consume as modifier if the NEXT token is an IDENTIFIER or another modifier,
+    // otherwise the modifier keyword IS the name (e.g., FUNCTION_BLOCK Internal).
+    while ((this.check(TokenKind.ABSTRACT) || this.check(TokenKind.FINAL_KW) ||
+            this.check(TokenKind.INTERNAL) || this.check(TokenKind.PUBLIC) ||
+            this.check(TokenKind.PRIVATE) || this.check(TokenKind.PROTECTED)) &&
+           (this.peek(1).kind === TokenKind.IDENTIFIER ||
+            this.peek(1).kind === TokenKind.ABSTRACT || this.peek(1).kind === TokenKind.FINAL_KW ||
+            this.peek(1).kind === TokenKind.INTERNAL || this.peek(1).kind === TokenKind.PUBLIC ||
+            this.peek(1).kind === TokenKind.PRIVATE || this.peek(1).kind === TokenKind.PROTECTED)) {
       this.advance();
     }
     const nameTok = this.expectName('Expected function block name');
@@ -288,6 +297,18 @@ class Parser {
       do {
         implementsRefs.push(this.parseQualifiedName('Expected interface name after IMPLEMENTS'));
       } while (this.match(TokenKind.COMMA));
+    }
+
+    // Optional trailing semicolon after declaration header (bad practice but valid)
+    if (this.check(TokenKind.SEMICOLON)) {
+      const semiTok = this.peek();
+      this.errors.push({
+        message: 'Unnecessary semicolon after FUNCTION_BLOCK declaration',
+        range: semiTok.range,
+        severity: 'warning' as const,
+        code: 'unnecessary-semicolon',
+      });
+      this.advance();
     }
 
     const varBlocks = this.parseVarBlocks();
@@ -363,7 +384,17 @@ class Parser {
     let returnType: TypeRef | null = null;
     if (this.match(TokenKind.COLON)) {
       returnType = this.parseTypeRef();
-      this.match(TokenKind.SEMICOLON); // optional semicolon after return type
+      this.match(TokenKind.SEMICOLON); // standard semicolon after return type (normal practice)
+    } else if (this.check(TokenKind.SEMICOLON)) {
+      // Semicolon after function name without return type (bad practice but valid)
+      const semiTok = this.peek();
+      this.errors.push({
+        message: 'Unnecessary semicolon after FUNCTION declaration',
+        range: semiTok.range,
+        severity: 'warning' as const,
+        code: 'unnecessary-semicolon',
+      });
+      this.advance();
     }
 
     const varBlocks = this.parseVarBlocks();
@@ -422,6 +453,7 @@ class Parser {
           message: 'Unnecessary semicolon in VAR block',
           range: semiTok.range,
           severity: 'warning',
+          code: 'unnecessary-semicolon',
         });
         // Continue the loop to check for more issues
         continue;
@@ -429,7 +461,7 @@ class Parser {
 
       const before = this.pos;
       try {
-        declarations.push(this.parseVarDeclaration());
+        declarations.push(...this.parseVarDeclarations());
       } catch {
         // Skip to next semicolon for recovery
         this.skipToSemicolon();
@@ -445,11 +477,21 @@ class Parser {
     return { kind: 'VarBlock', varKind, constant, retain, persistent, declarations, range: this.endRange(start) };
   }
 
-  private parseVarDeclaration(): VarDeclaration {
+  /**
+   * Parse one or more VarDeclarations. Multi-variable declarations like
+   * `a, b, c : BOOL;` are valid IEC 61131-3 but bad practice — each variable
+   * is emitted as its own VarDeclaration and a warning is reported.
+   */
+  private parseVarDeclarations(): VarDeclaration[] {
     const pragmas = this.parsePragmas();
     const start = pragmas.length > 0 ? pragmas[0].range.start : this.startRange();
     const nameTok = this.expectName('Expected variable name');
-    const name = nameTok.text;
+
+    // Check for multi-variable declaration: name, name, name : Type;
+    const names: Token[] = [nameTok];
+    while (this.match(TokenKind.COMMA)) {
+      names.push(this.expectName('Expected variable name after comma'));
+    }
 
     this.expect(TokenKind.COLON, "Expected ':' after variable name");
     const type = this.parseTypeRef();
@@ -470,8 +512,29 @@ class Parser {
     }
 
     this.expect(TokenKind.SEMICOLON, "Expected ';'");
+    const endPos = this.endRange(start);
 
-    return { kind: 'VarDeclaration', name, nameRange: nameTok.range, pragmas, type, initArgs, initialValue, range: this.endRange(start) };
+    // Multi-variable: emit warning and split into individual declarations
+    if (names.length > 1) {
+      this.errors.push({
+        message: `Multi-variable declaration '${names.map(n => n.text).join(', ')}' — consider splitting into separate lines`,
+        range: { start: names[0].range.start, end: names[names.length - 1].range.end },
+        severity: 'warning' as const,
+        code: 'multi-variable-declaration',
+      });
+      return names.map(n => ({
+        kind: 'VarDeclaration' as const,
+        name: n.text,
+        nameRange: n.range,
+        pragmas,
+        type,
+        initArgs,
+        initialValue,
+        range: endPos,
+      }));
+    }
+
+    return [{ kind: 'VarDeclaration', name: nameTok.text, nameRange: nameTok.range, pragmas, type, initArgs, initialValue, range: endPos }];
   }
 
   private isSizedStringType(type: TypeRef): boolean {
@@ -1228,6 +1291,24 @@ class Parser {
       }
 
       case TokenKind.LPAREN: {
+        // Check for struct initializer: (field := value, ...)
+        if (
+          this.peek(1).kind === TokenKind.IDENTIFIER &&
+          this.peek(2).kind === TokenKind.ASSIGN
+        ) {
+          const initStart = this.startRange();
+          this.advance(); // (
+          const fields: CallArgument[] = [];
+          do {
+            fields.push(this.parseCallArgument());
+          } while (this.match(TokenKind.COMMA));
+          this.expect(TokenKind.RPAREN, "Expected ')'");
+          return {
+            kind: 'StructInitializer',
+            fields,
+            range: this.endRange(initStart),
+          } as StructInitializer;
+        }
         this.advance(); // (
         const inner = this.parseExpression();
         this.expect(TokenKind.RPAREN, "Expected ')'");
@@ -1363,7 +1444,7 @@ class Parser {
     while (!this.check(TokenKind.END_STRUCT) && !this.check(TokenKind.EOF)) {
       const before = this.pos;
       try {
-        fields.push(this.parseVarDeclaration());
+        fields.push(...this.parseVarDeclarations());
       } catch {
         this.skipToSemicolon();
       }
@@ -1389,7 +1470,7 @@ class Parser {
     while (!this.check(TokenKind.END_UNION) && !this.check(TokenKind.EOF)) {
       const before = this.pos;
       try {
-        fields.push(this.parseVarDeclaration());
+        fields.push(...this.parseVarDeclarations());
       } catch {
         this.skipToSemicolon();
       }
@@ -1615,7 +1696,17 @@ class Parser {
     let returnType: TypeRef | undefined;
     if (this.match(TokenKind.COLON)) {
       returnType = this.parseTypeRef();
-      this.match(TokenKind.SEMICOLON); // optional semicolon after return type
+      this.match(TokenKind.SEMICOLON); // standard semicolon after return type (normal practice)
+    } else if (this.check(TokenKind.SEMICOLON)) {
+      // Semicolon after method name without return type (bad practice but valid)
+      const semiTok = this.peek();
+      this.errors.push({
+        message: 'Unnecessary semicolon after METHOD declaration',
+        range: semiTok.range,
+        severity: 'warning' as const,
+        code: 'unnecessary-semicolon',
+      });
+      this.advance();
     }
 
     const varBlocks = this.parseVarBlocks();

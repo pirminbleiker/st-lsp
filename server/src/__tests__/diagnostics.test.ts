@@ -1310,4 +1310,28 @@ END_PROGRAM`;
       expect(diags.length).toBeLessThan(100);
     });
   });
+
+  describe('struct initializer expressions', () => {
+    it('struct initializer := (field := value) produces no parse errors', () => {
+      const src = `FUNCTION_BLOCK Test
+VAR
+  expected : INT := (wDay := 2);
+END_VAR
+END_FUNCTION_BLOCK`;
+      const diags = getDiagnostics(src);
+      const parseErrors = diags.filter(d => d.severity === 1); // Error severity
+      expect(parseErrors).toHaveLength(0);
+    });
+
+    it('multi-field struct initializer produces no parse errors', () => {
+      const src = `FUNCTION_BLOCK Test
+VAR
+  ts : INT := (wYear := 2000, wMonth := 1, wDayOfWeek := 2, wDay := 3);
+END_VAR
+END_FUNCTION_BLOCK`;
+      const diags = getDiagnostics(src);
+      const parseErrors = diags.filter(d => d.severity === 1);
+      expect(parseErrors).toHaveLength(0);
+    });
+  });
 });

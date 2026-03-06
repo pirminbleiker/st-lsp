@@ -869,6 +869,65 @@ END_PROGRAM`;
     });
   });
 
+  describe('Struct initializer expressions', () => {
+    it('parses VAR x : TIMESTRUCT := (wDay := 2); as StructInitializer', () => {
+      const src = `FUNCTION_BLOCK Test
+VAR
+  x : TIMESTRUCT := (wDay := 2);
+END_VAR
+END_FUNCTION_BLOCK`;
+
+      const { ast, errors } = parse(src);
+      expect(errors).toHaveLength(0);
+
+      const fb = ast.declarations[0] as FunctionBlockDeclaration;
+      const decl = fb.varBlocks[0].declarations[0];
+      expect(decl.initialValue).toBeDefined();
+      expect(decl.initialValue?.kind).toBe('StructInitializer');
+      if (decl.initialValue?.kind === 'StructInitializer') {
+        expect(decl.initialValue.fields).toHaveLength(1);
+        expect(decl.initialValue.fields[0].name).toBe('wDay');
+        expect(decl.initialValue.fields[0].value.kind).toBe('IntegerLiteral');
+      }
+    });
+
+    it('parses multi-field struct initializer', () => {
+      const src = `FUNCTION_BLOCK Test
+VAR
+  ts : TIMESTRUCT := (wYear := 2000, wMonth := 1, wDay := 3);
+END_VAR
+END_FUNCTION_BLOCK`;
+
+      const { ast, errors } = parse(src);
+      expect(errors).toHaveLength(0);
+
+      const fb = ast.declarations[0] as FunctionBlockDeclaration;
+      const decl = fb.varBlocks[0].declarations[0];
+      expect(decl.initialValue?.kind).toBe('StructInitializer');
+      if (decl.initialValue?.kind === 'StructInitializer') {
+        expect(decl.initialValue.fields).toHaveLength(3);
+        expect(decl.initialValue.fields[0].name).toBe('wYear');
+        expect(decl.initialValue.fields[1].name).toBe('wMonth');
+        expect(decl.initialValue.fields[2].name).toBe('wDay');
+      }
+    });
+
+    it('does not treat regular parenthesized expressions as struct initializers', () => {
+      const src = `PROGRAM P
+VAR
+  x : INT := (1 + 2);
+END_VAR
+END_PROGRAM`;
+
+      const { ast, errors } = parse(src);
+      expect(errors).toHaveLength(0);
+
+      const prog = ast.declarations[0] as ProgramDeclaration;
+      const decl = prog.varBlocks[0].declarations[0];
+      expect(decl.initialValue?.kind).toBe('BinaryExpression');
+    });
+  });
+
   describe('Phase 8 — INTERFACE trailing semicolon', () => {
     it('parses INTERFACE with EXTENDS and trailing semicolon before END_INTERFACE without errors', () => {
       const src = `INTERFACE I_Foo EXTENDS I_Bar;

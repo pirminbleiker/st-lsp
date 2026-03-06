@@ -254,7 +254,14 @@ export type Expression =
   | RealLiteral
   | StringLiteral
   | BoolLiteral
-  | ArrayLiteral;
+  | ArrayLiteral
+  | StructInitializer;
+
+/** Parenthesized named-field initializer, e.g. `(wDay := 2, wMonth := 1)`. */
+export interface StructInitializer extends AstNode {
+  kind: 'StructInitializer';
+  fields: CallArgument[];
+}
 
 export interface BinaryExpression extends AstNode {
   kind: 'BinaryExpression';
@@ -427,4 +434,5 @@ export interface ParseError {
   message: string;
   range: Range;
   severity?: 'error' | 'warning';
+  code?: string;
 }

@@ -9,9 +9,17 @@
  *   - Auto-generated IEC type conversion functions (DINT_TO_UDINT, etc.)
  */
 
+export interface SystemStructField {
+  name: string;
+  type: string;
+  description?: string;
+}
+
 export interface SystemType {
   name: string;
   description: string;
+  /** Struct fields, if this is a structured type. */
+  fields?: readonly SystemStructField[];
 }
 
 export interface SystemFunction {
@@ -43,11 +51,31 @@ export const SYSTEM_TYPES: readonly SystemType[] = [
   { name: 'AMSADDR', description: 'TwinCAT AMS address structure (NetId + Port).' },
   { name: 'AMSNETID', description: 'TwinCAT AMS Net ID structure.' },
   // TwinCAT time types
-  { name: 'TIMESTRUCT', description: 'TwinCAT local time structure (year, month, day, hour, minute, second, ms).' },
+  {
+    name: 'TIMESTRUCT',
+    description: 'TwinCAT local time structure (year, month, day, hour, minute, second, ms).',
+    fields: [
+      { name: 'wYear', type: 'WORD', description: 'Year (e.g. 2025)' },
+      { name: 'wMonth', type: 'WORD', description: 'Month (1–12)' },
+      { name: 'wDayOfWeek', type: 'WORD', description: 'Day of week (0=Sunday)' },
+      { name: 'wDay', type: 'WORD', description: 'Day of month (1–31)' },
+      { name: 'wHour', type: 'WORD', description: 'Hour (0–23)' },
+      { name: 'wMinute', type: 'WORD', description: 'Minute (0–59)' },
+      { name: 'wSecond', type: 'WORD', description: 'Second (0–59)' },
+      { name: 'wMilliseconds', type: 'WORD', description: 'Milliseconds (0–999)' },
+    ],
+  },
   { name: 'T_DCTIME64', description: 'TwinCAT distributed clock 64-bit timestamp.' },
   { name: 'DCTIME', description: 'TwinCAT distributed clock timestamp type.' },
   { name: 'T_FILETIME', description: 'Windows FILETIME — 64-bit value (100ns intervals since 1601-01-01).' },
-  { name: 'FILETIME', description: 'Windows FILETIME structure — 64-bit timestamp (100ns intervals since 1601-01-01).' },
+  {
+    name: 'FILETIME',
+    description: 'Windows FILETIME structure — 64-bit timestamp (100ns intervals since 1601-01-01).',
+    fields: [
+      { name: 'dwLowDateTime', type: 'DWORD', description: 'Low-order 32 bits of the file time.' },
+      { name: 'dwHighDateTime', type: 'DWORD', description: 'High-order 32 bits of the file time.' },
+    ],
+  },
   // TwinCAT motion types
   { name: 'AXIS_REF', description: 'TwinCAT NC axis reference structure.' },
   { name: 'NCTOPLC_AXIS_REF', description: 'NC-to-PLC axis cyclic data structure.' },
@@ -116,6 +144,17 @@ export const SYSTEM_TYPE_NAMES: ReadonlySet<string> = new Set(
 export const SYSTEM_FUNCTION_NAMES: ReadonlySet<string> = new Set(
   SYSTEM_FUNCTIONS.map(f => f.name.toUpperCase()),
 );
+
+// ── Struct field lookup (for system types with defined fields) ────────────
+
+const SYSTEM_TYPE_MAP: ReadonlyMap<string, SystemType> = new Map(
+  SYSTEM_TYPES.map(t => [t.name.toUpperCase(), t]),
+);
+
+/** Find a system type by name (case-insensitive). */
+export function findSystemType(name: string): SystemType | undefined {
+  return SYSTEM_TYPE_MAP.get(name.toUpperCase());
+}
 
 // ── Auto-generated IEC type-conversion function names ─────────────────────
 

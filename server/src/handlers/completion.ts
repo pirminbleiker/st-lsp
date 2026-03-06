@@ -24,6 +24,7 @@ import {
 } from '../parser/ast';
 import { BUILTIN_TYPES } from '../twincat/types';
 import { STANDARD_FBS, findStandardFB } from '../twincat/stdlib';
+import { findSystemType } from '../twincat/systemTypes';
 import { WorkspaceIndex } from '../twincat/workspaceIndex';
 import { LibrarySymbol } from '../twincat/libraryZipReader';
 import { extractStFromTwinCAT } from '../twincat/tcExtractor';
@@ -797,6 +798,18 @@ function getDotAccessMembers(
           ];
         }
 
+        // Check system struct fields (TIMESTRUCT, FILETIME, etc.)
+        const innerSysType = findSystemType(innerTypeName);
+        if (innerSysType?.fields) {
+          return innerSysType.fields.map(f => ({
+            label: f.name,
+            kind: CompletionItemKind.Field,
+            detail: f.type,
+            documentation: f.description,
+            sortText: `1_${f.name}`,
+          }));
+        }
+
         // Check library symbols from workspace index
         if (workspaceIndex) {
           const upperInnerTypeName = innerTypeName.toUpperCase();
@@ -834,6 +847,17 @@ function getDotAccessMembers(
       if (!param?.type) return null;
       typeName = param.type;
       continue;
+    }
+
+    // Check system struct fields
+    const sysTypeChain = findSystemType(typeName);
+    if (sysTypeChain?.fields) {
+      const field = sysTypeChain.fields.find(f => f.name.toUpperCase() === memberName.toUpperCase());
+      if (field) {
+        typeName = field.type;
+        continue;
+      }
+      return null; // member not found on system struct
     }
 
     // Check library symbols for member type resolution
@@ -874,6 +898,18 @@ function getDotAccessMembers(
         sortText: `2_${o.name}`, // Sort outputs after inputs
       })),
     ];
+  }
+
+  // Check system types with struct fields (TIMESTRUCT, FILETIME, etc.)
+  const sysType = findSystemType(typeName);
+  if (sysType?.fields) {
+    return sysType.fields.map(f => ({
+      label: f.name,
+      kind: CompletionItemKind.Field,
+      detail: f.type,
+      documentation: f.description,
+      sortText: `1_${f.name}`,
+    }));
   }
 
   // Check library symbols from workspace index

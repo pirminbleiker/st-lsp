@@ -33,7 +33,7 @@ import {
 import { getOrParse } from './shared';
 import { builtinTypeHover, findBuiltinType } from '../twincat/types';
 import { findStandardFB, standardFBHover } from '../twincat/stdlib';
-
+import { findSystemType } from '../twincat/systemTypes';
 import { findPragmaDoc, pragmaHover } from '../twincat/pragmas';
 import { WorkspaceIndex } from '../twincat/workspaceIndex';
 import { LibrarySymbol, LibraryParam } from '../twincat/libraryZipReader';
@@ -626,6 +626,20 @@ export function handleHover(
   if (builtinType) {
     return {
       contents: { kind: MarkupKind.Markdown, value: builtinTypeHover(builtinType) },
+      range: nodeRange(),
+    };
+  }
+
+  // 2b. System type (TIMESTRUCT, FILETIME, etc.)?
+  const sysType = findSystemType(name);
+  if (sysType) {
+    let value = `**STRUCT** \`${sysType.name}\`\n\n*TwinCAT System Type*\n\n${sysType.description}`;
+    if (sysType.fields?.length) {
+      const fields = sysType.fields.map(f => `  ${f.name} : ${f.type};`).join('\n');
+      value += `\n\`\`\`\nSTRUCT\n${fields}\nEND_STRUCT\n\`\`\``;
+    }
+    return {
+      contents: { kind: MarkupKind.Markdown, value },
       range: nodeRange(),
     };
   }

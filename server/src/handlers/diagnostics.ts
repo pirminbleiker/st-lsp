@@ -29,6 +29,7 @@ import {
 	SourceFile,
 	Statement,
 	StructDeclaration,
+	StructInitializer,
 	SubscriptExpression,
 	TypeDeclarationBlock,
 	UnaryExpression,
@@ -166,6 +167,13 @@ function walkExpression(expr: Expression, onName: (n: NameExpression) => void): 
 		case 'ArrayLiteral': {
 			const e = expr as ArrayLiteral;
 			for (const elem of e.elements) walkExpression(elem, onName);
+			break;
+		}
+		case 'StructInitializer': {
+			const e = expr as StructInitializer;
+			for (const field of e.fields) {
+				walkCallArgument(field, onName);
+			}
 			break;
 		}
 		// Literals: IntegerLiteral, RealLiteral, StringLiteral, BoolLiteral — no names
@@ -316,42 +324,45 @@ function collectForLoopVars(stmts: Statement[]): Set<string> {
  * of a top-level POU body, as this often comes from trailing semicolons after
  * control structures like END_IF which are allowed in IEC 61131-3 ST.
  */
-function findUnnecessarySemicolons(stmts: Statement[], isTopLevel: boolean = false): EmptyStatement[] {
+function findUnnecessarySemicolons(stmts: Statement[]): EmptyStatement[] {
+	const CONTROL_KINDS = new Set([
+		'IfStatement', 'ForStatement', 'WhileStatement', 'RepeatStatement', 'CaseStatement',
+	]);
 	const empty: EmptyStatement[] = [];
 	for (let i = 0; i < stmts.length; i++) {
 		const stmt = stmts[i];
 		if (stmt.kind === 'EmptyStatement') {
-			// Special case: Skip the last EmptyStatement at the top level of a POU body,
-			// ONLY if it's truly the sole last statement (not followed by other statements).
-			// This allows "END_IF;" but still catches "x := 5;;".
-			const isLastAtTopLevel = isTopLevel && i === stmts.length - 1;
-			if (!isLastAtTopLevel) {
-				empty.push(stmt as EmptyStatement);
+			// Skip EmptyStatement that immediately follows a control structure —
+			// this is the standard terminating semicolon (e.g., END_IF;)
+			const prev = i > 0 ? stmts[i - 1] : undefined;
+			if (prev && CONTROL_KINDS.has(prev.kind)) {
+				continue;
 			}
+			empty.push(stmt as EmptyStatement);
 		}
-		// Recurse into nested statement lists (not top-level)
+		// Recurse into nested statement lists
 		if (stmt.kind === 'IfStatement') {
 			const s = stmt as IfStatement;
-			empty.push(...findUnnecessarySemicolons(s.then, false));
+			empty.push(...findUnnecessarySemicolons(s.then));
 			for (const elsif of s.elsifs) {
-				empty.push(...findUnnecessarySemicolons(elsif.body, false));
+				empty.push(...findUnnecessarySemicolons(elsif.body));
 			}
-			if (s.else) empty.push(...findUnnecessarySemicolons(s.else, false));
+			if (s.else) empty.push(...findUnnecessarySemicolons(s.else));
 		} else if (stmt.kind === 'ForStatement') {
 			const s = stmt as ForStatement;
-			empty.push(...findUnnecessarySemicolons(s.body, false));
+			empty.push(...findUnnecessarySemicolons(s.body));
 		} else if (stmt.kind === 'WhileStatement') {
 			const s = stmt as WhileStatement;
-			empty.push(...findUnnecessarySemicolons(s.body, false));
+			empty.push(...findUnnecessarySemicolons(s.body));
 		} else if (stmt.kind === 'RepeatStatement') {
 			const s = stmt as RepeatStatement;
-			empty.push(...findUnnecessarySemicolons(s.body, false));
+			empty.push(...findUnnecessarySemicolons(s.body));
 		} else if (stmt.kind === 'CaseStatement') {
 			const s = stmt as CaseStatement;
 			for (const clause of s.cases) {
-				empty.push(...findUnnecessarySemicolons(clause.body, false));
+				empty.push(...findUnnecessarySemicolons(clause.body));
 			}
-			if (s.else) empty.push(...findUnnecessarySemicolons(s.else, false));
+			if (s.else) empty.push(...findUnnecessarySemicolons(s.else));
 		}
 	}
 	return empty;
@@ -1260,7 +1271,7 @@ function runSemanticAnalysis(
 		if (decl.kind === 'ProgramDeclaration') {
 			const prog = decl as ProgramDeclaration;
 			// Check for unnecessary semicolons in statement bodies
-			for (const emptyStmt of findUnnecessarySemicolons(prog.body, true)) {
+			for (const emptyStmt of findUnnecessarySemicolons(prog.body)) {
 				diagnostics.push({
 					severity: DiagnosticSeverity.Warning,
 					range: {
@@ -1275,7 +1286,7 @@ function runSemanticAnalysis(
 		} else if (decl.kind === 'FunctionBlockDeclaration') {
 			const fb = decl as FunctionBlockDeclaration;
 			// Check for unnecessary semicolons in statement bodies
-			for (const emptyStmt of findUnnecessarySemicolons(fb.body, true)) {
+			for (const emptyStmt of findUnnecessarySemicolons(fb.body)) {
 				diagnostics.push({
 					severity: DiagnosticSeverity.Warning,
 					range: {
@@ -1290,7 +1301,7 @@ function runSemanticAnalysis(
 
 			// Check for methods
 			for (const method of fb.methods) {
-				for (const emptyStmt of findUnnecessarySemicolons(method.body, true)) {
+				for (const emptyStmt of findUnnecessarySemicolons(method.body)) {
 					diagnostics.push({
 						severity: DiagnosticSeverity.Warning,
 						range: {
@@ -1306,7 +1317,7 @@ function runSemanticAnalysis(
 
 			// Check for actions
 			for (const action of fb.actions) {
-				for (const emptyStmt of findUnnecessarySemicolons(action.body, true)) {
+				for (const emptyStmt of findUnnecessarySemicolons(action.body)) {
 					diagnostics.push({
 						severity: DiagnosticSeverity.Warning,
 						range: {
@@ -1322,7 +1333,7 @@ function runSemanticAnalysis(
 		} else if (decl.kind === 'FunctionDeclaration') {
 			const func = decl as FunctionDeclaration;
 			// Check for unnecessary semicolons in statement bodies
-			for (const emptyStmt of findUnnecessarySemicolons(func.body, true)) {
+			for (const emptyStmt of findUnnecessarySemicolons(func.body)) {
 				diagnostics.push({
 					severity: DiagnosticSeverity.Warning,
 					range: {
@@ -1378,17 +1389,19 @@ export function validateUri(connection: Connection, uri: string, workspaceIndex:
 	});
 
 	const parseDiags: Diagnostic[] = errors.map(err => ({
-		severity: DiagnosticSeverity.Error,
+		severity: (err.severity ?? 'error') === 'warning' ? DiagnosticSeverity.Warning : DiagnosticSeverity.Error,
 		range: {
 			start: { line: err.range.start.line, character: err.range.start.character },
 			end:   { line: err.range.end.line,   character: err.range.end.character },
 		},
 		message: err.message,
 		source: 'st-lsp',
+		code: err.code,
 	}));
 
 	const libraryRefs = workspaceIndex.getLibraryRefs(uri);
-	const semanticDiags = errors.length === 0
+	const hasParseErrors = errors.some(e => (e.severity ?? 'error') !== 'warning');
+	const semanticDiags = !hasParseErrors
 		? runSemanticAnalysis(ast, libraryRefs, workspaceIndex, uri)
 		: [];
 
@@ -1411,7 +1424,7 @@ export function validateDocument(connection: Connection, document: TextDocument,
 		},
 		message: err.message,
 		source: 'st-lsp',
-		code: (err.severity ?? 'error') === 'warning' ? 'unnecessary-semicolon' : undefined,
+		code: err.code,
 	}));
 
 	// Only run semantic analysis when there are no parse errors (excluding warnings), to avoid
