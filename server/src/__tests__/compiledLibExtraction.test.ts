@@ -1,11 +1,27 @@
-import { describe, it, expect } from 'vitest';
-import { readLibraryIndex } from '../twincat/libraryZipReader';
+import { describe, it, expect, beforeAll } from 'vitest';
+import { readLibraryIndex, LibraryIndex } from '../twincat/libraryZipReader';
+import { execFileSync } from 'child_process';
+import * as fs from 'fs';
 import * as path from 'path';
 
 const LIB_PATH = path.resolve(__dirname, '../../../tests/fixtures/mobject-core-src/src/sln/lib/mobject-core/_Libraries/Beckhoff Automation GmbH/Tc2_Standard/3.4.5.0/Tc2_Standard.compiled-library-ge33');
 
+const JSON_LIB_PATH = path.resolve(__dirname, '../../../tests/fixtures/mobject-core-src/src/sln/lib/mobject-core/_Libraries/Beckhoff Automation GmbH/Tc3_JsonXml/3.4.7.0/Tc3_JsonXml.compiled-library-ge33');
+
+function ensureFixtures() {
+  if (!fs.existsSync(LIB_PATH) || !fs.existsSync(JSON_LIB_PATH)) {
+    const script = path.resolve(__dirname, '../../../tools/generate-compiled-lib-fixtures.js');
+    execFileSync('node', [script], { stdio: 'pipe' });
+  }
+}
+
 describe('compiled library extraction (Tc2_Standard)', () => {
-  const index = readLibraryIndex(LIB_PATH);
+  let index: LibraryIndex;
+
+  beforeAll(() => {
+    ensureFixtures();
+    index = readLibraryIndex(LIB_PATH);
+  });
 
   it('extracts library name', () => {
     expect(index.name).toBe('Tc2_Standard');
@@ -116,10 +132,13 @@ describe('compiled library extraction (Tc2_Standard)', () => {
 // Tc3_JsonXml — method extraction tests
 // ---------------------------------------------------------------------------
 
-const JSON_LIB_PATH = path.resolve(__dirname, '../../../tests/fixtures/mobject-core-src/src/sln/lib/mobject-core/_Libraries/Beckhoff Automation GmbH/Tc3_JsonXml/3.4.7.0/Tc3_JsonXml.compiled-library-ge33');
-
 describe('compiled library extraction (Tc3_JsonXml)', () => {
-  const index = readLibraryIndex(JSON_LIB_PATH);
+  let index: LibraryIndex;
+
+  beforeAll(() => {
+    ensureFixtures();
+    index = readLibraryIndex(JSON_LIB_PATH);
+  });
 
   it('extracts library name', () => {
     expect(index.name).toBe('Tc3_JsonXml');
