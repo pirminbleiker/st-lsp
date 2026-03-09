@@ -1,3 +1,11 @@
+## [1.7.1](https://github.com/pirminbleiker/st-lsp/compare/v1.7.0...v1.7.1) (2026-03-09)
+
+
+### Bug Fixes
+
+* handle dotted type names in parseTypeRef() (sl-76m) ([3993a33](https://github.com/pirminbleiker/st-lsp/commit/3993a330d7543bee880ddb281d2eb7e951994cdc))
+* handle dotted type names in parseTypeRef() (sl-76m) ([#6](https://github.com/pirminbleiker/st-lsp/issues/6)) ([0178260](https://github.com/pirminbleiker/st-lsp/commit/01782606eee45d41340f1bd871cb51ba0ffe77dc))
+
 # [1.7.0](https://github.com/pirminbleiker/st-lsp/compare/v1.6.0...v1.7.0) (2026-03-09)
 
 
