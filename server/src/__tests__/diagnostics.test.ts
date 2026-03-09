@@ -433,6 +433,17 @@ END_PROGRAM`;
       expect(warnings).toHaveLength(0);
     });
 
+    it('does not warn for __SYSTEM namespace qualified types', () => {
+      const src = `PROGRAM P
+VAR
+  iqi : __SYSTEM.IQueryInterface;
+END_VAR
+END_PROGRAM`;
+      const diags = getDiagnostics(src);
+      const warnings = diags.filter(d => d.severity === 2 && d.message.includes('Unknown type'));
+      expect(warnings).toHaveLength(0);
+    });
+
     it('does not warn when type is a POU defined in the same file', () => {
       const src = `FUNCTION_BLOCK MyFB
 END_FUNCTION_BLOCK
