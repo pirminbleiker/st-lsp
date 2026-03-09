@@ -51,6 +51,16 @@
         "description": "XML wrapper markup in TwinCAT source files"
       }
     ],
+    "configuration": {
+      "title": "Structured Text LSP",
+      "properties": {
+        "st-lsp.twincat.installPath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the TwinCAT installation directory (e.g. C:\\TwinCAT\\3.1). When set, library references from .plcproj files are resolved from the Managed Libraries folder."
+        }
+      }
+    },
     "configurationDefaults": {
       "[iec-st]": {
         "editor.foldingImportsByDefault": true,

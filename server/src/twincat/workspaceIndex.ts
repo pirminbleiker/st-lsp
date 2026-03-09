@@ -48,6 +48,13 @@ export interface WorkspaceIndexOptions {
    * The index will scan and watch this directory tree.
    */
   workspaceRoot: string;
+
+  /**
+   * Optional path to the TwinCAT installation directory, e.g.
+   * `C:\TwinCAT\3.1`.  When set, the index will also resolve library
+   * references from `<installPath>/Components/Plc/Managed Libraries/`.
+   */
+  twincatInstallPath?: string;
 }
 
 export interface WorkspaceIndexEvents {
@@ -86,6 +93,74 @@ function pathToUri(absPath: string): string {
  */
 
 // ---------------------------------------------------------------------------
+// TwinCAT install path detection
+// ---------------------------------------------------------------------------
+
+/**
+ * Convert a Windows path to a WSL2 path if running under WSL.
+ * E.g. `C:\TwinCAT\3.1` → `/mnt/c/TwinCAT/3.1`.
+ */
+function windowsToWslPath(winPath: string): string {
+  // Match drive letter patterns: C:\..., C:/...
+  const m = winPath.match(/^([A-Za-z]):[/\\](.*)/);
+  if (!m) return winPath;
+  return `/mnt/${m[1].toLowerCase()}/${m[2].replace(/\\/g, '/')}`;
+}
+
+/**
+ * Check if a path exists, trying WSL conversion if running on Linux and
+ * the path looks like a Windows path.
+ */
+function resolveExistingPath(candidate: string): string | undefined {
+  if (fs.existsSync(candidate)) return candidate;
+  // On WSL2 (Linux), Windows paths need /mnt/x/ conversion
+  if (process.platform === 'linux') {
+    const wsl = windowsToWslPath(candidate);
+    if (wsl !== candidate && fs.existsSync(wsl)) return wsl;
+  }
+  return undefined;
+}
+
+/** Common TwinCAT installation directories to probe when auto-detecting. */
+const TWINCAT_COMMON_PATHS = [
+  'C:\\TwinCAT\\3.1',
+  'C:\\Program Files (x86)\\Beckhoff\\TwinCAT\\3.1',
+  'C:\\Program Files\\Beckhoff\\TwinCAT\\3.1',
+];
+
+/**
+ * Auto-detect the TwinCAT install directory.
+ *
+ * Resolution order:
+ * 1. Explicit override from settings (twincatInstallPath option).
+ * 2. `TWINCAT3DIR` environment variable.
+ * 3. Common installation paths on Windows / WSL2.
+ *
+ * Returns the path to `<install>/Components/Plc/Managed Libraries/` if found.
+ */
+export function resolveManagedLibrariesPath(explicitInstallPath?: string): string | undefined {
+  const candidates: string[] = [];
+
+  if (explicitInstallPath) {
+    candidates.push(explicitInstallPath);
+  }
+  const envDir = process.env['TWINCAT3DIR'];
+  if (envDir) {
+    candidates.push(envDir);
+  }
+  candidates.push(...TWINCAT_COMMON_PATHS);
+
+  for (const candidate of candidates) {
+    const resolved = resolveExistingPath(candidate);
+    if (!resolved) continue;
+    const mlp = path.join(resolved, 'Components', 'Plc', 'Managed Libraries');
+    if (fs.existsSync(mlp)) return mlp;
+  }
+
+  return undefined;
+}
+
+// ---------------------------------------------------------------------------
 // WorkspaceIndex
 // ---------------------------------------------------------------------------
 
@@ -109,6 +184,7 @@ function pathToUri(absPath: string): string {
  */
 export class WorkspaceIndex extends EventEmitter {
   private readonly rootPath: string;
+  private readonly managedLibrariesPath: string | undefined;
 
   /** Map from project file path → set of source file URIs it provides. */
   private readonly projectSources = new Map<string, Set<string>>();
@@ -140,6 +216,7 @@ export class WorkspaceIndex extends EventEmitter {
   constructor(options: WorkspaceIndexOptions) {
     super();
     this.rootPath = uriToPath(options.workspaceRoot);
+    this.managedLibrariesPath = resolveManagedLibrariesPath(options.twincatInstallPath);
   }
 
   // ── Public API ─────────────────────────────────────────────────────────
@@ -397,6 +474,13 @@ export class WorkspaceIndex extends EventEmitter {
       }
     }
 
+    // Also resolve libraries from the TwinCAT installation Managed Libraries
+    // directory, using the libraryRefs parsed from the project file.
+    if (this.managedLibrariesPath) {
+      const installed = this.resolveInstalledLibraries(refs);
+      indexes.push(...installed);
+    }
+
     // Warn when a referenced library was not found on disk.
     if (refs.length > 0) {
       const foundNames = new Set(indexes.map(idx => idx.name.toUpperCase()));
@@ -410,6 +494,127 @@ export class WorkspaceIndex extends EventEmitter {
     }
 
     this.projectLibraryIndexes.set(projectFilePath, indexes);
+  }
+
+  /**
+   * Resolve library files from the TwinCAT Managed Libraries directory using
+   * the library references declared in a project file.
+   *
+   * Directory layout:
+   *   `<managedLibrariesPath>/<vendor>/<libName>/<version>/<files>`
+   *
+   * When `version` is `'*'`, the newest version directory is selected
+   * (sorted by the numeric dot-separated version components).
+   */
+  private resolveInstalledLibraries(refs: LibraryRef[]): LibraryIndex[] {
+    if (!this.managedLibrariesPath) return [];
+
+    const indexes: LibraryIndex[] = [];
+
+    for (const ref of refs) {
+      const libFiles = this.findManagedLibraryFiles(ref);
+      for (const libFile of libFiles) {
+        try {
+          indexes.push(readLibraryIndex(libFile));
+        } catch {
+          // Skip unreadable library files silently.
+        }
+      }
+    }
+
+    return indexes;
+  }
+
+  /**
+   * Find library files in the Managed Libraries directory matching a single
+   * library reference.  Searches `<managedLibrariesPath>/<vendor>/<name>/<version>/`
+   * for `.library` and `.compiled-library*` files.
+   *
+   * When the ref has no vendor, all vendor directories are searched.
+   * When version is `'*'` or absent, the newest version directory is used.
+   */
+  private findManagedLibraryFiles(ref: LibraryRef): string[] {
+    if (!this.managedLibrariesPath) return [];
+
+    // Determine which vendor directories to search
+    const vendorDirs: string[] = [];
+    if (ref.vendor) {
+      const vendorPath = path.join(this.managedLibrariesPath, ref.vendor);
+      if (fs.existsSync(vendorPath)) {
+        vendorDirs.push(vendorPath);
+      }
+    } else {
+      // No vendor specified — search all vendor directories
+      try {
+        const entries = fs.readdirSync(this.managedLibrariesPath, { withFileTypes: true });
+        for (const entry of entries) {
+          if (entry.isDirectory()) {
+            vendorDirs.push(path.join(this.managedLibrariesPath, entry.name));
+          }
+        }
+      } catch {
+        return [];
+      }
+    }
+
+    for (const vendorDir of vendorDirs) {
+      const libDir = path.join(vendorDir, ref.name);
+      if (!fs.existsSync(libDir)) continue;
+
+      // Resolve the version directory
+      const versionDir = this.resolveVersionDir(libDir, ref.version);
+      if (!versionDir) continue;
+
+      try {
+        return findFilesSync(versionDir, isLibraryFile);
+      } catch {
+        continue;
+      }
+    }
+
+    return [];
+  }
+
+  /**
+   * Select the appropriate version directory inside a library directory.
+   *
+   * - Exact version: returns `<libDir>/<version>` if it exists.
+   * - Wildcard (`*`) or absent: returns the directory with the highest
+   *   version, comparing numeric dot-separated components.
+   */
+  private resolveVersionDir(libDir: string, version: string | undefined): string | undefined {
+    // Exact version requested
+    if (version && version !== '*') {
+      const exact = path.join(libDir, version);
+      return fs.existsSync(exact) ? exact : undefined;
+    }
+
+    // Find newest version
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(libDir, { withFileTypes: true });
+    } catch {
+      return undefined;
+    }
+
+    const versionDirs = entries
+      .filter((e) => e.isDirectory() && /^\d+(\.\d+)*$/.test(e.name))
+      .map((e) => e.name);
+
+    if (versionDirs.length === 0) return undefined;
+
+    versionDirs.sort((a, b) => {
+      const pa = a.split('.').map(Number);
+      const pb = b.split('.').map(Number);
+      const len = Math.max(pa.length, pb.length);
+      for (let i = 0; i < len; i++) {
+        const diff = (pa[i] ?? 0) - (pb[i] ?? 0);
+        if (diff !== 0) return diff;
+      }
+      return 0;
+    });
+
+    return path.join(libDir, versionDirs[versionDirs.length - 1]);
   }
 
   /**
@@ -563,9 +768,12 @@ export class WorkspaceIndex extends EventEmitter {
 
 /**
  * Create and initialise a WorkspaceIndex for the given workspace URI or path.
+ *
+ * @param workspaceRoot   Workspace root URI (`file://…`) or absolute path.
+ * @param twincatInstallPath  Optional TwinCAT install directory (e.g. `C:\TwinCAT\3.1`).
  */
-export function createWorkspaceIndex(workspaceRoot: string): WorkspaceIndex {
-  const idx = new WorkspaceIndex({ workspaceRoot });
+export function createWorkspaceIndex(workspaceRoot: string, twincatInstallPath?: string): WorkspaceIndex {
+  const idx = new WorkspaceIndex({ workspaceRoot, twincatInstallPath });
   idx.initialize();
   return idx;
 }

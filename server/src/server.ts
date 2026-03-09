@@ -76,8 +76,10 @@ connection.onInitialize((params: InitializeParams): InitializeResult => {
 
 	const workspaceRoot =
 		params.workspaceFolders?.[0]?.uri ?? params.rootUri ?? undefined;
+	const initOptions = params.initializationOptions as Record<string, unknown> | undefined;
+	const twincatInstallPath = (initOptions?.twincatInstallPath as string) ?? undefined;
 	if (workspaceRoot) {
-		workspaceIndex = createWorkspaceIndex(workspaceRoot);
+		workspaceIndex = createWorkspaceIndex(workspaceRoot, twincatInstallPath);
 		workspaceIndex.on('error', (err) =>
 			connection.console.warn('Workspace index: ' + (err as Error).message),
 		);
