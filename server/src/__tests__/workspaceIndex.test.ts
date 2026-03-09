@@ -50,6 +50,20 @@ const PLCPROJ_XML = `<?xml version="1.0" encoding="utf-8"?>
   </ItemGroup>
 </Project>`;
 
+const PLCPROJ_WITH_LIBS_XML = `<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <Name>MyPLC</Name>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="POUs\\Main.TcPOU" />
+  </ItemGroup>
+  <ItemGroup>
+    <PlcLibraryReference Include="Tc2_Standard, 3.4.3.0 (Beckhoff Automation GmbH)" />
+    <PlcLibraryReference Include="Tc2_MC2, 3.3.5.0 (Beckhoff Automation GmbH)" />
+  </ItemGroup>
+</Project>`;
+
 const MAIN_TCPOU = `FUNCTION_BLOCK Main
 VAR
 END_VAR
@@ -195,5 +209,68 @@ describe('WorkspaceIndex', () => {
 
     // Should NOT be cached since it's not a known project URI
     expect(idx.getAst(unknownUri)).toBeUndefined();
+  });
+
+  it('only indexes library files matching plcproj libraryRefs', () => {
+    // Set up a .plcproj that references Tc2_Standard and Tc2_MC2
+    write('MyPLC.plcproj', PLCPROJ_WITH_LIBS_XML);
+    write(path.join('POUs', 'Main.TcPOU'), MAIN_TCPOU);
+
+    // Create _Libraries/ with referenced AND unreferenced libraries.
+    // readLibraryIndex falls back to deriving the name from the filename
+    // for non-ZIP files, so empty files work for name-matching tests.
+    write(path.join('_Libraries', 'Beckhoff', 'Tc2_Standard', '3.4.3.0', 'Tc2_Standard.compiled-library'), '');
+    write(path.join('_Libraries', 'Beckhoff', 'Tc2_MC2', '3.3.5.0', 'Tc2_MC2.compiled-library'), '');
+    write(path.join('_Libraries', 'Beckhoff', 'Tc3_Unreferenced', '1.0.0.0', 'Tc3_Unreferenced.compiled-library'), '');
+
+    const idx = new WorkspaceIndex({ workspaceRoot: tmpDir });
+    idx.on('error', () => { /* suppress */ });
+    idx.initialize();
+
+    const files = idx.getProjectFiles();
+    const mainUri = files.find(f => f.endsWith('Main.TcPOU'));
+    expect(mainUri).toBeDefined();
+
+    const typeNames = idx.getLibraryTypeNames(mainUri!);
+    // Referenced libraries should be indexed
+    expect(typeNames.has('TC2_STANDARD')).toBe(true);
+    expect(typeNames.has('TC2_MC2')).toBe(true);
+    // Unreferenced library should NOT be indexed
+    expect(typeNames.has('TC3_UNREFERENCED')).toBe(false);
+  });
+
+  it('emits warning when a referenced library is not found in _Libraries/', () => {
+    // Project references Tc2_Standard and Tc2_MC2, but only Tc2_Standard exists
+    write('MyPLC.plcproj', PLCPROJ_WITH_LIBS_XML);
+    write(path.join('POUs', 'Main.TcPOU'), MAIN_TCPOU);
+    write(path.join('_Libraries', 'Beckhoff', 'Tc2_Standard', '3.4.3.0', 'Tc2_Standard.compiled-library'), '');
+
+    const errors: string[] = [];
+    const idx = new WorkspaceIndex({ workspaceRoot: tmpDir });
+    idx.on('error', (err) => errors.push((err as Error).message));
+    idx.initialize();
+
+    expect(errors.some(msg => msg.includes('Tc2_MC2') && msg.includes('not found'))).toBe(true);
+  });
+
+  it('indexes all libraries when plcproj has no libraryRefs', () => {
+    // Use the original PLCPROJ_XML which has no library refs
+    write('MyPLC.plcproj', PLCPROJ_XML);
+    write(path.join('POUs', 'Main.TcPOU'), MAIN_TCPOU);
+    write(path.join('_Libraries', 'Vendor', 'SomeLib', '1.0', 'SomeLib.compiled-library'), '');
+    write(path.join('_Libraries', 'Vendor', 'OtherLib', '2.0', 'OtherLib.compiled-library'), '');
+
+    const idx = new WorkspaceIndex({ workspaceRoot: tmpDir });
+    idx.on('error', () => { /* suppress */ });
+    idx.initialize();
+
+    const files = idx.getProjectFiles();
+    const mainUri = files.find(f => f.endsWith('Main.TcPOU'));
+    expect(mainUri).toBeDefined();
+
+    const typeNames = idx.getLibraryTypeNames(mainUri!);
+    // With no refs, all libraries should be indexed (fallback behavior)
+    expect(typeNames.has('SOMELIB')).toBe(true);
+    expect(typeNames.has('OTHERLIB')).toBe(true);
   });
 });

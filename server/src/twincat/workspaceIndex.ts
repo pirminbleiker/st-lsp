@@ -350,6 +350,11 @@ export class WorkspaceIndex extends EventEmitter {
    * Both .library and .compiled-library* formats are supported.
    */
   private indexLibraryFiles(projectFilePath: string): void {
+    const refs = this.projectLibraryRefs.get(projectFilePath) ?? [];
+
+    // Build a case-insensitive set of referenced library names for matching.
+    const refNamesUpper = new Set(refs.map(r => r.name.toUpperCase()));
+
     // Determine which directories to scan for _Libraries/.
     const plcprojDirs = this.resolvePlcprojDirs(projectFilePath);
 
@@ -364,12 +369,42 @@ export class WorkspaceIndex extends EventEmitter {
         continue; // _Libraries does not exist for this project — skip.
       }
 
-      for (const libFile of libraryFiles) {
+      // When libraryRefs are available, only read files whose path contains a
+      // referenced library name (the _Libraries/ layout places the library name
+      // as a directory component: _Libraries/<vendor>/<libName>/<version>/...).
+      const filesToRead = refNamesUpper.size > 0
+        ? libraryFiles.filter(f => {
+            const upper = f.toUpperCase();
+            for (const name of refNamesUpper) {
+              if (upper.includes(path.sep + name + path.sep) || upper.includes('/' + name + '/')) {
+                return true;
+              }
+            }
+            return false;
+          })
+        : libraryFiles;
+
+      for (const libFile of filesToRead) {
         try {
           const idx = readLibraryIndex(libFile);
-          indexes.push(idx);
+          // Double-check: only keep indexes whose name matches a ref.
+          if (refNamesUpper.size === 0 || refNamesUpper.has(idx.name.toUpperCase())) {
+            indexes.push(idx);
+          }
         } catch {
           // Skip unreadable library files silently.
+        }
+      }
+    }
+
+    // Warn when a referenced library was not found on disk.
+    if (refs.length > 0) {
+      const foundNames = new Set(indexes.map(idx => idx.name.toUpperCase()));
+      for (const ref of refs) {
+        if (!foundNames.has(ref.name.toUpperCase())) {
+          this.emit('error', new Error(
+            `Referenced library '${ref.name}'${ref.version ? ` (${ref.version})` : ''} not found in _Libraries/`
+          ));
         }
       }
     }
