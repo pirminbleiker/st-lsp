@@ -43,6 +43,7 @@ import { SYSTEM_TYPE_NAMES, SYSTEM_FUNCTION_NAMES, TYPE_CONVERSION_NAMES } from 
 import { OffsetMap } from '../twincat/tcExtractor';
 import { getOrParse } from './shared';
 import { WorkspaceIndex } from '../twincat/workspaceIndex';
+import { collectPouVarNames } from '../parser/astUtils';
 import type { LibraryRef } from '../twincat/projectReader';
 
 // ---------------------------------------------------------------------------
@@ -71,22 +72,6 @@ function isAllowedName(name: string): boolean {
 		|| SYSTEM_TYPE_NAMES.has(upper)
 		|| SYSTEM_FUNCTION_NAMES.has(upper)
 		|| TYPE_CONVERSION_NAMES.has(upper);
-}
-
-/**
- * Collect all VarDeclaration names from a POU's var blocks (all sections).
- * Returns a Set of uppercase names.
- */
-function collectPouVarNames(
-	pou: ProgramDeclaration | FunctionBlockDeclaration | FunctionDeclaration,
-): Set<string> {
-	const names = new Set<string>();
-	for (const vb of pou.varBlocks) {
-		for (const vd of vb.declarations) {
-			names.add(vd.name.toUpperCase());
-		}
-	}
-	return names;
 }
 
 /**

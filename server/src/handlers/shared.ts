@@ -10,7 +10,8 @@ import { TextDocument } from 'vscode-languageserver-textdocument';
 import { extractST, ExtractionResult, PositionMapper } from '../twincat/tcExtractor';
 import { WorkspaceIndex } from '../twincat/workspaceIndex';
 import { parse } from '../parser/parser';
-import { SourceFile, ParseError } from '../parser/ast';
+import { SourceFile, ParseError, TopLevelDeclaration } from '../parser/ast';
+import { extractStFromTwinCAT } from '../twincat/tcExtractor';
 
 /** An ExtractionResult that acts as a pass-through identity mapper. */
 const PASSTHROUGH_EXTRACTION: ExtractionResult = {
@@ -94,6 +95,41 @@ export function invalidateDocumentCache(uri: string): void {
  *
  * Never throws — returns a passthrough identity mapper on any error.
  */
+/**
+ * Collect declarations from all workspace files (excluding `currentUri`)
+ * into an array of `{ uri, declarations }` pairs.
+ */
+export function loadWorkspaceDeclarations(
+  currentUri: string,
+  workspaceIndex: WorkspaceIndex | undefined,
+): Array<{ uri: string; declarations: TopLevelDeclaration[] }> {
+  if (!workspaceIndex) return [];
+  const result: Array<{ uri: string; declarations: TopLevelDeclaration[] }> = [];
+  for (const fileUri of workspaceIndex.getProjectFiles()) {
+    if (fileUri === currentUri) continue;
+    const cached = workspaceIndex.getAst?.(fileUri);
+    if (cached) {
+      result.push({ uri: fileUri, declarations: cached.ast.declarations });
+    } else {
+      try {
+        const filePath = fileUri.startsWith('file://')
+          ? decodeURIComponent(fileUri.replace(/^file:\/\//, ''))
+          : fileUri;
+        const rawText = fs.readFileSync(filePath, 'utf8');
+        const fileText = extractStFromTwinCAT(filePath, rawText).stCode;
+        result.push({ uri: fileUri, declarations: parse(fileText).ast.declarations });
+      } catch {
+        // skip unreadable files
+      }
+    }
+  }
+  return result;
+}
+
+// ---------------------------------------------------------------------------
+// mapperForUri
+// ---------------------------------------------------------------------------
+
 export function mapperForUri(fileUri: string, workspaceIndex?: WorkspaceIndex): PositionMapper {
   // Try the workspace index cache first.
   const cached = workspaceIndex?.getExtraction?.(fileUri);

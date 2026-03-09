@@ -30,6 +30,7 @@ import {
   VarDeclaration,
   VarKind,
 } from '../parser/ast';
+import { positionContains, collectVarDeclarations } from '../parser/astUtils';
 import { getOrParse } from './shared';
 import { builtinTypeHover, findBuiltinType } from '../twincat/types';
 import { findStandardFB, standardFBHover } from '../twincat/stdlib';
@@ -38,17 +39,6 @@ import { findPragmaDoc, pragmaHover } from '../twincat/pragmas';
 import { WorkspaceIndex } from '../twincat/workspaceIndex';
 import { LibrarySymbol, LibraryParam } from '../twincat/libraryZipReader';
 import { formatConstantValue } from './utils';
-
-// ---------------------------------------------------------------------------
-// Position helpers
-// ---------------------------------------------------------------------------
-
-function positionContains(nodeStart: Position, nodeEnd: Position, pos: Position): boolean {
-  if (pos.line < nodeStart.line || pos.line > nodeEnd.line) return false;
-  if (pos.line === nodeStart.line && pos.character < nodeStart.character) return false;
-  if (pos.line === nodeEnd.line && pos.character > nodeEnd.character) return false;
-  return true;
-}
 
 // ---------------------------------------------------------------------------
 // AST traversal — find deepest node at cursor position
@@ -309,53 +299,6 @@ export function findNodeAtPosition(ast: SourceFile, line: number, character: num
   }
 
   return visit(ast);
-}
-
-// ---------------------------------------------------------------------------
-// Scope resolution — collect VarDeclarations visible at a given node
-// ---------------------------------------------------------------------------
-
-/**
- * Collect all VarDeclaration nodes from the enclosing POU's var blocks,
- * together with the VarKind of the block they belong to.
- * We walk top-level declarations to find the POU that contains `pos`.
- */
-function collectVarDeclarations(
-  ast: SourceFile,
-  pos: Position,
-): Array<{ vd: VarDeclaration; varKind: VarKind; qualifier?: string }> {
-  for (const decl of ast.declarations) {
-    if (!positionContains(decl.range.start, decl.range.end, pos)) continue;
-    if (
-      decl.kind !== 'ProgramDeclaration' &&
-      decl.kind !== 'FunctionBlockDeclaration' &&
-      decl.kind !== 'FunctionDeclaration'
-    ) continue;
-    const vars: Array<{ vd: VarDeclaration; varKind: VarKind; qualifier?: string }> = [];
-    const pou = decl as ProgramDeclaration | FunctionBlockDeclaration | FunctionDeclaration;
-    for (const vb of pou.varBlocks) {
-      const qualifier = vb.constant ? 'CONSTANT' : vb.retain ? 'RETAIN' : vb.persistent ? 'PERSISTENT' : undefined;
-      for (const vd of vb.declarations) {
-        vars.push({ vd, varKind: vb.varKind, qualifier });
-      }
-    }
-    // When cursor is inside a method, also collect that method's var blocks
-    if (decl.kind === 'FunctionBlockDeclaration') {
-      const fb = decl as FunctionBlockDeclaration;
-      for (const method of fb.methods) {
-        if (!positionContains(method.range.start, method.range.end, pos)) continue;
-        for (const vb of method.varBlocks) {
-          const qualifier = vb.constant ? 'CONSTANT' : undefined;
-          for (const vd of vb.declarations) {
-            vars.push({ vd, varKind: vb.varKind, qualifier });
-          }
-        }
-        break;
-      }
-    }
-    return vars;
-  }
-  return [];
 }
 
 // ---------------------------------------------------------------------------

@@ -11,90 +11,30 @@
  *   6. POU declarations in other workspace files (cross-file search)
  */
 
-import * as fs from 'fs';
 import { DefinitionParams, Location } from 'vscode-languageserver/node';
-import { mapperForUri, getOrParse } from './shared';
+import { mapperForUri, getOrParse, loadWorkspaceDeclarations } from './shared';
 import { TextDocument } from 'vscode-languageserver-textdocument';
 import {
   FunctionBlockDeclaration,
-  FunctionDeclaration,
   InterfaceDeclaration,
   MemberExpression,
   NameExpression,
   Position,
-  ProgramDeclaration,
   SourceFile,
   StructDeclaration,
   TopLevelDeclaration,
   TypeDeclaration,
   TypeDeclarationBlock,
   TypeRef,
-  VarDeclaration,
 } from '../parser/ast';
-import { parse } from '../parser/parser';
+import { positionContains, collectLocalVars, findPouDeclaration } from '../parser/astUtils';
 import { WorkspaceIndex } from '../twincat/workspaceIndex';
 import { findNodeAtPosition } from './hover';
-import { extractStFromTwinCAT, PositionMapper } from '../twincat/tcExtractor';
+import { PositionMapper } from '../twincat/tcExtractor';
 
 // ---------------------------------------------------------------------------
 // Scope helpers
 // ---------------------------------------------------------------------------
-
-function positionContains(
-  nodeStart: Position,
-  nodeEnd: Position,
-  pos: Position,
-): boolean {
-  if (pos.line < nodeStart.line || pos.line > nodeEnd.line) return false;
-  if (pos.line === nodeStart.line && pos.character < nodeStart.character) return false;
-  if (pos.line === nodeEnd.line && pos.character > nodeEnd.character) return false;
-  return true;
-}
-
-/**
- * Collect all VarDeclaration nodes from the POU that encloses `pos`.
- */
-function collectLocalVars(ast: SourceFile, pos: Position): VarDeclaration[] {
-  for (const decl of ast.declarations) {
-    if (!positionContains(decl.range.start, decl.range.end, pos)) continue;
-    const pou = decl as ProgramDeclaration | FunctionBlockDeclaration | FunctionDeclaration;
-    const vars: VarDeclaration[] = [];
-    for (const vb of pou.varBlocks) {
-      for (const vd of vb.declarations) {
-        vars.push(vd);
-      }
-    }
-    // When cursor is inside a method, also collect that method's var blocks
-    if (decl.kind === 'FunctionBlockDeclaration') {
-      const fb = decl as FunctionBlockDeclaration;
-      for (const method of fb.methods) {
-        if (!positionContains(method.range.start, method.range.end, pos)) continue;
-        for (const vb of method.varBlocks) {
-          for (const vd of vb.declarations) {
-            vars.push(vd);
-          }
-        }
-        break;
-      }
-    }
-    return vars;
-  }
-  return [];
-}
-
-/**
- * Find the first POU declaration whose name matches (case-insensitive).
- * Also searches FB actions by name.
- */
-function findPouDeclaration(
-  ast: SourceFile,
-  name: string,
-): TopLevelDeclaration | undefined {
-  const upper = name.toUpperCase();
-  return ast.declarations.find(
-    d => 'name' in d && (d as { name: string }).name.toUpperCase() === upper,
-  );
-}
 
 /**
  * Find an action declaration by name within any FB in the file.
@@ -111,37 +51,6 @@ function findActionDeclaration(
     if (action) return { location: action };
   }
   return undefined;
-}
-
-/**
- * Collect declarations from the workspace index into an array of
- * `{ uri, declarations }` pairs (excluding `currentUri`).
- */
-function loadWorkspaceDeclarations(
-  currentUri: string,
-  workspaceIndex: WorkspaceIndex | undefined,
-): Array<{ uri: string; declarations: TopLevelDeclaration[] }> {
-  if (!workspaceIndex) return [];
-  const result: Array<{ uri: string; declarations: TopLevelDeclaration[] }> = [];
-  for (const fileUri of workspaceIndex.getProjectFiles()) {
-    if (fileUri === currentUri) continue;
-    const cached = workspaceIndex.getAst?.(fileUri);
-    if (cached) {
-      result.push({ uri: fileUri, declarations: cached.ast.declarations });
-    } else {
-      try {
-        const filePath = fileUri.startsWith('file://')
-          ? decodeURIComponent(fileUri.replace(/^file:\/\//, ''))
-          : fileUri;
-        const rawText = fs.readFileSync(filePath, 'utf8');
-        const fileText = extractStFromTwinCAT(filePath, rawText).stCode;
-        result.push({ uri: fileUri, declarations: parse(fileText).ast.declarations });
-      } catch {
-        // skip unreadable files
-      }
-    }
-  }
-  return result;
 }
 
 /**
@@ -509,31 +418,13 @@ export function handleDefinition(
   if (pouMatch) return toLocation(uri, pouMatch, mapper);
 
   // 3. Cross-file POU search via workspaceIndex
-  if (workspaceIndex) {
-    const projectFiles = workspaceIndex.getProjectFiles();
-    for (const fileUri of projectFiles) {
-      // Skip the current document (already searched above)
-      if (fileUri === uri) continue;
-
-      let otherAst: SourceFile;
-      const cachedEntry = workspaceIndex.getAst?.(fileUri);
-      if (cachedEntry) {
-        otherAst = cachedEntry.ast;
-      } else {
-        try {
-          const filePath = fileUri.startsWith('file://')
-            ? decodeURIComponent(fileUri.replace(/^file:\/\//, ''))
-            : fileUri;
-          const rawText = fs.readFileSync(filePath, 'utf8');
-          otherAst = parse(extractStFromTwinCAT(filePath, rawText).stCode).ast;
-        } catch {
-          continue;
-        }
-      }
-
-      const otherMatch = findPouDeclaration(otherAst, name);
-      if (otherMatch) return toLocation(fileUri, otherMatch, mapperForUri(fileUri, workspaceIndex));
-    }
+  const wsFiles = loadWorkspaceDeclarations(uri, workspaceIndex);
+  for (const { uri: fileUri, declarations } of wsFiles) {
+    const upper = name.toUpperCase();
+    const wsMatch = declarations.find(
+      d => 'name' in d && (d as { name: string }).name.toUpperCase() === upper,
+    );
+    if (wsMatch) return toLocation(fileUri, wsMatch, mapperForUri(fileUri, workspaceIndex));
   }
 
   return null;

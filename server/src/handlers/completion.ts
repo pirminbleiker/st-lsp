@@ -29,7 +29,8 @@ import { WorkspaceIndex } from '../twincat/workspaceIndex';
 import { LibrarySymbol } from '../twincat/libraryZipReader';
 import { extractStFromTwinCAT } from '../twincat/tcExtractor';
 import { formatConstantValue } from './utils';
-import { getOrParse } from './shared';
+import { getOrParse, loadWorkspaceDeclarations } from './shared';
+import { positionContains } from '../parser/astUtils';
 
 const KEYWORDS = [
   'IF', 'THEN', 'ELSE', 'ELSIF', 'END_IF',
@@ -92,16 +93,6 @@ export function isMemberVisible(
       // All members visible from own scope
       return true;
   }
-}
-
-/**
- * Position helper: check if pos is within [start, end]
- */
-function positionContains(nodeStart: Position, nodeEnd: Position, pos: Position): boolean {
-  if (pos.line < nodeStart.line || pos.line > nodeEnd.line) return false;
-  if (pos.line === nodeStart.line && pos.character < nodeStart.character) return false;
-  if (pos.line === nodeEnd.line && pos.character > nodeEnd.character) return false;
-  return true;
 }
 
 /**
@@ -428,24 +419,8 @@ function collectAllDeclSets(
   workspaceIndex?: WorkspaceIndex,
 ): TopLevelDeclaration[][] {
   const sets: TopLevelDeclaration[][] = [declarations];
-  if (!workspaceIndex) return sets;
-  for (const fileUri of workspaceIndex.getProjectFiles()) {
-    if (fileUri === currentUri) continue;
-    const cached = workspaceIndex.getAst?.(fileUri);
-    if (cached) {
-      sets.push(cached.ast.declarations);
-    } else {
-      try {
-        const filePath = fileUri.startsWith('file://')
-          ? decodeURIComponent(fileUri.replace(/^file:\/\//, ''))
-          : fileUri;
-        const rawText = fs.readFileSync(filePath, 'utf8');
-        const fileText = extractStFromTwinCAT(filePath, rawText).stCode;
-        sets.push(parse(fileText).ast.declarations);
-      } catch {
-        continue;
-      }
-    }
+  for (const { declarations: decls } of loadWorkspaceDeclarations(currentUri, workspaceIndex)) {
+    sets.push(decls);
   }
   return sets;
 }
