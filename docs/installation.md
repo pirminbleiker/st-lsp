@@ -122,6 +122,31 @@ For cross-file **Go to Definition**, open the workspace root that contains your 
 
 ## Configuration
 
-> **Note:** The extension currently works out of the box with no required configuration. A settings section will be added in a future release.
+The extension works out of the box with no required configuration. The following optional settings are available:
 
-Watch this page for upcoming options such as custom file associations and diagnostics severity tuning.
+### `st-lsp.twincat.installPath`
+
+| | |
+|---|---|
+| **Type** | `string` |
+| **Default** | `""` (auto-detect) |
+| **Example** | `C:\TwinCAT\3.1` |
+
+Path to the TwinCAT installation directory. When set, library references from `.plcproj` files are resolved from the Managed Libraries folder (`<installPath>/Components/Plc/Managed Libraries/`).
+
+**Auto-detection:** If this setting is left empty, the extension attempts to locate the TwinCAT installation automatically by checking:
+
+1. The `TWINCAT3DIR` environment variable.
+2. Common installation paths on Windows / WSL2.
+
+Set this explicitly when auto-detection does not find your installation, for example on non-standard install paths.
+
+**VS Code `settings.json` example:**
+
+```json
+{
+  "st-lsp.twincat.installPath": "C:\\TwinCAT\\3.1"
+}
+```
+
+**Other LSP clients:** Pass the path as `twincatInstallPath` inside the `initializationOptions` object when starting the language server.
