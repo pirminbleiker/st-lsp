@@ -1719,7 +1719,7 @@ describe('.TcPOU methods and properties coexist', () => {
 describe('Dictionary.TcPOU integration', () => {
   const dictionaryPath = path.resolve(
     __dirname,
-    '../../../tests/fixtures/mobject-core-src/src/sln/lib/mobject-core/mobject-collections/Dictionary/Dictionary.TcPOU',
+    '../../../tests/fixtures/mobject-core/Dictionary.TcPOU',
   );
 
   let content: string;
