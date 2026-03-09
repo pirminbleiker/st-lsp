@@ -307,27 +307,58 @@ const DIRECTION_KEYWORDS: Record<string, string> = {
 };
 
 const SKIP_ENTRIES = new Set([
-  'NORMAL', 'FunctionBlock', 'Function',
+  'NORMAL',
   'conditionalshow', 'conditionalshow_all_locals',
 ]);
 
 /**
- * Parse a parameter block into a description and parameter list.
+ * Parse a parameter block into a description, parameter list, POU kind, and
+ * return type.  The 'FunctionBlock' / 'Function' entries that appear in
+ * compiled-library parameter blocks are used to distinguish POU kinds.
+ * For functions, the entry immediately after 'Function' that looks like a
+ * type name (all-uppercase ST identifier) is treated as the return type.
  */
 function parseParamBlock(entries: ParamBlockEntry[]): {
   description: string | undefined;
   params: { name: string; comment?: string; direction: 'input' | 'output' }[];
+  pouKind: 'function' | 'functionBlock' | undefined;
+  returnType: string | undefined;
 } {
   let description: string | undefined;
   const params: { name: string; comment?: string; direction: 'input' | 'output' }[] = [];
   let direction: 'input' | 'output' = 'input';
   let pendingComment: string | undefined;
+  let pouKind: 'function' | 'functionBlock' | undefined;
+  let returnType: string | undefined;
+  let expectReturnType = false;
 
   for (const { value } of entries) {
     // Skip markers
     if (value.startsWith("''DOCU") || value.startsWith("__COMMENT") || value.startsWith("''NORMAL")) continue;
     if (value.startsWith('<TEMPORARY>') || value.startsWith('{attribute')) continue;
     if (SKIP_ENTRIES.has(value)) continue;
+
+    // POU kind markers
+    if (value === 'FunctionBlock') {
+      pouKind = 'functionBlock';
+      continue;
+    }
+    if (value === 'Function') {
+      pouKind = 'function';
+      expectReturnType = true;
+      continue;
+    }
+
+    // Return type: first identifier-like entry after 'Function' that looks
+    // like an ST type (uppercase, no spaces) and appears before any direction
+    // keyword.
+    if (expectReturnType && /^[A-Z_][A-Z0-9_]*$/.test(value) && !(value in DIRECTION_KEYWORDS)) {
+      returnType = value;
+      expectReturnType = false;
+      continue;
+    }
+    expectReturnType = false;
+
     if (value in DIRECTION_KEYWORDS) {
       direction = DIRECTION_KEYWORDS[value] as 'input' | 'output';
       continue;
@@ -361,7 +392,7 @@ function parseParamBlock(entries: ParamBlockEntry[]): {
     }
   }
 
-  return { description, params };
+  return { description, params, pouKind, returnType };
 }
 
 /**
@@ -452,7 +483,13 @@ function extractCompiledSymbols(
 
     // Attach param block
     if (i < blocks.length) {
-      const { description, params } = parseParamBlock(blocks[i]);
+      const { description, params, pouKind, returnType } = parseParamBlock(blocks[i]);
+      if (pouKind) {
+        symbol.kind = pouKind;
+      }
+      if (returnType) {
+        symbol.returnType = returnType;
+      }
       if (description) {
         symbol.description = description;
       }
