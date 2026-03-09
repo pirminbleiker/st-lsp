@@ -1,3 +1,15 @@
+# [1.7.0](https://github.com/pirminbleiker/st-lsp/compare/v1.6.0...v1.7.0) (2026-03-09)
+
+
+### Bug Fixes
+
+* distinguish FUNCTION from FUNCTION_BLOCK in compiled libraries (#sl-d3a) ([#1](https://github.com/pirminbleiker/st-lsp/issues/1)) ([db3795d](https://github.com/pirminbleiker/st-lsp/commit/db3795d6f634ee3467307c7ce9d4e4c392891fb1)), closes [#sl-d3a](https://github.com/pirminbleiker/st-lsp/issues/sl-d3a)
+
+
+### Features
+
+* **signatureHelp:** show all parameter directions, optional status, return types, and library methods (#sl-p6f) ([#4](https://github.com/pirminbleiker/st-lsp/issues/4)) ([b70fb69](https://github.com/pirminbleiker/st-lsp/commit/b70fb69ec2c49249f62d53163593426f2a3d86a8)), closes [#sl-p6f](https://github.com/pirminbleiker/st-lsp/issues/sl-p6f)
+
 # [1.6.0](https://github.com/pirminbleiker/st-lsp/compare/v1.5.0...v1.6.0) (2026-03-09)
 
 
