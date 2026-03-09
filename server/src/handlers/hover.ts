@@ -309,7 +309,7 @@ export function handleHover(
   if (node.kind === 'MemberExpression') {
     const memberExpr = node as MemberExpression;
     // Build the full qualified name by walking the base chain
-    function buildQualifiedName(expr: MemberExpression): string | null {
+    const buildQualifiedName = (expr: MemberExpression): string | null => {
       if (expr.base.kind === 'NameExpression') {
         return `${(expr.base as NameExpression).name}.${expr.member}`;
       }
@@ -318,7 +318,7 @@ export function handleHover(
         return baseName ? `${baseName}.${expr.member}` : null;
       }
       return null;
-    }
+    };
     const qualifiedName = buildQualifiedName(memberExpr);
     if (qualifiedName?.toUpperCase().startsWith('__SYSTEM.')) {
       const hoverValue = systemNamespaceHover(qualifiedName);
