@@ -38,7 +38,7 @@ import {
 } from '../parser/ast';
 import { BUILTIN_TYPES } from '../twincat/types';
 import { STANDARD_FBS } from '../twincat/stdlib';
-import { SYSTEM_TYPE_NAMES, SYSTEM_FUNCTION_NAMES, TYPE_CONVERSION_NAMES } from '../twincat/systemTypes';
+import { SYSTEM_TYPE_NAMES, SYSTEM_FUNCTION_NAMES, TYPE_CONVERSION_NAMES, SYSTEM_NAMESPACE_NAMES } from '../twincat/systemTypes';
 import { WorkspaceIndex } from '../twincat/workspaceIndex';
 import type { LibraryRef } from '../twincat/projectReader';
 
@@ -119,7 +119,7 @@ export class SemanticAnalyzer {
 	// -----------------------------------------------------------------------
 
 	private buildGlobalNames(): void {
-		this.globalNames = new Set<string>();
+		this.globalNames = new Set<string>(SYSTEM_NAMESPACE_NAMES);
 
 		for (const decl of this.ast.declarations) {
 			if (
@@ -201,6 +201,7 @@ export class SemanticAnalyzer {
 			...BUILTIN_TYPE_NAMES,
 			...STANDARD_FB_NAMES,
 			...SYSTEM_TYPE_NAMES,
+			...SYSTEM_NAMESPACE_NAMES,
 			...this.globalNames,
 			...libraryTypeNames,
 		]);
@@ -808,7 +809,8 @@ function isAllowedName(name: string): boolean {
 		|| STANDARD_FB_NAMES.has(upper)
 		|| SYSTEM_TYPE_NAMES.has(upper)
 		|| SYSTEM_FUNCTION_NAMES.has(upper)
-		|| TYPE_CONVERSION_NAMES.has(upper);
+		|| TYPE_CONVERSION_NAMES.has(upper)
+		|| SYSTEM_NAMESPACE_NAMES.has(upper);
 }
 
 function findDuplicateVarDeclarations(

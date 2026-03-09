@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { SYSTEM_TYPE_NAMES, SYSTEM_FUNCTION_NAMES, TYPE_CONVERSION_NAMES } from '../twincat/systemTypes';
+import {
+  SYSTEM_TYPE_NAMES,
+  SYSTEM_FUNCTION_NAMES,
+  TYPE_CONVERSION_NAMES,
+  SYSTEM_NAMESPACE_NAMES,
+  SYSTEM_NAMESPACE_MEMBERS,
+  findSystemNamespaceMember,
+} from '../twincat/systemTypes';
 
 describe('SYSTEM_TYPE_NAMES', () => {
   it('contains T_MAXSTRING', () => expect(SYSTEM_TYPE_NAMES.has('T_MAXSTRING')).toBe(true));
@@ -47,5 +54,70 @@ describe('TYPE_CONVERSION_NAMES', () => {
     for (const name of TYPE_CONVERSION_NAMES) {
       expect(name).toBe(name.toUpperCase());
     }
+  });
+});
+
+describe('SYSTEM_NAMESPACE_NAMES (__SYSTEM built-in types)', () => {
+  it('contains __SYSTEM.IQUERYINTERFACE', () => {
+    expect(SYSTEM_NAMESPACE_NAMES.has('__SYSTEM.IQUERYINTERFACE')).toBe(true);
+  });
+  it('contains __SYSTEM.TYPE_CLASS', () => {
+    expect(SYSTEM_NAMESPACE_NAMES.has('__SYSTEM.TYPE_CLASS')).toBe(true);
+  });
+  it('contains __SYSTEM.EXCEPTIONID', () => {
+    expect(SYSTEM_NAMESPACE_NAMES.has('__SYSTEM.EXCEPTIONID')).toBe(true);
+  });
+  it('contains qualified enum values like __SYSTEM.TYPE_CLASS.TYPE_BOOL', () => {
+    expect(SYSTEM_NAMESPACE_NAMES.has('__SYSTEM.TYPE_CLASS.TYPE_BOOL')).toBe(true);
+    expect(SYSTEM_NAMESPACE_NAMES.has('__SYSTEM.TYPE_CLASS.TYPE_INT')).toBe(true);
+    expect(SYSTEM_NAMESPACE_NAMES.has('__SYSTEM.TYPE_CLASS.TYPE_DINT')).toBe(true);
+    expect(SYSTEM_NAMESPACE_NAMES.has('__SYSTEM.TYPE_CLASS.TYPE_NONE')).toBe(true);
+  });
+  it('contains qualified enum values like __SYSTEM.EXCEPTIONID.DIVIDEBYZERO', () => {
+    expect(SYSTEM_NAMESPACE_NAMES.has('__SYSTEM.EXCEPTIONID.DIVIDEBYZERO')).toBe(true);
+  });
+  it('all names are uppercase', () => {
+    for (const name of SYSTEM_NAMESPACE_NAMES) {
+      expect(name).toBe(name.toUpperCase());
+    }
+  });
+  it('all names start with __SYSTEM.', () => {
+    for (const name of SYSTEM_NAMESPACE_NAMES) {
+      expect(name.startsWith('__SYSTEM.')).toBe(true);
+    }
+  });
+});
+
+describe('SYSTEM_NAMESPACE_MEMBERS catalog', () => {
+  it('includes IQueryInterface as an interface', () => {
+    const iqi = SYSTEM_NAMESPACE_MEMBERS.find(m => m.name === 'IQueryInterface');
+    expect(iqi).toBeDefined();
+    expect(iqi!.kind).toBe('interface');
+  });
+  it('includes TYPE_CLASS as an enum with values', () => {
+    const tc = SYSTEM_NAMESPACE_MEMBERS.find(m => m.name === 'TYPE_CLASS');
+    expect(tc).toBeDefined();
+    expect(tc!.kind).toBe('enum');
+    if (tc!.kind === 'enum') {
+      expect(tc!.values.length).toBeGreaterThan(10);
+    }
+  });
+  it('includes ExceptionId as an enum', () => {
+    const ex = SYSTEM_NAMESPACE_MEMBERS.find(m => m.name === 'ExceptionId');
+    expect(ex).toBeDefined();
+    expect(ex!.kind).toBe('enum');
+  });
+});
+
+describe('findSystemNamespaceMember', () => {
+  it('finds IQueryInterface case-insensitively', () => {
+    expect(findSystemNamespaceMember('__SYSTEM.IQueryInterface')).toBeDefined();
+    expect(findSystemNamespaceMember('__system.iqueryinterface')).toBeDefined();
+  });
+  it('finds TYPE_CLASS', () => {
+    expect(findSystemNamespaceMember('__SYSTEM.TYPE_CLASS')).toBeDefined();
+  });
+  it('returns undefined for unknown members', () => {
+    expect(findSystemNamespaceMember('__SYSTEM.NONEXISTENT')).toBeUndefined();
   });
 });

@@ -1106,6 +1106,14 @@ END_PROGRAM`;
     expect(errors).toHaveLength(0);
   });
 
+  it('__SYSTEM.IQueryInterface in EXTENDS does not produce unresolved-type warning', () => {
+    const src = `INTERFACE I_Foo EXTENDS __SYSTEM.IQueryInterface
+END_INTERFACE`;
+    const diags = getDiagnostics(src);
+    const typeErrors = diags.filter(d => d.message.includes('Cannot resolve type'));
+    expect(typeErrors).toHaveLength(0);
+  });
+
   it('inlineEnum_membersInScope: inline enum member names do not produce undefined-identifier errors', () => {
     const src = `PROGRAM Main
 VAR

@@ -7,6 +7,7 @@
  *   - TwinCAT system types (T_MAXSTRING, PVOID, TIMESTRUCT, etc.)
  *   - Compiler intrinsics (__NEW, __DELETE, ADR, SIZEOF, etc.)
  *   - Auto-generated IEC type conversion functions (DINT_TO_UDINT, etc.)
+ *   - __SYSTEM namespace types (IQueryInterface, ExceptionId, TYPE_CLASS, etc.)
  */
 
 export interface SystemStructField {
@@ -193,3 +194,140 @@ function generateTypeConversionNames(): Set<string> {
 }
 
 export const TYPE_CONVERSION_NAMES: ReadonlySet<string> = generateTypeConversionNames();
+
+// ── __SYSTEM namespace built-in types ─────────────────────────────────────
+
+export interface SystemEnumValue {
+  name: string;
+  description: string;
+}
+
+export interface SystemNamespaceInterface {
+  kind: 'interface';
+  name: string;
+  description: string;
+  methods?: readonly { name: string; description: string; returnType?: string }[];
+}
+
+export interface SystemNamespaceEnum {
+  kind: 'enum';
+  name: string;
+  description: string;
+  values: readonly SystemEnumValue[];
+}
+
+export type SystemNamespaceMember = SystemNamespaceInterface | SystemNamespaceEnum;
+
+/**
+ * __SYSTEM is TwinCAT's built-in namespace. It provides interfaces and enums
+ * that are always available without any library reference.
+ */
+export const SYSTEM_NAMESPACE_MEMBERS: readonly SystemNamespaceMember[] = [
+  // __SYSTEM.IQueryInterface — the root OOP interface in TwinCAT
+  {
+    kind: 'interface',
+    name: 'IQueryInterface',
+    description: 'TwinCAT root OOP interface — base for all COM-style interface queries via __QUERYINTERFACE.',
+    methods: [
+      { name: 'TcQueryInterface', description: 'Queries whether this object supports the given interface ID.', returnType: 'HRESULT' },
+    ],
+  },
+  // __SYSTEM.ExceptionId — runtime exception codes
+  {
+    kind: 'enum',
+    name: 'ExceptionId',
+    description: 'TwinCAT runtime exception identifier codes.',
+    values: [
+      { name: 'CYCLETIMEEXCEEDED', description: 'Cycle time exceeded.' },
+      { name: 'WATCHDOGEXCEEDED', description: 'Watchdog exceeded.' },
+      { name: 'HARDWAREEXCEPTION', description: 'Hardware exception occurred.' },
+      { name: 'DIVIDEBYZERO', description: 'Division by zero.' },
+      { name: 'STACKOVERFLOWEXCEPTION', description: 'Stack overflow.' },
+      { name: 'ACCESSVIOLATION', description: 'Access violation (invalid pointer).' },
+      { name: 'INVALIDFLOATINGPOINTOPERATION', description: 'Invalid floating-point operation.' },
+      { name: 'FLOATINGPOINTOVERFLOW', description: 'Floating-point overflow.' },
+      { name: 'FLOATINGPOINTUNDERFLOW', description: 'Floating-point underflow.' },
+      { name: 'RAMPAGECALL', description: 'Rampage call exception.' },
+    ],
+  },
+  // __SYSTEM.TYPE_CLASS — type classification enum
+  {
+    kind: 'enum',
+    name: 'TYPE_CLASS',
+    description: 'TwinCAT type classification enum — used to identify variable types at runtime.',
+    values: [
+      { name: 'TYPE_BOOL', description: 'BOOL type.' },
+      { name: 'TYPE_BYTE', description: 'BYTE type.' },
+      { name: 'TYPE_WORD', description: 'WORD type.' },
+      { name: 'TYPE_DWORD', description: 'DWORD type.' },
+      { name: 'TYPE_LWORD', description: 'LWORD type.' },
+      { name: 'TYPE_SINT', description: 'SINT type.' },
+      { name: 'TYPE_INT', description: 'INT type.' },
+      { name: 'TYPE_DINT', description: 'DINT type.' },
+      { name: 'TYPE_LINT', description: 'LINT type.' },
+      { name: 'TYPE_USINT', description: 'USINT type.' },
+      { name: 'TYPE_UINT', description: 'UINT type.' },
+      { name: 'TYPE_UDINT', description: 'UDINT type.' },
+      { name: 'TYPE_ULINT', description: 'ULINT type.' },
+      { name: 'TYPE_REAL', description: 'REAL type.' },
+      { name: 'TYPE_LREAL', description: 'LREAL type.' },
+      { name: 'TYPE_STRING', description: 'STRING type.' },
+      { name: 'TYPE_WSTRING', description: 'WSTRING type.' },
+      { name: 'TYPE_TIME', description: 'TIME type.' },
+      { name: 'TYPE_DATE', description: 'DATE type.' },
+      { name: 'TYPE_DATEANDTIME', description: 'DATE_AND_TIME / DT type.' },
+      { name: 'TYPE_TIMEOFDAY', description: 'TIME_OF_DAY / TOD type.' },
+      { name: 'TYPE_POINTER', description: 'Pointer type.' },
+      { name: 'TYPE_REFERENCE', description: 'Reference type.' },
+      { name: 'TYPE_SUBRANGE', description: 'Subrange type.' },
+      { name: 'TYPE_ENUM', description: 'Enumeration type.' },
+      { name: 'TYPE_STRUCT', description: 'Structure type.' },
+      { name: 'TYPE_ALIAS', description: 'Alias type.' },
+      { name: 'TYPE_FUNCTIONBLOCK', description: 'Function block type.' },
+      { name: 'TYPE_ARRAY', description: 'Array type.' },
+      { name: 'TYPE_INTERFACE', description: 'Interface type.' },
+      { name: 'TYPE_LTIME', description: 'LTIME type.' },
+      { name: 'TYPE_BITARR', description: 'Bit-array type.' },
+      { name: 'TYPE_XINT', description: 'Platform-native integer type.' },
+      { name: 'TYPE_UXINT', description: 'Platform-native unsigned integer type.' },
+      { name: 'TYPE_XWORD', description: 'Platform-native word type.' },
+      { name: 'TYPE_NONE', description: 'No type / uninitialized.' },
+    ],
+  },
+];
+
+// ── __SYSTEM qualified name lookups ───────────────────────────────────────
+
+/**
+ * Set of all qualified __SYSTEM names (uppercase) for type/identifier resolution.
+ * Includes:
+ *   - `__SYSTEM.IQUERYINTERFACE`
+ *   - `__SYSTEM.TYPE_CLASS`
+ *   - `__SYSTEM.TYPE_CLASS.TYPE_BOOL` (enum members via parent)
+ *   - `__SYSTEM.EXCEPTIONID`
+ *   - `__SYSTEM.EXCEPTIONID.DIVIDEBYZERO` (enum members via parent)
+ */
+function buildSystemNamespaceNames(): Set<string> {
+  const names = new Set<string>();
+  for (const member of SYSTEM_NAMESPACE_MEMBERS) {
+    const qualifiedName = `__SYSTEM.${member.name}`.toUpperCase();
+    names.add(qualifiedName);
+    if (member.kind === 'enum') {
+      for (const val of member.values) {
+        names.add(`${qualifiedName}.${val.name}`.toUpperCase());
+      }
+    }
+  }
+  return names;
+}
+
+export const SYSTEM_NAMESPACE_NAMES: ReadonlySet<string> = buildSystemNamespaceNames();
+
+const SYSTEM_NAMESPACE_MEMBER_MAP: ReadonlyMap<string, SystemNamespaceMember> = new Map(
+  SYSTEM_NAMESPACE_MEMBERS.map(m => [`__SYSTEM.${m.name}`.toUpperCase(), m]),
+);
+
+/** Find a __SYSTEM namespace member by qualified name (case-insensitive). */
+export function findSystemNamespaceMember(qualifiedName: string): SystemNamespaceMember | undefined {
+  return SYSTEM_NAMESPACE_MEMBER_MAP.get(qualifiedName.toUpperCase());
+}
