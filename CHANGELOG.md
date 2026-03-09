@@ -1,3 +1,10 @@
+# [1.4.0](https://github.com/pirminbleiker/st-lsp/compare/v1.3.0...v1.4.0) (2026-03-09)
+
+
+### Features
+
+* **index:** filter library indexing by plcproj libraryRefs (#sl-cl1) ([d986c5e](https://github.com/pirminbleiker/st-lsp/commit/d986c5e1f5885e49395f3b71382b7465f8d8fb3e)), closes [#sl-cl1](https://github.com/pirminbleiker/st-lsp/issues/sl-cl1)
+
 # [1.3.0](https://github.com/pirminbleiker/st-lsp/compare/v1.2.0...v1.3.0) (2026-03-09)
 
 
