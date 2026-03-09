@@ -53,3 +53,82 @@ Variables declared in the current POU's `VAR` sections are offered as completion
 ## Triggering Completion
 
 Completion triggers automatically after typing or can be invoked manually with `Ctrl+Space`.
+
+The server registers two trigger characters:
+
+- **`.` (dot)** — triggers member completion on function blocks, structs, and enums
+- **`:` (colon)** — triggers enum-aware completion after `:=`
+
+## Member Completion
+
+Typing `.` after a variable shows members of its resolved type.
+
+```iecst
+VAR
+  fbMotor : FB_Motor;
+END_VAR
+fbMotor.  (* shows VAR_INPUT, VAR_OUTPUT, VAR_IN_OUT, methods, and properties *)
+```
+
+The server resolves the identifier before the dot, looks up its type, and returns matching members. This works through chains of nested types:
+
+```iecst
+fbMotor.stConfig.nMaxSpeed  (* resolves FB_Motor → stConfig's type → nMaxSpeed *)
+```
+
+Pointer dereference syntax is also supported — `myPtr^.` dereferences the pointer first, then shows members of the pointed-to type.
+
+### Visibility Filtering
+
+Access modifiers control which members appear depending on the access context:
+
+| Modifier | External (`fbVar.`) | `SUPER^.` | `THIS^.` |
+|----------|---------------------|-----------|----------|
+| *(none / public)* | Visible | Visible | Visible |
+| `INTERNAL` | Visible | Visible | Visible |
+| `PROTECTED` | Hidden | Visible | Visible |
+| `PRIVATE` | Hidden | Hidden | Visible |
+
+- **External access** (`fbVar.`) only shows `VAR_INPUT`, `VAR_OUTPUT`, `VAR_IN_OUT`, and public methods/properties. Internal variables and private/protected members are excluded.
+- **`THIS^.`** shows all own members plus inherited members (excluding inherited `PRIVATE` members).
+
+### SUPER^ Completion
+
+Inside a function block that uses `EXTENDS`, typing `SUPER^.` shows members inherited from the parent:
+
+```iecst
+FUNCTION_BLOCK FB_Child EXTENDS FB_Parent
+VAR END_VAR
+  SUPER^.  (* shows FB_Parent's members, walking up the EXTENDS chain *)
+END_FUNCTION_BLOCK
+```
+
+`SUPER^` walks the entire inheritance chain recursively — grandparent members are included. `PRIVATE` members from parent FBs are excluded, but `PROTECTED` members are visible. `FINAL` methods appear normally (they are callable, just not overridable).
+
+## Enum-Aware Completion
+
+### After `:=` Assignment
+
+When the left-hand side of `:=` is an enum-typed variable, completion offers only the matching enum values instead of the usual keyword list:
+
+```iecst
+TYPE
+  E_Color : (Red, Green, Blue);
+END_TYPE
+VAR
+  eColor : E_Color;
+END_VAR
+eColor :=   (* shows E_Color.Red, E_Color.Green, E_Color.Blue — no keywords *)
+```
+
+### Inside CASE Blocks
+
+When a `CASE` selector variable has an enum type, completion inside the `CASE` body offers the enum values:
+
+```iecst
+CASE eColor OF
+  (* completion here shows E_Color.Red, E_Color.Green, E_Color.Blue *)
+END_CASE
+```
+
+For non-enum variables, the standard keyword and variable completions are returned as usual.
