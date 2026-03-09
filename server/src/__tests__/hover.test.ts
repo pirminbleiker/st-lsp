@@ -797,3 +797,41 @@ describe('hover over library symbol with metadata', () => {
     }
   });
 });
+
+describe('__SYSTEM namespace hover', () => {
+  it('hover on __SYSTEM shows namespace info', () => {
+    const src = [
+      'PROGRAM Main',
+      'VAR x : INT; END_VAR',
+      '  x := __SYSTEM.TYPE_CLASS;',
+      'END_PROGRAM',
+    ].join('\n');
+    const doc = makeDoc(src);
+    // Line 2: "  x := __SYSTEM.TYPE_CLASS;" — __SYSTEM starts at char 7
+    const result = handleHover(makeParams(doc.uri, 2, 9), doc);
+    expect(result).not.toBeNull();
+    if (result) {
+      const contents = result.contents as { kind: string; value: string };
+      expect(contents.value).toContain('NAMESPACE');
+      expect(contents.value).toContain('__SYSTEM');
+    }
+  });
+
+  it('hover on TYPE_CLASS in __SYSTEM.TYPE_CLASS shows enum info', () => {
+    const src = [
+      'PROGRAM Main',
+      'VAR x : INT; END_VAR',
+      '  x := __SYSTEM.TYPE_CLASS;',
+      'END_PROGRAM',
+    ].join('\n');
+    const doc = makeDoc(src);
+    // Line 2: "  x := __SYSTEM.TYPE_CLASS;" — TYPE_CLASS starts at char 16
+    const result = handleHover(makeParams(doc.uri, 2, 20), doc);
+    expect(result).not.toBeNull();
+    if (result) {
+      const contents = result.contents as { kind: string; value: string };
+      expect(contents.value).toContain('ENUM');
+      expect(contents.value).toContain('TYPE_CLASS');
+    }
+  });
+});

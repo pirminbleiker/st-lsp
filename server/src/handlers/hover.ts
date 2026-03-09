@@ -15,6 +15,7 @@ import { TextDocument } from 'vscode-languageserver-textdocument';
 import {
   EnumDeclaration,
   FunctionBlockDeclaration,
+  MemberExpression,
   NameExpression,
   Pragma,
   SourceFile,
@@ -29,7 +30,7 @@ import { findNodeAtPosition } from '../parser/visitor';
 import { getOrParse } from './shared';
 import { builtinTypeHover, findBuiltinType } from '../twincat/types';
 import { findStandardFB, standardFBHover } from '../twincat/stdlib';
-import { findSystemType } from '../twincat/systemTypes';
+import { findSystemType, findSystemNamespaceMember } from '../twincat/systemTypes';
 import { findPragmaDoc, pragmaHover } from '../twincat/pragmas';
 import { WorkspaceIndex } from '../twincat/workspaceIndex';
 import { LibrarySymbol, LibraryParam } from '../twincat/libraryZipReader';
@@ -211,6 +212,45 @@ function renderLibrarySymbolHover(
   return lines.join('\n');
 }
 
+/**
+ * Return hover markdown for a __SYSTEM.* qualified name, or null if not found.
+ * Handles both namespace members (__SYSTEM.TYPE_CLASS) and enum values
+ * (__SYSTEM.TYPE_CLASS.TYPE_BOOL).
+ */
+function systemNamespaceHover(qualifiedName: string): string | null {
+  const member = findSystemNamespaceMember(qualifiedName);
+  if (member) {
+    if (member.kind === 'interface') {
+      let value = `**INTERFACE** \`__SYSTEM.${member.name}\`\n\n*TwinCAT System Namespace*\n\n${member.description}`;
+      if (member.methods?.length) {
+        value += '\n\n**Methods**';
+        for (const m of member.methods) {
+          value += `\n- \`${m.name}()\`${m.returnType ? ` : \`${m.returnType}\`` : ''} — ${m.description}`;
+        }
+      }
+      return value;
+    }
+    let value = `**ENUM** \`__SYSTEM.${member.name}\`\n\n*TwinCAT System Namespace*\n\n${member.description}`;
+    if (member.values.length) {
+      const vals = member.values.map(v => `  ${v.name}`).join('\n');
+      value += `\n\`\`\`\n(\n${vals}\n)\n\`\`\``;
+    }
+    return value;
+  }
+  // Check for enum member (e.g. __SYSTEM.TYPE_CLASS.TYPE_BOOL)
+  const dotParts = qualifiedName.split('.');
+  if (dotParts.length === 3) {
+    const parentMember = findSystemNamespaceMember(`${dotParts[0]}.${dotParts[1]}`);
+    if (parentMember?.kind === 'enum') {
+      const enumVal = parentMember.values.find(v => v.name.toUpperCase() === dotParts[2].toUpperCase());
+      if (enumVal) {
+        return `\`__SYSTEM.${parentMember.name}.${enumVal.name}\`\n\n*${parentMember.name} enum value*\n\n${enumVal.description}`;
+      }
+    }
+  }
+  return null;
+}
+
 // ---------------------------------------------------------------------------
 // Main hover handler
 // ---------------------------------------------------------------------------
@@ -265,10 +305,52 @@ export function handleHover(
     };
   }
 
+  // Handle MemberExpression for __SYSTEM.* hover (e.g. hovering on "TYPE_CLASS" in __SYSTEM.TYPE_CLASS)
+  if (node.kind === 'MemberExpression') {
+    const memberExpr = node as MemberExpression;
+    // Build the full qualified name by walking the base chain
+    function buildQualifiedName(expr: MemberExpression): string | null {
+      if (expr.base.kind === 'NameExpression') {
+        return `${(expr.base as NameExpression).name}.${expr.member}`;
+      }
+      if (expr.base.kind === 'MemberExpression') {
+        const baseName = buildQualifiedName(expr.base as MemberExpression);
+        return baseName ? `${baseName}.${expr.member}` : null;
+      }
+      return null;
+    }
+    const qualifiedName = buildQualifiedName(memberExpr);
+    if (qualifiedName?.toUpperCase().startsWith('__SYSTEM.')) {
+      const hoverValue = systemNamespaceHover(qualifiedName);
+      if (hoverValue) {
+        return { contents: { kind: MarkupKind.Markdown, value: hoverValue }, range: nodeRange() };
+      }
+    }
+    return null;
+  }
+
   // We only produce hover for NameExpression nodes (identifiers)
   if (node.kind !== 'NameExpression') return null;
   const name = (node as NameExpression).name;
   if (!name) return null;
+
+  // 0. __SYSTEM namespace hover
+  const upperName = name.toUpperCase();
+  if (upperName === '__SYSTEM') {
+    return {
+      contents: {
+        kind: MarkupKind.Markdown,
+        value: '**NAMESPACE** `__SYSTEM`\n\n*TwinCAT built-in namespace*\n\nProvides runtime interfaces and type enumerations (IQueryInterface, TYPE_CLASS, ExceptionId).',
+      },
+      range: nodeRange(),
+    };
+  }
+  if (upperName.startsWith('__SYSTEM.')) {
+    const hoverValue = systemNamespaceHover(name);
+    if (hoverValue) {
+      return { contents: { kind: MarkupKind.Markdown, value: hoverValue }, range: nodeRange() };
+    }
+  }
 
   // 1. Check library symbols from workspace index
   if (workspaceIndex) {

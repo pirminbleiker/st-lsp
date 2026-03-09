@@ -24,7 +24,7 @@ import {
   VarDeclaration,
 } from '../parser/ast';
 import { findStandardFB } from '../twincat/stdlib';
-import { findSystemType } from '../twincat/systemTypes';
+import { findSystemType, SYSTEM_NAMESPACE_MEMBERS, findSystemNamespaceMember, SystemNamespaceMember } from '../twincat/systemTypes';
 import { WorkspaceIndex } from '../twincat/workspaceIndex';
 import { LibrarySymbol } from '../twincat/libraryZipReader';
 import { parse } from '../parser/parser';
@@ -532,6 +532,30 @@ export function getMembersFromDeclarations(
 }
 
 /**
+ * Return completion items for members of a __SYSTEM namespace member.
+ * For enums, returns enum values; for interfaces, returns methods.
+ */
+function getSystemNamespaceMemberCompletions(member: SystemNamespaceMember): CompletionItem[] {
+  if (member.kind === 'enum') {
+    return member.values.map(v => ({
+      label: v.name,
+      kind: CompletionItemKind.EnumMember,
+      detail: `${member.name}.${v.name}`,
+      documentation: v.description,
+    }));
+  }
+  if (member.kind === 'interface' && member.methods) {
+    return member.methods.map(m => ({
+      label: m.name,
+      kind: CompletionItemKind.Method,
+      detail: m.returnType ?? 'void',
+      documentation: m.description,
+    }));
+  }
+  return [];
+}
+
+/**
  * Resolve dot-access members for the expression `expression` (may be a dotted
  * chain like "myFb.inner"):
  *   1. Resolve the first segment as a local variable.
@@ -549,6 +573,28 @@ export function getDotAccessMembers(
   workspaceIndex?: WorkspaceIndex,
 ): CompletionItem[] | null {
   const parts = expression.split('.');
+
+  // Handle __SYSTEM namespace: __SYSTEM. → list namespace members,
+  // __SYSTEM.TYPE_CLASS. → list enum values, etc.
+  if (parts[0].toUpperCase() === '__SYSTEM') {
+    if (parts.length === 1) {
+      // __SYSTEM. → list all namespace members
+      return SYSTEM_NAMESPACE_MEMBERS.map(m => ({
+        label: m.name,
+        kind: m.kind === 'enum' ? CompletionItemKind.Enum : CompletionItemKind.Interface,
+        detail: m.description,
+      }));
+    }
+    // __SYSTEM.TYPE_CLASS. → resolve the member and return its children
+    const qualifiedName = `__SYSTEM.${parts[1]}`;
+    const member = findSystemNamespaceMember(qualifiedName);
+    if (!member) return null;
+    if (parts.length === 2) {
+      return getSystemNamespaceMemberCompletions(member);
+    }
+    // Deeper chains not supported for __SYSTEM (enum values are terminal)
+    return null;
+  }
 
   // Resolve the first part as a variable
   const vd = vars.find(v => v.name.toUpperCase() === parts[0].toUpperCase());

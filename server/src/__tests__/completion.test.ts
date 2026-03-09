@@ -1613,3 +1613,66 @@ describe('isMemberVisible', () => {
     expect(isMemberVisible(['Private'], 'external')).toBe(false);
   });
 });
+
+describe('__SYSTEM namespace completion', () => {
+  it('__SYSTEM. lists namespace members (TYPE_CLASS, ExceptionId, IQueryInterface)', () => {
+    const src = [
+      'PROGRAM Main',
+      'VAR x : INT; END_VAR',
+      '  x := __SYSTEM.',
+      'END_PROGRAM',
+    ].join('\n');
+    const doc = makeDoc(src);
+    // "  x := __SYSTEM." — dot at pos 15, cursor at 16
+    const items = handleCompletion(makeParams(doc.uri, 2, 16), doc);
+    const labels = items.map(i => i.label);
+    expect(labels).toContain('TYPE_CLASS');
+    expect(labels).toContain('ExceptionId');
+    expect(labels).toContain('IQueryInterface');
+  });
+
+  it('__SYSTEM.TYPE_CLASS. lists enum values', () => {
+    const src = [
+      'PROGRAM Main',
+      'VAR x : INT; END_VAR',
+      '  x := __SYSTEM.TYPE_CLASS.',
+      'END_PROGRAM',
+    ].join('\n');
+    const doc = makeDoc(src);
+    // "  x := __SYSTEM.TYPE_CLASS." — final dot at pos 26, cursor at 27
+    const items = handleCompletion(makeParams(doc.uri, 2, 27), doc);
+    const labels = items.map(i => i.label);
+    expect(labels).toContain('TYPE_BOOL');
+    expect(labels).toContain('TYPE_INT');
+    expect(labels).toContain('TYPE_REAL');
+  });
+
+  it('__SYSTEM.IQueryInterface. lists interface methods', () => {
+    const src = [
+      'PROGRAM Main',
+      'VAR x : INT; END_VAR',
+      '  x := __SYSTEM.IQueryInterface.',
+      'END_PROGRAM',
+    ].join('\n');
+    const doc = makeDoc(src);
+    // "  x := __SYSTEM.IQueryInterface." — dot at pos 31, cursor at 32
+    const items = handleCompletion(makeParams(doc.uri, 2, 32), doc);
+    const labels = items.map(i => i.label);
+    expect(labels).toContain('TcQueryInterface');
+  });
+
+  it('__SYSTEM.ExceptionId. lists enum values', () => {
+    const src = [
+      'PROGRAM Main',
+      'VAR x : INT; END_VAR',
+      '  x := __SYSTEM.ExceptionId.',
+      'END_PROGRAM',
+    ].join('\n');
+    const doc = makeDoc(src);
+    // "  x := __SYSTEM.ExceptionId." — dot at pos 27, cursor at 28
+    const items = handleCompletion(makeParams(doc.uri, 2, 28), doc);
+    const labels = items.map(i => i.label);
+    expect(labels).toContain('DIVIDEBYZERO');
+    expect(labels).toContain('STACKOVERFLOWEXCEPTION');
+  });
+});
