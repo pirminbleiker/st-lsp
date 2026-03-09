@@ -174,8 +174,8 @@ function readVarint(data: Buffer, pos: number): [number, number] {
 function parseIndexedStringTable(data: Buffer): Map<number, string> {
   const entries = new Map<number, string>();
   let pos = 0;
-  let count: number;
-  [count, pos] = readVarint(data, pos);
+  const [count, nextPos] = readVarint(data, pos);
+  pos = nextPos;
 
   for (let i = 0; i < count; i++) {
     if (pos >= data.length) break;
