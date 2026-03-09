@@ -222,7 +222,7 @@ connection.onDocumentSymbol(
 connection.onSignatureHelp(
 	(params: SignatureHelpParams): SignatureHelp | null => {
 		const document = documents.get(params.textDocument.uri);
-		return handleSignatureHelp(params, document);
+		return handleSignatureHelp(params, document, workspaceIndex);
 	}
 );
 
