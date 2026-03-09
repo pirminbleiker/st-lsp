@@ -160,110 +160,112 @@ function buildProjectInfo(name) {
 function generateTc2Standard() {
   // 31 POUs from Tc2_Standard (IEC 61131-3 standard FBs + string functions)
   // Order here determines param block assignment (reversed by guidIndex)
+  // pouKind: 'FunctionBlock' or 'Function' — determines the kind marker in the
+  // param block.  returnType is emitted right after 'Function' for functions.
   const pouDefs = [
-    { name: 'F_TRIG', desc: ' Detects a Falling Edge on signal CLK', params: [
+    { name: 'F_TRIG', pouKind: 'FunctionBlock', desc: ' Detects a Falling Edge on signal CLK', params: [
       { dir: 'Input', comment: ' signal to detect the falling edge', name: 'CLK' },
       { dir: 'Output', name: 'Q' },
     ]},
-    { name: 'R_TRIG', desc: ' Detects a Rising Edge on signal CLK', params: [
+    { name: 'R_TRIG', pouKind: 'FunctionBlock', desc: ' Detects a Rising Edge on signal CLK', params: [
       { dir: 'Input', comment: ' signal to detect the rising edge', name: 'CLK' },
       { dir: 'Output', name: 'Q' },
     ]},
-    { name: 'TON', desc: ' On-Delay Timer function block', params: [
+    { name: 'TON', pouKind: 'FunctionBlock', desc: ' On-Delay Timer function block', params: [
       { dir: 'Input', name: 'IN' }, { dir: 'Input', name: 'PT' },
       { dir: 'Output', name: 'Q' }, { dir: 'Output', name: 'ET' },
     ]},
-    { name: 'TOF', desc: ' Off-Delay Timer function block', params: [
+    { name: 'TOF', pouKind: 'FunctionBlock', desc: ' Off-Delay Timer function block', params: [
       { dir: 'Input', name: 'IN' }, { dir: 'Input', name: 'PT' },
       { dir: 'Output', name: 'Q' }, { dir: 'Output', name: 'ET' },
     ]},
-    { name: 'TP', desc: ' Pulse Timer function block', params: [
+    { name: 'TP', pouKind: 'FunctionBlock', desc: ' Pulse Timer function block', params: [
       { dir: 'Input', name: 'IN' }, { dir: 'Input', name: 'PT' },
       { dir: 'Output', name: 'Q' }, { dir: 'Output', name: 'ET' },
     ]},
-    { name: 'CTU', desc: ' Up Counter function block', params: [
+    { name: 'CTU', pouKind: 'FunctionBlock', desc: ' Up Counter function block', params: [
       { dir: 'Input', name: 'CU' }, { dir: 'Input', name: 'RESET' }, { dir: 'Input', name: 'PV' },
       { dir: 'Output', name: 'Q' }, { dir: 'Output', name: 'CV' },
     ]},
-    { name: 'CTD', desc: ' Down Counter function block', params: [
+    { name: 'CTD', pouKind: 'FunctionBlock', desc: ' Down Counter function block', params: [
       { dir: 'Input', name: 'CD' }, { dir: 'Input', name: 'LOAD' }, { dir: 'Input', name: 'PV' },
       { dir: 'Output', name: 'Q' }, { dir: 'Output', name: 'CV' },
     ]},
-    { name: 'CTUD', desc: ' Up-Down Counter function block', params: [
+    { name: 'CTUD', pouKind: 'FunctionBlock', desc: ' Up-Down Counter function block', params: [
       { dir: 'Input', name: 'CU' }, { dir: 'Input', name: 'CD' },
       { dir: 'Input', name: 'RESET' }, { dir: 'Input', name: 'LOAD' }, { dir: 'Input', name: 'PV' },
       { dir: 'Output', name: 'QU' }, { dir: 'Output', name: 'QD' }, { dir: 'Output', name: 'CV' },
     ]},
-    { name: 'RS', desc: ' RS Flip-Flop (Reset dominant) function block', params: [
+    { name: 'RS', pouKind: 'FunctionBlock', desc: ' RS Flip-Flop (Reset dominant) function block', params: [
       { dir: 'Input', name: 'SET' }, { dir: 'Input', name: 'RESET1' },
       { dir: 'Output', name: 'Q1' },
     ]},
-    { name: 'SR', desc: ' SR Flip-Flop (Set dominant) function block', params: [
+    { name: 'SR', pouKind: 'FunctionBlock', desc: ' SR Flip-Flop (Set dominant) function block', params: [
       { dir: 'Input', name: 'S1' }, { dir: 'Input', name: 'R' },
       { dir: 'Output', name: 'Q1' },
     ]},
-    { name: 'SEMA', desc: ' Semaphore function block', params: [
+    { name: 'SEMA', pouKind: 'FunctionBlock', desc: ' Semaphore function block', params: [
       { dir: 'Input', name: 'CLAIM' }, { dir: 'Input', name: 'RELEASE' },
       { dir: 'Output', name: 'BUSY' },
     ]},
-    { name: 'LTON', desc: ' On-Delay Timer (LTIME) function block', params: [
+    { name: 'LTON', pouKind: 'FunctionBlock', desc: ' On-Delay Timer (LTIME) function block', params: [
       { dir: 'Input', name: 'IN' }, { dir: 'Input', name: 'PT' },
       { dir: 'Output', name: 'Q' }, { dir: 'Output', name: 'ET' },
     ]},
-    { name: 'LTOF', desc: ' Off-Delay Timer (LTIME) function block', params: [
+    { name: 'LTOF', pouKind: 'FunctionBlock', desc: ' Off-Delay Timer (LTIME) function block', params: [
       { dir: 'Input', name: 'IN' }, { dir: 'Input', name: 'PT' },
       { dir: 'Output', name: 'Q' }, { dir: 'Output', name: 'ET' },
     ]},
-    { name: 'LTP', desc: ' Pulse Timer (LTIME) function block', params: [
+    { name: 'LTP', pouKind: 'FunctionBlock', desc: ' Pulse Timer (LTIME) function block', params: [
       { dir: 'Input', name: 'IN' }, { dir: 'Input', name: 'PT' },
       { dir: 'Output', name: 'Q' }, { dir: 'Output', name: 'ET' },
     ]},
-    { name: 'LCTU', desc: ' Up Counter (DWORD) function block', params: [
+    { name: 'LCTU', pouKind: 'FunctionBlock', desc: ' Up Counter (DWORD) function block', params: [
       { dir: 'Input', name: 'CU' }, { dir: 'Input', name: 'RESET' }, { dir: 'Input', name: 'PV' },
       { dir: 'Output', name: 'Q' }, { dir: 'Output', name: 'CV' },
     ]},
-    { name: 'LCTD', desc: ' Down Counter (DWORD) function block', params: [
+    { name: 'LCTD', pouKind: 'FunctionBlock', desc: ' Down Counter (DWORD) function block', params: [
       { dir: 'Input', name: 'CD' }, { dir: 'Input', name: 'LOAD' }, { dir: 'Input', name: 'PV' },
       { dir: 'Output', name: 'Q' }, { dir: 'Output', name: 'CV' },
     ]},
-    { name: 'LCTUD', desc: ' Up-Down Counter (DWORD) function block', params: [
+    { name: 'LCTUD', pouKind: 'FunctionBlock', desc: ' Up-Down Counter (DWORD) function block', params: [
       { dir: 'Input', name: 'CU' }, { dir: 'Input', name: 'CD' },
       { dir: 'Input', name: 'RESET' }, { dir: 'Input', name: 'LOAD' }, { dir: 'Input', name: 'PV' },
       { dir: 'Output', name: 'QU' }, { dir: 'Output', name: 'QD' }, { dir: 'Output', name: 'CV' },
     ]},
-    { name: 'CONCAT', desc: ' String concatenation function', params: [
+    { name: 'CONCAT', pouKind: 'Function', returnType: 'STRING', desc: ' String concatenation function', params: [
       { dir: 'Input', name: 'STR1' }, { dir: 'Input', name: 'STR2' },
     ]},
-    { name: 'DELETE', desc: ' Delete characters from string', params: [
+    { name: 'DELETE', pouKind: 'Function', returnType: 'STRING', desc: ' Delete characters from string', params: [
       { dir: 'Input', name: 'STR' }, { dir: 'Input', name: 'LEN' }, { dir: 'Input', name: 'POS' },
     ]},
-    { name: 'FIND', desc: ' Find substring position function', params: [
+    { name: 'FIND', pouKind: 'Function', returnType: 'INT', desc: ' Find substring position function', params: [
       { dir: 'Input', name: 'STR1' }, { dir: 'Input', name: 'STR2' },
     ]},
-    { name: 'INSERT', desc: ' Insert string into another string', params: [
+    { name: 'INSERT', pouKind: 'Function', returnType: 'STRING', desc: ' Insert string into another string', params: [
       { dir: 'Input', name: 'STR1' }, { dir: 'Input', name: 'STR2' }, { dir: 'Input', name: 'POS' },
     ]},
-    { name: 'LEFT', desc: ' Left substring extraction function', params: [
+    { name: 'LEFT', pouKind: 'Function', returnType: 'STRING', desc: ' Left substring extraction function', params: [
       { dir: 'Input', name: 'STR' }, { dir: 'Input', name: 'SIZE' },
     ]},
-    { name: 'LEN', desc: ' String length calculation function', params: [
+    { name: 'LEN', pouKind: 'Function', returnType: 'INT', desc: ' String length calculation function', params: [
       { dir: 'Input', name: 'STR' },
     ]},
-    { name: 'MID', desc: ' Middle substring extraction function', params: [
+    { name: 'MID', pouKind: 'Function', returnType: 'STRING', desc: ' Middle substring extraction function', params: [
       { dir: 'Input', name: 'STR' }, { dir: 'Input', name: 'LEN' }, { dir: 'Input', name: 'POS' },
     ]},
-    { name: 'REPLACE', desc: ' Replace characters in a string', params: [
+    { name: 'REPLACE', pouKind: 'Function', returnType: 'STRING', desc: ' Replace characters in a string', params: [
       { dir: 'Input', name: 'STR1' }, { dir: 'Input', name: 'STR2' },
       { dir: 'Input', name: 'LEN' }, { dir: 'Input', name: 'POS' },
     ]},
-    { name: 'RIGHT', desc: ' Right substring extraction function', params: [
+    { name: 'RIGHT', pouKind: 'Function', returnType: 'STRING', desc: ' Right substring extraction function', params: [
       { dir: 'Input', name: 'STR' }, { dir: 'Input', name: 'SIZE' },
     ]},
-    { name: 'LIMIT', desc: ' Limit value to a given range', params: [] },
-    { name: 'MAX', desc: ' Maximum of two given values', params: [] },
-    { name: 'MIN', desc: ' Minimum of two given values', params: [] },
-    { name: 'MUX', desc: ' Multiplexer selects from inputs', params: [] },
-    { name: 'SEL', desc: ' Binary selector from two values', params: [] },
+    { name: 'LIMIT', pouKind: 'Function', desc: ' Limit value to a given range', params: [] },
+    { name: 'MAX', pouKind: 'Function', desc: ' Maximum of two given values', params: [] },
+    { name: 'MIN', pouKind: 'Function', desc: ' Minimum of two given values', params: [] },
+    { name: 'MUX', pouKind: 'Function', desc: ' Multiplexer selects from inputs', params: [] },
+    { name: 'SEL', pouKind: 'Function', desc: ' Binary selector from two values', params: [] },
   ];
 
   const NULL_UUID_IDX = 1;
@@ -298,6 +300,16 @@ function generateTc2Standard() {
 
     if (pou.desc) {
       stEntries.push([paramIdx++, pou.desc]);
+    }
+
+    // POU kind marker ('FunctionBlock' or 'Function')
+    if (pou.pouKind) {
+      stEntries.push([paramIdx++, pou.pouKind]);
+    }
+
+    // Return type (for functions)
+    if (pou.returnType) {
+      stEntries.push([paramIdx++, pou.returnType]);
     }
 
     // Build param entries
@@ -442,6 +454,7 @@ function generateTc3JsonXml() {
   for (const fbName of reversedFBs) {
     stEntries.push([paramIdx++, "''DOCU"]);
     stEntries.push([paramIdx++, ` ${fbName} function block description`]);
+    stEntries.push([paramIdx++, 'FunctionBlock']);
   }
 
   const stringTableData = buildStringTable(stEntries);

@@ -92,6 +92,42 @@ describe('compiled library extraction (Tc2_Standard)', () => {
     }
   });
 
+  it('distinguishes FUNCTION from FUNCTION_BLOCK', () => {
+    const ftrig = index.symbols.find(s => s.name === 'F_TRIG');
+    expect(ftrig!.kind).toBe('functionBlock');
+
+    const ton = index.symbols.find(s => s.name === 'TON');
+    expect(ton!.kind).toBe('functionBlock');
+
+    const concat = index.symbols.find(s => s.name === 'CONCAT');
+    expect(concat!.kind).toBe('function');
+
+    const len = index.symbols.find(s => s.name === 'LEN');
+    expect(len!.kind).toBe('function');
+
+    const find = index.symbols.find(s => s.name === 'FIND');
+    expect(find!.kind).toBe('function');
+  });
+
+  it('functions have returnType', () => {
+    const concat = index.symbols.find(s => s.name === 'CONCAT');
+    expect(concat!.returnType).toBe('STRING');
+
+    const find = index.symbols.find(s => s.name === 'FIND');
+    expect(find!.returnType).toBe('INT');
+
+    const len = index.symbols.find(s => s.name === 'LEN');
+    expect(len!.returnType).toBe('INT');
+  });
+
+  it('function blocks do not have returnType', () => {
+    const ftrig = index.symbols.find(s => s.name === 'F_TRIG');
+    expect(ftrig!.returnType).toBeUndefined();
+
+    const ton = index.symbols.find(s => s.name === 'TON');
+    expect(ton!.returnType).toBeUndefined();
+  });
+
   it('F_TRIG CLK input has type BOOL', () => {
     const ftrig = index.symbols.find(s => s.name === 'F_TRIG');
     const clk = ftrig!.inputs!.find(p => p.name === 'CLK');
