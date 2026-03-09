@@ -1,3 +1,42 @@
+# [1.2.0](https://github.com/pirminbleiker/st-lsp/compare/v1.1.4...v1.2.0) (2026-03-09)
+
+
+### Bug Fixes
+
+* build server bundle so serverStartup test passes; add SJSONVALUE type ([2fbe8d0](https://github.com/pirminbleiker/st-lsp/commit/2fbe8d0339712c9f242343a6fef14a39c8c5059a))
+* **diagnostics:** allow trailing semicolons after control structures like END_IF ([7c150c1](https://github.com/pirminbleiker/st-lsp/commit/7c150c16a3f839265ffe7b9349a1174558cbdf68))
+* **diagnostics:** downgrade undefined identifier errors to warnings ([95b840b](https://github.com/pirminbleiker/st-lsp/commit/95b840b0ee691440530355dc1c1eeb3f1dde0b9b))
+* **diagnostics:** downgrade unresolvable EXTENDS to Warning + suppress inherited member errors ([354c227](https://github.com/pirminbleiker/st-lsp/commit/354c227423466129cb98f8b4473c80c5b56959ef))
+* **extractor:** correct startLine for inline CDATA in method implementations ([57d9cae](https://github.com/pirminbleiker/st-lsp/commit/57d9cae665a8755052b13bffaa832509e31a2c57))
+* **lint:** use const for non-reassigned count variable ([2c486d9](https://github.com/pirminbleiker/st-lsp/commit/2c486d91827641c366a944b23938634d9d0460c7))
+* **test:** add compiled library fixtures and fix test paths ([73a2b19](https://github.com/pirminbleiker/st-lsp/commit/73a2b1979b26f1cbd5adbdde05f4d4cf2c397592))
+* **test:** add Dictionary.TcPOU fixture to repo for CI ([523ea44](https://github.com/pirminbleiker/st-lsp/commit/523ea4416824105a2ccf8b6dc78c8e9df8099e38))
+* **test:** add Dictionary.TcPOU fixture to repo for CI (#sl-oao) ([33a5586](https://github.com/pirminbleiker/st-lsp/commit/33a55867e84a19664b7f65370d2b240ea2bf1ae2)), closes [#sl-oao](https://github.com/pirminbleiker/st-lsp/issues/sl-oao)
+* **test:** prevent serverStartup.test.ts 15s timeout ([24f9391](https://github.com/pirminbleiker/st-lsp/commit/24f9391b1433854d201175c6decb7b54cebef0d1))
+* **tests:** lazy-generate compiled library fixtures before test runs ([499215d](https://github.com/pirminbleiker/st-lsp/commit/499215d7b249998ec3e37ebf34596c36bd941bad))
+
+
+### Features
+
+* add virtual structured text view for TcPOU files ([82b3f6f](https://github.com/pirminbleiker/st-lsp/commit/82b3f6f3273c16b819eb2ad41f166c4c9c106da1))
+* **completion:** add isMemberVisible helper and filter external dot-access ([2ad9ee7](https://github.com/pirminbleiker/st-lsp/commit/2ad9ee751ae5e714e083be76f0c5a76d3e9a1e3c))
+* **completion:** add unqualified local completion for own methods/properties/actions ([9c3f413](https://github.com/pirminbleiker/st-lsp/commit/9c3f413127393629d64e975a3708f8591b9ed043))
+* **completion:** fix THIS^ and SUPER^ completion with inheritance + visibility ([f747640](https://github.com/pirminbleiker/st-lsp/commit/f747640ea3f74bc70ff36a4d842a01056c622b2d))
+* implement compound logical operators AND_THEN and OR_ELSE ([e67b480](https://github.com/pirminbleiker/st-lsp/commit/e67b480cf3fa3f6bcfd04d64cd7a795f6840570e))
+* implement phase 1 of false-positive LSP error fixes ([5bc7bb2](https://github.com/pirminbleiker/st-lsp/commit/5bc7bb2f4f1659a6496c9ca7e534d7f7f601fd26))
+* implement phases 2 and 3 of false-positive LSP error fixes (bd-1ba, bd-2b4) ([7e94c30](https://github.com/pirminbleiker/st-lsp/commit/7e94c3086af722770c68609b9a89d15646b447a8))
+* implement phases 4 and 5 of false-positive LSP error fixes (bd-37h, bd-27c) ([4639163](https://github.com/pirminbleiker/st-lsp/commit/4639163c6d01b370a4fdd14f481699bdee5afe46))
+* implement phases 5 to 9 of false-positive LSP error fixes ([fb2724a](https://github.com/pirminbleiker/st-lsp/commit/fb2724a571504a507e3d548609cf8a91ebba0299))
+* **lsp:** repopulate WorkspaceIndex cache on document change ([993e139](https://github.com/pirminbleiker/st-lsp/commit/993e1398d0e48939224ddb66331b27979ebfbdf1))
+* **lsp:** surface extracted types in hover and completion ([0229a0f](https://github.com/pirminbleiker/st-lsp/commit/0229a0f118f531b83c277bdc0f76adf5ac7703b0))
+* **parser:** introduce AST visitor pattern to eliminate switch-on-kind duplication (sl-2ht) ([049992a](https://github.com/pirminbleiker/st-lsp/commit/049992a088e23181fb96bf05806cfc108fbc814f))
+* **plans:** add detailed plans for extracting data types and improving completion visibility ([b98ee40](https://github.com/pirminbleiker/st-lsp/commit/b98ee40d4478cd891bc7fac1aaa0fd0ce61eff44))
+* **syntax:** add TextMate grammar for bracket scoping in strings ([d118d29](https://github.com/pirminbleiker/st-lsp/commit/d118d29212803302cbcf7941c565a70e8c67bf2d))
+* **tests:** add reference counting tests for CodeLens ([e28c984](https://github.com/pirminbleiker/st-lsp/commit/e28c9845dd9c8ca2c607b63b707aec4ef6d5a3fe))
+* **tools:** add analyze-type-varints.js for type correlation research ([b217704](https://github.com/pirminbleiker/st-lsp/commit/b2177048f2be8bb212e362a38eeb45f87d371ede))
+* **twincat:** add system types and intrinsics catalog ([24bc6a5](https://github.com/pirminbleiker/st-lsp/commit/24bc6a58244b0f43832765f25bc8e1e10e711422))
+* **twincat:** add type registry for compiled library parameter types ([7a7e6c5](https://github.com/pirminbleiker/st-lsp/commit/7a7e6c57f655ae6c897b45760051141ae0ca6219))
+
 ## [1.1.4](https://github.com/pirminbleiker/st-lsp/compare/v1.1.3...v1.1.4) (2026-02-28)
 
 
