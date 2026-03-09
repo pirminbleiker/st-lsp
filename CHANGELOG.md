@@ -1,3 +1,10 @@
+# [1.6.0](https://github.com/pirminbleiker/st-lsp/compare/v1.5.0...v1.6.0) (2026-03-09)
+
+
+### Features
+
+* resolve compiled libraries from TwinCAT installation path (#sl-ait) ([74ebbb4](https://github.com/pirminbleiker/st-lsp/commit/74ebbb40b70128bb0e85d08db748b2875b368884)), closes [#sl-ait](https://github.com/pirminbleiker/st-lsp/issues/sl-ait)
+
 # [1.5.0](https://github.com/pirminbleiker/st-lsp/compare/v1.4.0...v1.5.0) (2026-03-09)
 
 
