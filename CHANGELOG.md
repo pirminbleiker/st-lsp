@@ -1,3 +1,10 @@
+# [1.3.0](https://github.com/pirminbleiker/st-lsp/compare/v1.2.0...v1.3.0) (2026-03-09)
+
+
+### Features
+
+* **lexer:** make POINTER and REFERENCE proper keywords (#sl-cxa) ([50647e0](https://github.com/pirminbleiker/st-lsp/commit/50647e0d249e1292ff4c1eea2b6d063ad99eb076)), closes [#sl-cxa](https://github.com/pirminbleiker/st-lsp/issues/sl-cxa)
+
 # [1.2.0](https://github.com/pirminbleiker/st-lsp/compare/v1.1.4...v1.2.0) (2026-03-09)
 
 
