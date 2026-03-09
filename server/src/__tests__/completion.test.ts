@@ -1567,6 +1567,99 @@ myTimer.`;
   });
 });
 
+describe('Library EXTENDS chain member resolution', () => {
+  it('shows inherited members from library parent via THIS.', () => {
+    const src = `FUNCTION_BLOCK MyTest EXTENDS FB_TestSuite
+VAR
+END_VAR
+THIS.
+END_FUNCTION_BLOCK`;
+    const parentSymbol: LibrarySymbol = {
+      name: 'FB_TestSuite',
+      kind: 'functionBlock',
+      namespace: 'TcUnit',
+      inputs: [],
+      outputs: [],
+      methods: [
+        { name: 'AssertEquals', returnType: 'BOOL' },
+        { name: 'AssertTrue', returnType: 'BOOL' },
+      ],
+    };
+    const mockIndex = makeMockIndexWithLibs(
+      [{ name: 'TcUnit' }],
+      [parentSymbol],
+    );
+    const doc = makeDoc(src);
+    // cursor after "THIS." at line 3, character 5
+    const items = handleCompletion(makeParams(doc.uri, 3, 5), doc, mockIndex);
+    const labels = items.map(i => i.label);
+    expect(labels).toContain('AssertEquals');
+    expect(labels).toContain('AssertTrue');
+  });
+
+  it('walks multi-level library EXTENDS chain via THIS.', () => {
+    const src = `FUNCTION_BLOCK MyTest EXTENDS FB_TestSuite
+VAR
+END_VAR
+THIS.
+END_FUNCTION_BLOCK`;
+    const grandparent: LibrarySymbol = {
+      name: 'FB_Base',
+      kind: 'functionBlock',
+      namespace: 'TcUnit',
+      methods: [{ name: 'Init', returnType: 'BOOL' }],
+    };
+    const parent: LibrarySymbol = {
+      name: 'FB_TestSuite',
+      kind: 'functionBlock',
+      namespace: 'TcUnit',
+      extends: 'FB_Base',
+      methods: [{ name: 'AssertEquals', returnType: 'BOOL' }],
+    };
+    const mockIndex = makeMockIndexWithLibs(
+      [{ name: 'TcUnit' }],
+      [parent, grandparent],
+    );
+    const doc = makeDoc(src);
+    const items = handleCompletion(makeParams(doc.uri, 3, 5), doc, mockIndex);
+    const labels = items.map(i => i.label);
+    expect(labels).toContain('AssertEquals');
+    expect(labels).toContain('Init');
+  });
+
+  it('shows inherited members on instance dot-access', () => {
+    const src = `PROGRAM Main
+VAR
+  test : FB_TestSuite;
+END_VAR
+test.
+END_PROGRAM`;
+    const grandparent: LibrarySymbol = {
+      name: 'FB_Base',
+      kind: 'functionBlock',
+      namespace: 'TcUnit',
+      inputs: [{ name: 'bEnable', type: 'BOOL' }],
+    };
+    const parent: LibrarySymbol = {
+      name: 'FB_TestSuite',
+      kind: 'functionBlock',
+      namespace: 'TcUnit',
+      extends: 'FB_Base',
+      methods: [{ name: 'AssertEquals', returnType: 'BOOL' }],
+    };
+    const mockIndex = makeMockIndexWithLibs(
+      [{ name: 'TcUnit' }],
+      [parent, grandparent],
+    );
+    const doc = makeDoc(src);
+    // cursor after "test." at line 4, character 5
+    const items = handleCompletion(makeParams(doc.uri, 4, 5), doc, mockIndex);
+    const labels = items.map(i => i.label);
+    expect(labels).toContain('AssertEquals');
+    expect(labels).toContain('bEnable');
+  });
+});
+
 describe('isMemberVisible', () => {
   it('external: allows PUBLIC', () => {
     expect(isMemberVisible(['PUBLIC'], 'external')).toBe(true);

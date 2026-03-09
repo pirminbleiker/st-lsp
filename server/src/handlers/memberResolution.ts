@@ -167,6 +167,15 @@ export function getSuperMembers(
     }
   }
 
+  // Fall back to library symbols if parent not found in declarations
+  if (workspaceIndex) {
+    const libSymbols = workspaceIndex.getLibrarySymbols(currentUri);
+    const libSymbol = libSymbols.find(s => s.name.toUpperCase() === upperName);
+    if (libSymbol) {
+      return getMembersFromLibrarySymbol(libSymbol, libSymbols);
+    }
+  }
+
   return [];
 }
 
@@ -333,7 +342,15 @@ function findMemberType(
  * Return completion items for a library symbol's parameters.
  * Handles inputs, outputs, and inOut parameters from LibrarySymbol.
  */
-function getMembersFromLibrarySymbol(symbol: LibrarySymbol): CompletionItem[] {
+function getMembersFromLibrarySymbol(
+  symbol: LibrarySymbol,
+  allLibSymbols: LibrarySymbol[] = [],
+  visited: Set<string> = new Set(),
+): CompletionItem[] {
+  const upperName = symbol.name.toUpperCase();
+  if (visited.has(upperName)) return [];
+  visited.add(upperName);
+
   const items: CompletionItem[] = [];
 
   // Input parameters
@@ -388,6 +405,18 @@ function getMembersFromLibrarySymbol(symbol: LibrarySymbol): CompletionItem[] {
     }
   }
 
+  // Walk EXTENDS chain for inherited members
+  if (symbol.extends && allLibSymbols.length > 0) {
+    const upperParent = symbol.extends.toUpperCase();
+    const parentSymbol = allLibSymbols.find(s => s.name.toUpperCase() === upperParent);
+    if (parentSymbol) {
+      const parentItems = getMembersFromLibrarySymbol(parentSymbol, allLibSymbols, visited);
+      for (const pi of parentItems) {
+        if (!items.some(i => i.label === pi.label)) items.push(pi);
+      }
+    }
+  }
+
   return items;
 }
 
@@ -436,9 +465,18 @@ export function getMembersFromDeclarations(
           items.push({ label: prop.name, kind: CompletionItemKind.Property, detail: prop.type.name });
         }
         if (fb.extendsRef) {
-          const parentItems = getMembersFromDeclarations(
+          let parentItems = getMembersFromDeclarations(
             fb.extendsRef.name, declarations, currentUri, workspaceIndex, visited,
           );
+          // Fall back to library symbols if parent not found in declarations
+          if (!parentItems && workspaceIndex) {
+            const libSymbols = workspaceIndex.getLibrarySymbols(currentUri ?? '');
+            const upperParent = fb.extendsRef.name.toUpperCase();
+            const parentLib = libSymbols.find(s => s.name.toUpperCase() === upperParent);
+            if (parentLib) {
+              parentItems = getMembersFromLibrarySymbol(parentLib, libSymbols);
+            }
+          }
           if (parentItems) {
             for (const pi of parentItems) {
               if (!items.some(i => i.label === pi.label)) items.push(pi);
@@ -464,9 +502,18 @@ export function getMembersFromDeclarations(
           items.push({ label: prop.name, kind: CompletionItemKind.Property, detail: prop.type.name });
         }
         for (const extRef of itf.extendsRefs) {
-          const parentItems = getMembersFromDeclarations(
+          let parentItems = getMembersFromDeclarations(
             extRef.name, declarations, currentUri, workspaceIndex, visited,
           );
+          // Fall back to library symbols if parent not found in declarations
+          if (!parentItems && workspaceIndex) {
+            const libSymbols = workspaceIndex.getLibrarySymbols(currentUri ?? '');
+            const upperParent = extRef.name.toUpperCase();
+            const parentLib = libSymbols.find(s => s.name.toUpperCase() === upperParent);
+            if (parentLib) {
+              parentItems = getMembersFromLibrarySymbol(parentLib, libSymbols);
+            }
+          }
           if (parentItems) {
             for (const pi of parentItems) {
               if (!items.some(i => i.label === pi.label)) items.push(pi);
@@ -487,9 +534,18 @@ export function getMembersFromDeclarations(
               detail: f.type.name,
             }));
             if (struct.extendsRef) {
-              const parentItems = getMembersFromDeclarations(
+              let parentItems = getMembersFromDeclarations(
                 struct.extendsRef.name, declarations, currentUri, workspaceIndex, visited,
               );
+              // Fall back to library symbols if parent not found in declarations
+              if (!parentItems && workspaceIndex) {
+                const libSymbols = workspaceIndex.getLibrarySymbols(currentUri ?? '');
+                const upperParent = struct.extendsRef.name.toUpperCase();
+                const parentLib = libSymbols.find(s => s.name.toUpperCase() === upperParent);
+                if (parentLib) {
+                  parentItems = getMembersFromLibrarySymbol(parentLib, libSymbols);
+                }
+              }
               if (parentItems) {
                 for (const pi of parentItems) {
                   if (!items.some(i => i.label === pi.label)) items.push(pi);
@@ -682,7 +738,7 @@ export function getDotAccessMembers(
           const libSymbols = workspaceIndex.getLibrarySymbols(currentUri);
           const libSymbol = libSymbols.find(s => s.name.toUpperCase() === upperInnerTypeName);
           if (libSymbol) {
-            return getMembersFromLibrarySymbol(libSymbol);
+            return getMembersFromLibrarySymbol(libSymbol, libSymbols);
           }
         }
 
@@ -784,7 +840,7 @@ export function getDotAccessMembers(
     const libSymbols = workspaceIndex.getLibrarySymbols(currentUri);
     const libSymbol = libSymbols.find(s => s.name.toUpperCase() === upperTypeName);
     if (libSymbol) {
-      return getMembersFromLibrarySymbol(libSymbol);
+      return getMembersFromLibrarySymbol(libSymbol, libSymbols);
     }
   }
 
