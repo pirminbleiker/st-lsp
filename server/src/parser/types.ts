@@ -70,12 +70,17 @@ export class TypeParser extends ExpressionParser {
       return this.parseInlineEnumTypeRef(start);
     }
 
-    // Simple type name (identifier or keyword used as type)
+    // Simple type name, possibly qualified (e.g. __SYSTEM.IQueryInterface)
     const nameTok = this.advance();
+    let name = nameTok.text;
+    while (this.check(TokenKind.DOT) && this.peek(1).kind === TokenKind.IDENTIFIER) {
+      this.advance(); // consume '.'
+      name += '.' + this.advance().text;
+    }
     const nameRange = this.endRange(start);
     return {
       kind: 'TypeRef',
-      name: nameTok.text.toUpperCase(),
+      name: name.toUpperCase(),
       nameRange,
       range: nameRange,
     };

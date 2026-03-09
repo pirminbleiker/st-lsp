@@ -1105,6 +1105,38 @@ END_FUNCTION_BLOCK`;
     });
   });
 
+  describe('Qualified type names in VAR declarations', () => {
+    it('parses dotted type name like __SYSTEM.IQueryInterface', () => {
+      const src = `PROGRAM Main
+VAR
+  iQueryInterface : __SYSTEM.IQueryInterface;
+END_VAR
+END_PROGRAM`;
+
+      const { ast, errors } = parse(src);
+      expect(errors).toHaveLength(0);
+
+      const prog = ast.declarations[0] as ProgramDeclaration;
+      const decl = prog.varBlocks[0].declarations[0];
+      expect(decl.type.name).toBe('__SYSTEM.IQUERYINTERFACE');
+    });
+
+    it('parses deeply nested qualified type name', () => {
+      const src = `PROGRAM Main
+VAR
+  x : A.B.C;
+END_VAR
+END_PROGRAM`;
+
+      const { ast, errors } = parse(src);
+      expect(errors).toHaveLength(0);
+
+      const prog = ast.declarations[0] as ProgramDeclaration;
+      const decl = prog.varBlocks[0].declarations[0];
+      expect(decl.type.name).toBe('A.B.C');
+    });
+  });
+
   describe('Array literal expressions', () => {
     it('arrayLiteral_1D: parses 1D integer array initializer', () => {
       const src = `PROGRAM P
