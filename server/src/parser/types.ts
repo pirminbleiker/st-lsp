@@ -20,7 +20,7 @@ export class TypeParser extends ExpressionParser {
     const start = this.startRange();
 
     // POINTER TO <type>
-    if (this.peek().text.toUpperCase() === 'POINTER') {
+    if (this.peek().kind === TokenKind.POINTER) {
       const pointerTok = this.advance();
       this.expectIdentifier('TO', "Expected 'TO' after 'POINTER'");
       const inner = this.parseTypeRef();
@@ -34,7 +34,7 @@ export class TypeParser extends ExpressionParser {
     }
 
     // REFERENCE TO <type>
-    if (this.peek().text.toUpperCase() === 'REFERENCE') {
+    if (this.peek().kind === TokenKind.REFERENCE) {
       this.advance();
       this.expectIdentifier('TO', "Expected 'TO' after 'REFERENCE'");
       const inner = this.parseTypeRef();

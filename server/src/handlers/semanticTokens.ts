@@ -109,6 +109,7 @@ const KEYWORD_KINDS = new Set<TokenKind>([
   TokenKind.SUPER,
   TokenKind.PUBLIC, TokenKind.PRIVATE, TokenKind.PROTECTED, TokenKind.INTERNAL,
   TokenKind.CONSTANT, TokenKind.RETAIN, TokenKind.PERSISTENT,
+  TokenKind.POINTER, TokenKind.REFERENCE,
 ]);
 
 // TwinCAT XML file extensions that require the XML/CDATA-aware token handler

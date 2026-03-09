@@ -86,6 +86,8 @@ export enum TokenKind {
   CONSTANT = 'CONSTANT',
   RETAIN = 'RETAIN',
   PERSISTENT = 'PERSISTENT',
+  POINTER = 'POINTER',
+  REFERENCE = 'REFERENCE',
 
   // Literals
   INTEGER = 'INTEGER',
@@ -210,6 +212,8 @@ const KEYWORDS: ReadonlyMap<string, TokenKind> = new Map([
   ['CONSTANT', TokenKind.CONSTANT],
   ['RETAIN', TokenKind.RETAIN],
   ['PERSISTENT', TokenKind.PERSISTENT],
+  ['POINTER', TokenKind.POINTER],
+  ['REFERENCE', TokenKind.REFERENCE],
 ]);
 
 const DATE_TIME_TYPED_PREFIXES = new Set([
