@@ -1,3 +1,16 @@
+# [1.5.0](https://github.com/pirminbleiker/st-lsp/compare/v1.4.0...v1.5.0) (2026-03-09)
+
+
+### Bug Fixes
+
+* **hover:** convert inner function declaration to arrow function ([9a2951d](https://github.com/pirminbleiker/st-lsp/commit/9a2951d88a0c326b5b8afe2d751991a9e519f46a))
+
+
+### Features
+
+* **completion,hover:** resolve __SYSTEM.* qualified member access (#sl-nip) ([50b2792](https://github.com/pirminbleiker/st-lsp/commit/50b279260d2f7bba73abfdaac79429b6d438592d)), closes [#sl-nip](https://github.com/pirminbleiker/st-lsp/issues/sl-nip)
+* **completion:** offer POINTER TO and REFERENCE TO as compound keywords (#sl-bpa) ([827834b](https://github.com/pirminbleiker/st-lsp/commit/827834b455c5af31dfc77dee91953617106b0efd)), closes [#sl-bpa](https://github.com/pirminbleiker/st-lsp/issues/sl-bpa)
+
 # [1.4.0](https://github.com/pirminbleiker/st-lsp/compare/v1.3.0...v1.4.0) (2026-03-09)
 
 
