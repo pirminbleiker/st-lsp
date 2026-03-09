@@ -28,7 +28,18 @@ st-lsp/
 │   ├── server.ts       # Entry point, capability registration
 │   ├── handlers/       # LSP feature handlers
 │   ├── parser/         # Lexer, parser, AST definitions
-│   └── twincat/        # Built-in types, stdlib, project index
+│   └── twincat/        # TwinCAT project integration & type system
+│       ├── workspaceIndex.ts   # Live index of all source files, file watching, AST cache
+│       ├── projectReader.ts    # Parses .tsproj/.plcproj to discover sources & library refs
+│       ├── tcExtractor.ts      # Extracts ST source from XML formats (.TcPOU, .TcGVL, etc.)
+│       ├── types.ts            # Shared data structures (ExtractionResult, PositionMapper)
+│       ├── stdlib.ts           # Standard function blocks (timers, counters, edge detectors)
+│       ├── systemTypes.ts      # Built-in IEC types, compiler intrinsics, __SYSTEM namespace
+│       ├── libraryRegistry.ts  # Ground-truth signatures for Beckhoff standard libraries
+│       ├── libraryZipReader.ts # Reads .library/.compiled-library ZIP archives for symbols
+│       ├── typeRegistry.ts     # Parameter type mappings for IEC 61131-3 function blocks
+│       ├── pragmas.ts          # Pragma/attribute metadata lookup and hover docs
+│       └── fsUtils.ts          # Recursive file finder utility
 └── client/src/
     └── extension.ts    # VS Code extension (spawns server)
 ```
