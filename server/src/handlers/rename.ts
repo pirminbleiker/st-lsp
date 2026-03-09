@@ -28,32 +28,14 @@ import { WorkspaceIndex } from '../twincat/workspaceIndex';
 import { extractST, PositionMapper } from '../twincat/tcExtractor';
 import { parse } from '../parser/parser';
 import { mapperForUri, getOrParse } from './shared';
-import { findNodeAtPosition } from './hover';
 import {
   AstNode,
   NameExpression,
   SourceFile,
-  ProgramDeclaration,
-  FunctionBlockDeclaration,
-  FunctionDeclaration,
   VarDeclaration,
-  VarBlock,
-  AssignmentStatement,
-  CallStatement,
-  IfStatement,
   ForStatement,
-  WhileStatement,
-  RepeatStatement,
-  CaseStatement,
-  BinaryExpression,
-  UnaryExpression,
-  SubscriptExpression,
-  MemberExpression,
-  CallExpression,
-  TypeDeclarationBlock,
-  InterfaceDeclaration,
-  MethodDeclaration,
 } from '../parser/ast';
+import { findNodeAtPosition, walkAst } from '../parser/visitor';
 
 // ---------------------------------------------------------------------------
 // AST walker — collect all NameExpression nodes matching a name
@@ -65,185 +47,43 @@ interface NameMatch {
 
 /**
  * Walk the entire AST and collect the ranges of all NameExpression nodes
- * whose name matches `targetName` (case-insensitive).
+ * whose name matches `targetName` (case-insensitive), plus VarDeclaration
+ * name sites and ForStatement loop variables.
  *
- * MemberExpression: only the base is walked recursively; the .member string
- * is intentionally skipped so field names are not renamed.
+ * MemberExpression: `forEachChild` naturally walks only the base expression;
+ * the .member string field is not an AST node, so it is never visited.
  */
 function collectNameMatches(ast: SourceFile, targetName: string): NameMatch[] {
   const upper = targetName.toUpperCase();
   const results: NameMatch[] = [];
 
-  function visitExpr(node: AstNode): void {
-    switch (node.kind) {
-      case 'NameExpression': {
-        const n = node as NameExpression;
-        if (n.name.toUpperCase() === upper) {
-          results.push({ range: n.range });
-        }
-        break;
-      }
-      case 'MemberExpression': {
-        // Only walk the base; do NOT rename the .member field name
-        const e = node as MemberExpression;
-        visitExpr(e.base);
-        break;
-      }
-      case 'BinaryExpression': {
-        const e = node as BinaryExpression;
-        visitExpr(e.left);
-        visitExpr(e.right);
-        break;
-      }
-      case 'UnaryExpression': {
-        const e = node as UnaryExpression;
-        visitExpr(e.operand);
-        break;
-      }
-      case 'SubscriptExpression': {
-        const e = node as SubscriptExpression;
-        visitExpr(e.base);
-        for (const idx of e.indices) visitExpr(idx);
-        break;
-      }
-      case 'CallExpression': {
-        const e = node as CallExpression;
-        visitExpr(e.callee);
-        for (const arg of e.args) visitExpr(arg.value);
-        break;
-      }
-      case 'ArrayLiteral': {
-        const e = node as import('../parser/ast').ArrayLiteral;
-        for (const elem of e.elements) visitExpr(elem);
-        break;
-      }
-      // Literals — nothing to walk
-      default:
-        break;
-    }
-  }
-
-  function visitStmt(node: AstNode): void {
-    switch (node.kind) {
-      case 'AssignmentStatement': {
-        const s = node as AssignmentStatement;
-        visitExpr(s.left);
-        visitExpr(s.right);
-        break;
-      }
-      case 'CallStatement': {
-        const s = node as CallStatement;
-        visitExpr(s.callee);
-        for (const arg of s.args) visitExpr(arg.value);
-        break;
-      }
-      case 'IfStatement': {
-        const s = node as IfStatement;
-        visitExpr(s.condition);
-        for (const stmt of s.then) visitStmt(stmt);
-        for (const elsif of s.elsifs) {
-          visitExpr(elsif.condition);
-          for (const stmt of elsif.body) visitStmt(stmt);
-        }
-        if (s.else) for (const stmt of s.else) visitStmt(stmt);
-        break;
-      }
-      case 'ForStatement': {
-        const s = node as ForStatement;
-        if (s.variable.toUpperCase() === upper) {
-          results.push({ range: s.variableRange });
-        }
-        visitExpr(s.from);
-        visitExpr(s.to);
-        if (s.by) visitExpr(s.by);
-        for (const stmt of s.body) visitStmt(stmt);
-        break;
-      }
-      case 'WhileStatement': {
-        const s = node as WhileStatement;
-        visitExpr(s.condition);
-        for (const stmt of s.body) visitStmt(stmt);
-        break;
-      }
-      case 'RepeatStatement': {
-        const s = node as RepeatStatement;
-        for (const stmt of s.body) visitStmt(stmt);
-        visitExpr(s.condition);
-        break;
-      }
-      case 'CaseStatement': {
-        const s = node as CaseStatement;
-        visitExpr(s.expression);
-        for (const clause of s.cases) {
-          for (const val of clause.values) {
-            if (val.kind === 'single') visitExpr(val.value);
-            else { visitExpr(val.low); visitExpr(val.high); }
+  walkAst(ast, {
+    enter(node: AstNode) {
+      switch (node.kind) {
+        case 'NameExpression': {
+          const n = node as NameExpression;
+          if (n.name.toUpperCase() === upper) {
+            results.push({ range: n.range });
           }
-          for (const stmt of clause.body) visitStmt(stmt);
+          break;
         }
-        if (s.else) for (const stmt of s.else) visitStmt(stmt);
-        break;
+        case 'VarDeclaration': {
+          const vd = node as VarDeclaration;
+          if (vd.name.toUpperCase() === upper) {
+            results.push({ range: vd.nameRange });
+          }
+          break;
+        }
+        case 'ForStatement': {
+          const s = node as ForStatement;
+          if (s.variable.toUpperCase() === upper) {
+            results.push({ range: s.variableRange });
+          }
+          break;
+        }
       }
-      // ReturnStatement, ExitStatement, ContinueStatement, EmptyStatement —
-      // no expressions to walk
-      default:
-        break;
-    }
-  }
-
-  function visitVarBlock(vb: VarBlock): void {
-    for (const vd of vb.declarations) {
-      visitVarDecl(vd);
-    }
-  }
-
-  function visitVarDecl(vd: VarDeclaration): void {
-    if (vd.name.toUpperCase() === upper) {
-      results.push({ range: vd.nameRange });
-    }
-    if (vd.initialValue) visitExpr(vd.initialValue);
-  }
-
-  function visitMethod(method: MethodDeclaration): void {
-    for (const vb of method.varBlocks) visitVarBlock(vb);
-    for (const stmt of method.body) visitStmt(stmt);
-  }
-
-  for (const decl of ast.declarations) {
-    switch (decl.kind) {
-      case 'ProgramDeclaration': {
-        const pou = decl as ProgramDeclaration;
-        for (const vb of pou.varBlocks) visitVarBlock(vb);
-        for (const stmt of pou.body) visitStmt(stmt);
-        break;
-      }
-      case 'FunctionBlockDeclaration': {
-        const pou = decl as FunctionBlockDeclaration;
-        for (const vb of pou.varBlocks) visitVarBlock(vb);
-        for (const stmt of pou.body) visitStmt(stmt);
-        for (const method of pou.methods) visitMethod(method);
-        break;
-      }
-      case 'FunctionDeclaration': {
-        const fn = decl as FunctionDeclaration;
-        for (const vb of fn.varBlocks) visitVarBlock(vb);
-        for (const stmt of fn.body) visitStmt(stmt);
-        break;
-      }
-      case 'TypeDeclarationBlock': {
-        // Type declarations don't contain expressions referencing symbols
-        // (only type references), so nothing to walk for name expressions.
-        const _ = decl as TypeDeclarationBlock;
-        void _;
-        break;
-      }
-      case 'InterfaceDeclaration': {
-        const iface = decl as InterfaceDeclaration;
-        for (const method of iface.methods) visitMethod(method);
-        break;
-      }
-    }
-  }
+    },
+  });
 
   return results;
 }

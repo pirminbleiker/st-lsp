@@ -29,7 +29,7 @@ import {
 } from '../parser/ast';
 import { positionContains, collectLocalVars, findPouDeclaration } from '../parser/astUtils';
 import { WorkspaceIndex } from '../twincat/workspaceIndex';
-import { findNodeAtPosition } from './hover';
+import { findNodeAtPosition } from '../parser/visitor';
 import { PositionMapper } from '../twincat/tcExtractor';
 
 // ---------------------------------------------------------------------------
