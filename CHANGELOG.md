@@ -1,3 +1,10 @@
+## [1.7.2](https://github.com/pirminbleiker/st-lsp/compare/v1.7.1...v1.7.2) (2026-03-09)
+
+
+### Bug Fixes
+
+* prevent unhandled errors by delaying WorkspaceIndex initialization ([5f5221a](https://github.com/pirminbleiker/st-lsp/commit/5f5221a0f1865d1eb1e00d1401155413a620ebc8))
+
 ## [1.7.1](https://github.com/pirminbleiker/st-lsp/compare/v1.7.0...v1.7.1) (2026-03-09)
 
 
