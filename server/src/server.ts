@@ -84,6 +84,7 @@ connection.onInitialize((params: InitializeParams): InitializeResult => {
 			connection.console.warn('Workspace index: ' + (err as Error).message),
 		);
 		workspaceIndex.on('change', () => validateAllWorkspaceFiles());
+		workspaceIndex.initialize();
 	}
 
 	const result: InitializeResult = {

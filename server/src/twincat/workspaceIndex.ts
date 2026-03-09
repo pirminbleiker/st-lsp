@@ -774,6 +774,8 @@ export class WorkspaceIndex extends EventEmitter {
  */
 export function createWorkspaceIndex(workspaceRoot: string, twincatInstallPath?: string): WorkspaceIndex {
   const idx = new WorkspaceIndex({ workspaceRoot, twincatInstallPath });
-  idx.initialize();
+  // Do NOT call idx.initialize() here — the caller must attach an 'error'
+  // listener first, otherwise errors emitted during the synchronous scan
+  // would be unhandled and crash the process (Node EventEmitter behaviour).
   return idx;
 }
